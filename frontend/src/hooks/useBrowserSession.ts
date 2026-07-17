@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast as sonnerToast } from 'sonner'
 import { useRadio } from '@/context/RadioContext'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { useServerHealth } from '@/context/ServerHealthContext'
 import { djStationById } from '@/lib/music/catalogApi'
-import { dispatchTransport, hasActiveMedia } from '@/lib/mediaCoordinator'
+import { dispatchTransport, hasActiveMedia, hasLocalVolumeControl } from '@/lib/mediaCoordinator'
 import { manageEventSource } from '@/lib/managedEventSource'
+import { getDeviceLabel } from '@/lib/drop'
 import { setDockYieldFromServer } from '@/lib/voice/dockYield'
 import { getVoiceWants } from '@/lib/voice/voiceOwnership'
+import { dispatchTogetherCommand, parseTogetherCommand } from '@/lib/together/commandBus'
+import { getDeviceId } from '@/lib/together/deviceIdentity'
 
 // Receives commands pushed from a controller device (a Tab5 button press → server →
 // here) and acts on them in THIS browser session: navigate, open a URL, or drive the
@@ -49,7 +53,20 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
   useEffect(() => {
     return manageEventSource(() => {
       const isDock = !!window.lokiDesktop
-      const es = new EventSource(`/api/browser-session?dock=${isDock ? 1 : 0}&surface=${surface}`, { withCredentials: true })
+      // The device id registers this session as an addressable target: Listening Together
+      // routes a command to THIS tab rather than "the user's most recent tab", and video
+      // casting picks a screen to play on. ONE identity serves both (together's
+      // deviceIdentity is the canonical player-device id). The label + tv flag are what
+      // the cast picker shows; TV mode marks itself so it sorts first there.
+      const isTv = typeof window !== 'undefined' && window.location.pathname.startsWith('/tv')
+      const params = new URLSearchParams({
+        dock: isDock ? '1' : '0',
+        surface,
+        device: getDeviceId(),
+        label: isTv ? `${getDeviceLabel()} (TV)` : getDeviceLabel(),
+        tv: isTv ? '1' : '0',
+      })
+      const es = new EventSource(`/api/browser-session?${params}`, { withCredentials: true })
 
       // Every SSE ping proves the backend is up. This stream is also exactly what starves
       // the /api/health probe when the connection pool fills, so without this signal the
@@ -80,6 +97,12 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
                 if (cmd.action === 'play_pause') radioRef.current.togglePause()
                 else if (cmd.action === 'next_track') radioRef.current.skip()
                 else if (cmd.action === 'prev_track') radioRef.current.seek(0)
+                // Volume from a controller button or voice → drive whichever engine is
+                // active (radio/podcast/youtube), via the media coordinator.
+                else if (cmd.action === 'volume_up' || cmd.action === 'volume_down' || cmd.action === 'mute' || cmd.action === 'unmute') {
+                  if (hasLocalVolumeControl()) dispatchTransport(cmd.action)
+                  else handled = false
+                }
                 else if (cmd.action === 'play_station' && typeof payload.stationId === 'string') {
                   const dj = await djStationById(payload.stationId)
                   if (dj) { radioRef.current.start(dj); navigateRef.current('/music/now-playing') }
@@ -106,10 +129,32 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
                 else handled = false
                 break
               }
+              case 'watch_invite': {
+                // Watch Together: someone in the household started a synced session and
+                // invited everyone. Surface a live toast with a one-tap Join.
+                const p = (cmd.payload ?? {}) as { title?: string; fromName?: string }
+                if (typeof cmd.path === 'string') {
+                  const path = cmd.path
+                  sonnerToast(`${p.fromName ?? 'Someone'} invited you to watch together`, {
+                    description: typeof p.title === 'string' ? p.title : undefined,
+                    duration: 30_000,
+                    action: { label: 'Join', onClick: () => navigateRef.current(path) },
+                  })
+                } else handled = false
+                break
+              }
               case 'media_transport': {
                 // Transport from a device's native player bar → drive whichever engine is
                 // active (radio or youtube), routed through the media coordinator.
                 dispatchTransport(String(cmd.transport ?? ''), typeof cmd.position === 'number' ? cmd.position : undefined)
+                break
+              }
+              case 'together': {
+                // Listening Together: someone is remote-controlling THIS session (their
+                // Devices popover, or a voice request routed here by a room target). The
+                // player contexts execute it - see TogetherRemoteReceiver.
+                const tc = parseTogetherCommand(cmd.payload)
+                handled = tc ? await dispatchTogetherCommand(tc) : false
                 break
               }
               default:

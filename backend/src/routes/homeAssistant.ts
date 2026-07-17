@@ -269,13 +269,20 @@ homeAssistantRoute.post('/entity', requireAuth, async (c) => {
     const attrs = store.attributes.get(entityId) ?? {}
     const num = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : undefined
 
-    const opts: { brightnessPct?: number; value?: number; hvacMode?: string } = {}
+    const opts: { brightnessPct?: number; value?: number; hvacMode?: string; kelvin?: number; colorName?: string } = {}
     if (action === 'set_brightness') {
       if (num === undefined) return c.json({ ok: false, error: 'value required' }, 400)
       opts.brightnessPct = clampPct(num)
-    } else if (action === 'set_volume' || action === 'set_position') {
+    } else if (action === 'set_volume' || action === 'set_position' || action === 'set_percentage') {
       if (num === undefined) return c.json({ ok: false, error: 'value required' }, 400)
       opts.value = clampPct(num)
+    } else if (action === 'set_color_temp') {
+      if (num === undefined) return c.json({ ok: false, error: 'value required' }, 400)
+      opts.kelvin = Math.min(6500, Math.max(2000, Math.round(num)))
+    } else if (action === 'set_color') {
+      const name = String(rawValue ?? '').trim()
+      if (!name) return c.json({ ok: false, error: 'value required' }, 400)
+      opts.colorName = name
     } else if (action === 'set_temperature') {
       if (num === undefined) return c.json({ ok: false, error: 'value required' }, 400)
       const min = typeof attrs['min_temp'] === 'number' ? attrs['min_temp'] : 40

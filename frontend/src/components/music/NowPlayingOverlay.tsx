@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import {
   ChevronDown, Heart, Download, MonitorPlay, Play, Pause, SkipForward, AudioLines,
   Mic, Mic2, Moon, Volume2, VolumeX, ListMusic, Disc3, Sparkles, RotateCcw, RotateCw, Repeat1,
-  SlidersHorizontal, MoreHorizontal,
+  SlidersHorizontal, MoreHorizontal, Radio, Shuffle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
@@ -20,12 +20,14 @@ import { useArtPalette, accentOf, readableOn } from '@/lib/artPalette'
 import { UltraBlur } from '@/components/shared/UltraBlur'
 import { TrackTechBadge } from '@/components/music/TrackTechBadge'
 import { WaveformSeekBar } from '@/components/music/WaveformSeekBar'
+import { CastButton } from '@/components/music/CastButton'
 import { Spinner } from '@/components/ui/spinner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
 import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList, TuningLyrics, useSourceBackLink, useNowPlayingPrefetch } from './nowPlayingParts'
 import { EqPanel } from './EqPanel'
 import { addFavorite, saveOffline } from '@/lib/music/catalogApi'
+import { startTrackRadio } from '@/components/music/TrackRadioButton'
 import { isYouTubeRef } from '@/lib/music/trackRef'
 import { useWaveform } from '@/lib/music/metaApi'
 import { queueForKaraoke } from '@/lib/music/karaokeQueue'
@@ -251,6 +253,14 @@ export function NowPlayingOverlay() {
             aria-label="Volume"
             className="h-1 flex-1 cursor-pointer accent-white"
           />
+          <span className="shrink-0 text-white/70">
+            <CastButton
+              trackRef={radio.currentTrack?.videoId ?? null}
+              title={radio.currentTrack?.title ?? 'Loki Doki'}
+              artist={radio.currentTrack?.author ?? null}
+              onCastStart={() => { if (!radio.paused) radio.togglePause() }}
+            />
+          </span>
           <button onClick={openImmersive} aria-label="Fullscreen visualizer" title="Fullscreen visualizer"
             className="grid size-9 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white">
             <Sparkles className="size-4" />
@@ -302,7 +312,33 @@ export function NowPlayingOverlay() {
                 <Download className="size-4" />
                 Save offline
               </DropdownMenuItem>
+              {cur && (
+                <DropdownMenuItem onClick={() => { void startTrackRadio(radio, { videoId: cur.videoId, title: cur.title, artist }) }}>
+                  <Radio className="size-4" />
+                  Start Track Radio
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Shuffle className="mr-2 size-4" />
+                  Shuffle: {radio.shuffleMode === 'off' ? 'Off' : radio.shuffleMode === 'random' ? 'True random' : 'No repeats'}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[110] w-64">
+                  {([
+                    ['off', 'Off', 'Play the queue in order'],
+                    ['random', 'True random', 'Picks the next song at random every time'],
+                    ['bag', 'No repeats', 'Shuffles through everything once before anything plays again'],
+                  ] as const).map(([mode, label, hint]) => (
+                    <DropdownMenuItem key={mode} onClick={() => radio.setShuffleMode(mode)}>
+                      <span className="min-w-0">
+                        <span className="block">{radio.shuffleMode === mode ? '✓ ' : ''}{label}</span>
+                        <span className="block text-xs text-muted-foreground">{hint}</span>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Mic className="mr-2 size-4" />

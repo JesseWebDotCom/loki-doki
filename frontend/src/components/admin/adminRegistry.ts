@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive, Headphones } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -38,7 +38,7 @@ export interface AdminSection {
 const SECTION_ORDER = [
   'overview',
   // Household
-  'users', 'apps', 'companions', 'security',
+  'users', 'family-audio', 'apps', 'companions', 'security',
   // Platform
   'features', 'integrations', 'ai-engine', 'storage',
   // Devices & Alerts
@@ -100,12 +100,18 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'system', label: 'Server', icon: Settings2, group: 'System',
-    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units'],
-    description: 'Connectivity, locale, updates, and server maintenance',
+    keywords: ['system', 'server', 'connectivity', 'offline', 'downloads', 'locale', 'units', 'remote', 'tailscale'],
+    description: 'Connectivity, remote access, locale, updates, and server maintenance',
     subsections: [
       { id: 'connectivity', label: 'Connectivity', kind: 'anchor', anchorId: 'connectivity',
         keywords: ['network', 'offline', 'online', 'internet', 'downloads', 'queue'],
         description: 'Online/offline mode and download permissions' },
+      { id: 'remote-access', label: 'Remote Access', kind: 'anchor', anchorId: 'remote-access',
+        keywords: ['remote', 'tailscale', 'vpn', 'tailnet', 'away', 'outside', 'phone', 'magicdns', 'wireguard'],
+        description: 'Reach the app away from home through your private tailnet' },
+      { id: 'mcp', label: 'AI Connector (MCP)', kind: 'anchor', anchorId: 'mcp',
+        keywords: ['mcp', 'model context protocol', 'claude', 'connector', 'ai client', 'tools', 'integration'],
+        description: 'Expose chosen hub abilities to a household member\'s own AI client' },
       { id: 'locale', label: 'Locale & Units', kind: 'anchor', anchorId: 'locale',
         keywords: ['units', 'temperature', 'currency', 'time', 'measurement', 'metric', 'imperial'],
         description: 'Measurement units, temperature, currency, time format' },
@@ -273,12 +279,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'security', label: 'Content & Safety', icon: ShieldCheck, group: 'Household',
-    keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
-    description: 'Style flags, filtering, and privacy mode',
+    keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored', 'network', 'dns', 'adblock', 'parental'],
+    description: 'Style flags, filtering, privacy mode, and network protection',
     subsections: [
       { id: 'styles', label: 'Styles', kind: 'view',
         keywords: ['lora', 'style', 'adult', 'flag', 'rescan', 'image'],
         description: 'Manually mark image styles as adult' },
+      { id: 'network', label: 'Network', kind: 'view',
+        keywords: ['network', 'dns', 'adblock', 'ads', 'trackers', 'blocklist', 'parental', 'kids', 'filter', 'malware'],
+        description: 'Network-wide DNS ad/tracker blocking and per-device parental profiles' },
       { id: 'filtering', label: 'Filtering', kind: 'view',
         keywords: ['keywords', 'adult', 'detection', 'lora', 'nsfw', 'scan', 'filter'],
         description: 'Keywords used to flag adult image styles at import' },
@@ -304,9 +313,15 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
+    id: 'family-audio', label: 'Family Audio', icon: Headphones, group: 'Household',
+    keywords: ['family', 'audio', 'kids', 'allowlist', 'blocklist', 'time budget', 'screen time', 'quiet hours', 'volume', 'parental', 'music', 'podcasts', 'digest'],
+    description: 'Kids and family listening guardrails: allowlists, time budgets, quiet hours, digests',
+    subsections: [],
+  },
+  {
     id: 'storage', label: 'Storage', icon: HardDrive, group: 'Platform',
-    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users'],
-    description: 'Disk usage, cleanup, and storage locations',
+    keywords: ['storage', 'disk', 'space', 'usage', 'cleanup', 'locations', 'network', 'unc', 'nas', 'path', 'mapping', 'users', 'backup', 'restore', 'snapshot'],
+    description: 'Disk usage, cleanup, storage locations, and backups',
     subsections: [
       { id: 'usage', label: 'Usage', kind: 'view',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
@@ -314,6 +329,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'locations', label: 'Locations', kind: 'view',
         keywords: ['storage', 'locations', 'network', 'unc', 'nas', 'plex', 'path', 'mapping'],
         description: 'Per-content-type storage roots, incl. network paths, and Plex path mappings' },
+      { id: 'backups', label: 'Backups', kind: 'view',
+        keywords: ['backup', 'backups', 'snapshot', 'restore', 'retention', 'nightly', 'safety', 'nas'],
+        description: 'Nightly database snapshots, user-file mirror, retention, and restore' },
     ],
   },
   {

@@ -9,7 +9,10 @@
 export interface SttCaptureHandlers {
   onReady?(): void
   onPartial?(text: string): void
-  onFinal?(text: string): void
+  /** `whispered`: this utterance's average RMS (over genuine speech, not preroll/
+   *  hangover) was below the auto whisper-match threshold (design: keen-
+   *  percolating-swan). A weak, untuned signal; see sttSession.ts's caveats. */
+  onFinal?(text: string, whispered: boolean): void
   onVad?(speaking: boolean, rms: number): void
   onNoSpeech?(): void
   onError?(msg: string): void
@@ -58,7 +61,7 @@ export class SttCapture {
     }
 
     ws.onmessage = (event) => {
-      let data: { t?: string; v?: unknown; speaking?: unknown; rms?: unknown }
+      let data: { t?: string; v?: unknown; speaking?: unknown; rms?: unknown; whispered?: unknown }
       try {
         data = JSON.parse(String(event.data))
       } catch {
@@ -72,7 +75,7 @@ export class SttCapture {
           handlers.onPartial?.(String(data.v ?? '').trim())
           break
         case 'final':
-          handlers.onFinal?.(String(data.v ?? '').trim())
+          handlers.onFinal?.(String(data.v ?? '').trim(), data.whispered === true)
           this.close()
           break
         case 'vad':

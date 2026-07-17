@@ -222,8 +222,30 @@ export class LiveRadioEngine {
   private applyVol() {
     if (!this.el) return
     this.el.muted = this.state.muted
-    this.el.volume = Math.max(0, Math.min(1, this.state.volume))
+    this.el.volume = Math.max(0, Math.min(1, this.state.volume * this.duckFactor))
   }
+
+  // ── Announcement ducking ───────────────────────────────────────────────────
+  // A multiplier under the user's volume so companion speech is audible over a
+  // stream, without moving the volume slider. See lib/speechDucking.ts.
+  private duckFactor = 1
+  private duckRamp: ReturnType<typeof setInterval> | null = null
+
+  private rampDuck(to: number, ms: number) {
+    if (this.duckRamp) { clearInterval(this.duckRamp); this.duckRamp = null }
+    const from = this.duckFactor
+    const steps = Math.max(1, Math.round(ms / 50))
+    let i = 0
+    this.duckRamp = setInterval(() => {
+      i++
+      this.duckFactor = from + (to - from) * Math.min(1, i / steps)
+      this.applyVol()
+      if (i >= steps) { clearInterval(this.duckRamp!); this.duckRamp = null }
+    }, 50)
+  }
+
+  duckForSpeech() { this.rampDuck(0.2, 150) }
+  unduckAfterSpeech() { this.rampDuck(1, 500) }
 
   setVolume(v: number) {
     const vol = Math.max(0, Math.min(1, v))

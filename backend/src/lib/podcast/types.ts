@@ -7,7 +7,16 @@ export interface ShowHost {
   role: 'host' | 'co-host' | 'guest' | 'narrator'
 }
 
-export type SegmentType = 'youtube' | 'news' | 'sports' | 'weather' | 'onThisDay' | 'custom' | 'tvshow' | 'movie' | 'bookmarks'
+export type SegmentType = 'youtube' | 'news' | 'sports' | 'weather' | 'onThisDay' | 'custom' | 'tvshow' | 'movie' | 'bookmarks' | 'household'
+
+/** Simple recurring generation schedule stored in podcast_shows.schedule_json. */
+export interface ShowSchedule {
+  cadence: 'daily'
+  /** Local hour (0-23) after which the day's episode is generated. */
+  hour: number
+  /** YYYY-MM-DD (local) of the last scheduler-triggered run, for idempotency. */
+  lastRunDay?: string
+}
 
 export interface ShowSegment {
   type: SegmentType

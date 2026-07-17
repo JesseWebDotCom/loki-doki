@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Download, Play, Plus } from 'lucide-react'
+import { toast } from 'sonner'
+import { Radio, Download, Play, Plus, Sparkles } from 'lucide-react'
 import { artUrlForRef } from '@/lib/music/trackRef'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -16,11 +17,15 @@ import { SongTile } from '@/components/music/SongTile'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
-import { listStations, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
+import { listStations, getStation, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
+import { getMixes, playSomething, type MixForYou } from '@/lib/music/intelApi'
+import { Spinner } from '@/components/ui/spinner'
 import { DismissableCard } from '@/components/shared/DismissableCard'
 import { PitchBanner } from '@/components/shared/PitchBanner'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { getAppByPath } from '@/lib/appCategories'
+import { FamilyAudioBlockedCard } from '@/components/shared/FamilyAudioBlockedCard'
+import { JamBanner } from '@/components/music/JamBanner'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
@@ -39,6 +44,35 @@ function StationBillboard({ stations }: { stations: Station[] }) {
   // and zero extra requests: it rides along on the stations list we already have.
   const coverArt = useSongArt(station?.coverTrack?.videoId, station?.coverTrack?.title, station?.coverTrack?.artist)
 
+  // "Play Something": one tap, the server picks something appropriate (recent favorites,
+  // one of your mixes, or a time-of-day station) and playback starts immediately.
+  const [picking, setPicking] = useState(false)
+  const playAnything = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (picking) return
+    setPicking(true)
+    try {
+      const { choice } = await playSomething()
+      if (choice.kind === 'tracks' && choice.tracks.length) {
+        radio.playPlaylist(
+          choice.tracks.map(t => ({ videoId: t.videoId, title: t.title, author: t.artist || null, thumbnail: '' })),
+          0, { name: choice.name },
+        )
+        toast.success(`${choice.name}: ${choice.reason}`)
+      } else if (choice.kind === 'station') {
+        const st = stations.find(s => s.id === choice.stationId)
+          ?? (await getStation(choice.stationId)).station
+        radio.start(stationToDj(st))
+        toast.success(`${st.name}: ${choice.reason}`)
+      }
+      navigate('/music/now-playing')
+    } catch {
+      // Built-in fallback: the featured station always exists.
+      if (station) { radio.start(stationToDj(station)); navigate('/music/now-playing') }
+      else toast.error('Could not pick something to play')
+    } finally { setPicking(false) }
+  }
+
   if (!station || !dj) return null
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
 
@@ -55,9 +89,16 @@ function StationBillboard({ stations }: { stations: Station[] }) {
         {station.description && !station.description.startsWith('source:') && (
           <span className="line-clamp-2 max-w-md text-sm text-white/70">{station.description}</span>
         )}
-        <span onClick={play} role="button" aria-label={`Play ${station.name}`}
-          className="mt-2 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg transition hover:scale-105 active:scale-95">
-          <Play className="size-4 fill-current" /> Play
+        <span className="mt-2 flex flex-wrap items-center gap-2">
+          <span onClick={play} role="button" aria-label={`Play ${station.name}`}
+            className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg transition hover:scale-105 active:scale-95">
+            <Play className="size-4 fill-current" /> Play
+          </span>
+          <span onClick={playAnything} role="button" aria-label="Play something"
+            title="One tap, something you'll like starts playing"
+            className="inline-flex w-fit items-center gap-2 rounded-full bg-white/20 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:scale-105 hover:bg-white/30 active:scale-95">
+            {picking ? <Spinner size="sm" /> : <Sparkles className="size-4" />} Play something
+          </span>
         </span>
       </div>
     </button>
@@ -160,6 +201,64 @@ function MadeForYouRail({ rail }: { rail: Rail }) {
   )
 }
 
+// A "Mixes For You" card: first-track album art with the mix name overlaid, playable in
+// one tap. Dismissable like every suggestion card (ref `mix:<key>` rides the same
+// interest-dismiss machinery, so "Not interested" sticks server-side).
+function MixCard({ mix, onPlay }: { mix: MixForYou; onPlay: () => void }) {
+  const lead = mix.tracks[0]
+  return (
+    <button onClick={onPlay} className="group w-40 shrink-0 text-left">
+      <div className="relative overflow-hidden rounded-card shadow-md transition duration-200 group-hover:scale-[1.03] group-hover:shadow-xl">
+        {lead ? (
+          <SongTileArt trackRef={lead.videoId} title={lead.title} artist={lead.artist} />
+        ) : (
+          <div className="aspect-square w-full bg-gradient-to-br from-brand/40 to-brand/10" />
+        )}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-2.5">
+          <p className="truncate text-[13px] font-semibold text-white">{mix.name}</p>
+          <p className="truncate text-[11px] text-white/60">{mix.subtitle ?? `${mix.tracks.length} songs`}</p>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// Thin art wrapper so MixCard can reuse the SongArt fallback chain without SongTile's text.
+function SongTileArt({ trackRef, title, artist }: { trackRef: string; title: string; artist: string | null }) {
+  const art = useSongArt(trackRef, title, artist)
+  return art
+    ? <img src={art} alt="" className="aspect-square w-full object-cover" loading="lazy" />
+    : <div className="flex aspect-square w-full items-center justify-center bg-gradient-to-br from-brand/40 to-brand/10"><Radio className="size-8 text-white/50" /></div>
+}
+
+function MixesForYouRail() {
+  const radio = useRadio()
+  const { hidden, dismiss } = useSuggestionDismiss('music')
+  const { data } = useQuery({ queryKey: ['music-mixes'], queryFn: getMixes, staleTime: 30 * 60 * 1000 })
+  const mixes = (data?.mixes ?? []).filter(m => !hidden.has(m.ref))
+  if (!mixes.length) return null
+  const play = (m: MixForYou) => {
+    radio.playPlaylist(
+      m.tracks.map(t => ({ videoId: t.videoId, title: t.title, author: t.artist || null, thumbnail: '' })),
+      0, { name: m.name },
+    )
+  }
+  return (
+    <section className="mt-6">
+      <SectionHeader title="Mixes for you" count={mixes.length} />
+      <p className="-mt-1 mb-2 text-xs text-muted-foreground">Your recent listening, clustered by sound and refreshed daily</p>
+      <div className="flex gap-4 overflow-x-auto pb-3 pt-1 no-scrollbar">
+        {mixes.map(m => (
+          <DismissableCard key={m.key} onDismiss={() => dismiss({ ref: m.ref, title: m.name })}>
+            <MixCard mix={m} onPlay={() => play(m)} />
+          </DismissableCard>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function MusicHomePage() {
   const radio = useRadio()
   const [editorOpen, setEditorOpen] = useState(false)
@@ -175,6 +274,14 @@ export function MusicHomePage() {
 
   return (
     <PageContainer width="wide" className="pb-10 pt-6">
+      {/* Family audio: friendly full-state card when the profile's audio gate is closed. */}
+      <FamilyAudioBlockedCard className="mb-6" />
+
+      {/* Family Jam: start one, or join the household's live shared queue. */}
+      <div className="mb-6 empty:mb-0">
+        <JamBanner />
+      </div>
+
       {/* No page title: the rail states where we are and the billboard is the focal point. */}
       <StationBillboard stations={buckets?.builtin ?? []} />
 
@@ -206,6 +313,8 @@ export function MusicHomePage() {
           </div>
         </section>
       )}
+
+      <MixesForYouRail />
 
       {rails.map(rail => <MadeForYouRail key={rail.key} rail={rail} />)}
 

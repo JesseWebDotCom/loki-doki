@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { useTikTokPlayer } from '@/hooks/use-tiktok-player'
+import type { WtPlayerControls } from '@/hooks/useWatchTogether'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 import { PlayerControlBar } from '@/components/videos/PlayerControlBar'
 import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
@@ -12,20 +13,53 @@ import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
  * API is thinner than Vimeo's Player.js (no volume level, only mute/unMute), so mute is a
  * true toggle rather than a remembered volume.
  */
-export function TikTokWatchPlayer({ embedUrl, title, vertical }: { embedUrl: string; title: string; vertical: boolean }) {
+export function TikTokWatchPlayer({ embedUrl, title, vertical, resumeSec, onProgress, controlsRef }: {
+  embedUrl: string; title: string; vertical: boolean
+  /** Saved position to jump to once playback starts (cross-device resume). */
+  resumeSec?: number
+  /** Live position feed so the watch page can sync watch state (the iframe is opaque to it). */
+  onProgress?: (sec: number, dur: number) => void
+  /** Imperative transport handle for Watch Together (play/pause/seek/observe). */
+  controlsRef?: React.MutableRefObject<WtPlayerControls | null>
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
+  const posRef = useRef(0)
+  const playingRef = useRef(false)
 
   const player = useTikTokPlayer(iframeRef, embedUrl, {
-    onPlay: () => setPlaying(true),
-    onPause: () => setPlaying(false),
-    onTimeUpdate: (sec, dur) => { setPosition(sec); setDuration(dur) },
+    onPlay: () => { playingRef.current = true; setPlaying(true) },
+    onPause: () => { playingRef.current = false; setPlaying(false) },
+    onTimeUpdate: (sec, dur) => { posRef.current = sec; setPosition(sec); setDuration(dur); onProgress?.(sec, dur) },
   })
   const toggleFullscreen = useFullscreenToggle(wrapRef)
+
+  useEffect(() => {
+    if (!controlsRef) return
+    controlsRef.current = {
+      play: () => player.play(),
+      pause: () => player.pause(),
+      seek: (sec) => { player.seek(sec); posRef.current = sec },
+      isPlaying: () => playingRef.current,
+      position: () => posRef.current,
+    }
+    return () => { controlsRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- player methods delegate through a stable internal ref
+  }, [controlsRef])
+
+  // Cross-device resume: seek to the saved position once playback first starts (the embed
+  // ignores seeks issued before the player is actually running).
+  const appliedResume = useRef(false)
+  useEffect(() => {
+    if (!playing || appliedResume.current) return
+    appliedResume.current = true
+    if (resumeSec && resumeSec > 1) player.seek(resumeSec)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing])
 
   const toggle = () => (playing ? player.pause() : player.play())
   const toggleMute = () => {

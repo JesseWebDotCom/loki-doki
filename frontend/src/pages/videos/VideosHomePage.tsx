@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Film } from 'lucide-react'
+import { Film, Users } from 'lucide-react'
+import { cn } from '@/lib/cn'
+import { cardVariants } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
@@ -24,9 +26,10 @@ import { MINE_META } from '@/lib/videos/sources'
 import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem } from '@/lib/youtube/types'
-import { getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { getBlend, getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
+import { PlaySomethingButton } from '@/components/videos/PlaySomethingButton'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { listStudioBin, isMineBinItem } from '@/lib/videos/studioApi'
 
@@ -57,6 +60,11 @@ function HubLanding() {
 
   const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
   const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
+  // Approved-only mode (kids): no discovery affordances. The feed below is already
+  // server-filtered to approved creators; hiding chips/suggestions removes dead ends.
+  // noSuggestions is the softer per-user limit that hides just the discovery rails.
+  const allowlistOnly = sourcesData?.allowlistOnly === true
+  const hideDiscovery = allowlistOnly || sourcesData?.viewFlags?.noSuggestions === true
   const allIds = useMemo(() => sources.map((s) => s.source), [sources])
   const active: VideoSource[] = selected.length === 0 ? allIds : selected
 
@@ -71,6 +79,22 @@ function HubLanding() {
 
   const { data: history = [], isLoading: ytHistoryLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
   const { data: hubHistoryData, isLoading: hubHistoryLoading } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+
+  // Family Blend: what more than one of you follows, minus what you've watched.
+  const { data: blendData } = useQuery({ queryKey: ['videos-blend'], queryFn: getBlend, staleTime: 5 * 60_000 })
+  const blend = blendData?.items ?? []
+
+  // Live Watch Together rooms: anyone in the household can hop in from here.
+  const { data: wtData } = useQuery({
+    queryKey: ['watch-together-sessions'],
+    queryFn: () => fetch('/api/watch-together/sessions', { credentials: 'include' })
+      .then((r) => r.json()) as Promise<{ sessions: Array<{
+        id: string; hostName: string; memberCount: number
+        media: { source: string; videoId: string; title: string }
+      }> }>,
+    refetchInterval: 30_000,
+  })
+  const wtSessions = (wtData?.sessions ?? []).filter((s) => s.memberCount > 0)
   // "Suggested for you" from the interest engine. While the first pool build runs the
   // response is empty + building:true; poll until suggestions land (shelf hidden till then,
   // the page already has Popular/Trending, so no fallback rail).
@@ -135,6 +159,29 @@ function HubLanding() {
           : resumeFallback ? <VideoBillboard items={[resumeFallback]} eyebrow="Continue watching" resume /> : null
       )}
 
+      {wtSessions.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {wtSessions.map((s) => (
+            <Link key={s.id}
+              to={`/videos/${s.media.source}/watch/${encodeURIComponent(s.media.videoId)}?wt=${s.id}`}
+              className={cn(cardVariants({ variant: 'interactive' }), 'flex items-center gap-3 px-4 py-3')}>
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand/15 text-brand">
+                <Users className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">
+                  {s.hostName} is watching {s.media.title}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Watching together · {s.memberCount} {s.memberCount === 1 ? 'person' : 'people'} in the room
+                </span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold text-brand">Join</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
       {/* One scrolling chip line (mobile contract): identity filters first, then categories. */}
       <div className="mb-6 flex items-center gap-3">
         <ChipRow className="mb-0 min-w-0 flex-1">
@@ -147,17 +194,22 @@ function HubLanding() {
               onClick={() => { setMineOnly(false); toggle(s.source, allIds) }}
             />
           ))}
-          <div aria-hidden className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
-          <Chip label="All" active={category === null && !mineOnly} onClick={() => { setMineOnly(false); setCategory(null) }} />
-          {VIDEO_CATEGORIES.map((c) => (
-            <Chip
-              key={c.id}
-              label={c.label}
-              active={category === c.id}
-              onClick={() => { setMineOnly(false); setCategory(category === c.id ? null : c.id) }}
-            />
-          ))}
+          {!allowlistOnly && (
+            <>
+              <div aria-hidden className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
+              <Chip label="All" active={category === null && !mineOnly} onClick={() => { setMineOnly(false); setCategory(null) }} />
+              {VIDEO_CATEGORIES.map((c) => (
+                <Chip
+                  key={c.id}
+                  label={c.label}
+                  active={category === c.id}
+                  onClick={() => { setMineOnly(false); setCategory(category === c.id ? null : c.id) }}
+                />
+              ))}
+            </>
+          )}
         </ChipRow>
+        <PlaySomethingButton className="hidden shrink-0 sm:inline-flex" />
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 
@@ -182,16 +234,30 @@ function HubLanding() {
             <HubMediaShelf title="Continue watching" items={railContinue} view={view} />
           ) : historyLoading ? <ShelfSkeleton /> : null}
 
-          <HubMediaShelf
-            title="Suggested for you"
-            items={suggested}
-            view={view}
-            showSource
-            onDismiss={(i) => dismiss({ ref: `${i.source}:${i.id}`, creatorId: i.creator?.id, creatorName: i.creator?.name, title: i.title })}
-          />
+          {/* Family Blend: fresh videos from creators more than one of you follows,
+              computed from the plain overlap (no profiling). Shown even in approved-only
+              mode: it is your household's own shared taste, not algorithmic discovery. */}
+          {blend.length > 0 && (
+            <HubMediaShelf
+              title="Your family also watches"
+              items={blend}
+              view={view}
+              showSource
+            />
+          )}
+
+          {!hideDiscovery && (
+            <HubMediaShelf
+              title="Suggested for you"
+              items={suggested}
+              view={view}
+              showSource
+              onDismiss={(i) => dismiss({ ref: `${i.source}:${i.id}`, creatorId: i.creator?.id, creatorName: i.creator?.name, title: i.title })}
+            />
+          )}
 
           {/* One mixed Popular + one mixed Trending, interleaved across every active source. */}
-          <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />
+          {!hideDiscovery && <MixedDiscovery sources={sources.filter((s) => active.includes(s.source))} view={view} />}
 
           <section>
             <SectionHeader title="Across your sources" className="mb-4" />

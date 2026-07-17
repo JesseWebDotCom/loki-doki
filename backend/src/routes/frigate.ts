@@ -155,4 +155,69 @@ frigate.get('/events', requireAuth, async (c) => {
   return c.json({ events: await recentEvents(Number.isFinite(limit) ? limit : 50, kind) })
 })
 
+// ── Live view ────────────────────────────────────────────────────────────────────
+// The Cameras page could only play recorded event clips; "is someone at the door RIGHT
+// NOW" was the obvious missing half. Frigate publishes an MJPEG stream per camera at
+// /api/<name>, which needs no WebRTC signalling and plays in a plain <img>, so this
+// proxies that. Everything goes through our server: the browser never talks to the NVR,
+// and Frigate's address/credentials stay server-side (same posture as every other proxy
+// here). Higher-fidelity WebRTC via go2rtc stays a later upgrade.
+
+frigate.get('/cameras', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  if (!cfg.enabled || !cfg.baseUrl) return c.json({ cameras: [] })
+  try {
+    const r = await fetch(`${cfg.baseUrl}/api/config`, { signal: AbortSignal.timeout(5000) })
+    if (!r.ok) return c.json({ cameras: [] })
+    const config = await r.json() as { cameras?: Record<string, unknown> }
+    return c.json({ cameras: Object.keys(config.cameras ?? {}) })
+  } catch {
+    // NVR unreachable: an empty list degrades the page to clips-only, which is what it
+    // did before live view existed.
+    return c.json({ cameras: [] })
+  }
+})
+
+/** Live MJPEG for one camera. Long-lived: no timeout, and the upstream body is piped
+ *  straight through so the connection dies with the client. */
+frigate.get('/live/:camera', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  if (!cfg.enabled || !cfg.baseUrl) return c.text('Frigate not configured', 400)
+  // Camera names are config keys; keep this to a safe charset rather than trusting the
+  // path segment into an upstream URL.
+  const camera = c.req.param('camera')
+  if (!/^[\w.-]{1,64}$/.test(camera)) return c.text('Bad camera', 400)
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/api/${camera}?fps=5`)
+    if (!upstream.ok || !upstream.body) return c.text('Camera unavailable', 502)
+    return new Response(upstream.body, {
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') ?? 'multipart/x-mixed-replace',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  } catch {
+    return c.text('Camera unavailable', 502)
+  }
+})
+
+/** A single fresh frame: the cheap poster for a camera tile (an MJPEG stream per tile
+ *  would hold one connection open per camera, all the time). */
+frigate.get('/snapshot/:camera', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  if (!cfg.enabled || !cfg.baseUrl) return c.text('Frigate not configured', 400)
+  const camera = c.req.param('camera')
+  if (!/^[\w.-]{1,64}$/.test(camera)) return c.text('Bad camera', 400)
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/api/${camera}/latest.jpg?h=360`, { signal: AbortSignal.timeout(8000) })
+    if (!upstream.ok || !upstream.body) return c.text('Camera unavailable', 502)
+    return new Response(upstream.body, {
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
+    })
+  } catch {
+    return c.text('Camera unavailable', 502)
+  }
+})
+
 export { frigate }

@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } from '@/lib/music/radioEngine'
+import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack, type ShuffleMode } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { registerDuckable } from '@/lib/speechDucking'
 import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
 
@@ -37,9 +38,19 @@ interface RadioCtx extends RadioState {
   /** Sweet Fades: overlap the next song where this one's outro begins (loudness-timed). */
   sweetFades: boolean
   setSweetFades: (on: boolean) => void
+  /** AutoMix: beat-matched transitions (tempo nudge during the crossfade when BPMs are close). */
+  autoMix: boolean
+  setAutoMix: (on: boolean) => void
+  /** Shuffle mode: off / true random / no repeats until everything has played. */
+  shuffleMode: ShuffleMode
+  setShuffleMode: (mode: ShuffleMode) => void
   /** Up Next editing: move a queue item (absolute indexes) / play a queue item now. */
   reorderQueue: (from: number, to: number) => void
   jumpTo: (index: number) => void
+  /** Append to Up Next (the Family Jam host pulling from the shared queue). */
+  enqueueTrack: (track: QueuedTrack) => void
+  /** Tracks still queued after the current one. */
+  upNextCount: () => number
   /** How many seconds a lyric line highlights BEFORE it's sung (read-ahead). Per-device pref. */
   lyricLeadSec: number
   setLyricLeadSec: (sec: number) => void
@@ -101,6 +112,18 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     engineRef.current?.setSweetFades(on)
     setSweetFadesState(engineRef.current?.getSweetFades() ?? on)
   }
+  // AutoMix (beat-matched transitions) mirrors the engine's persisted flag the same way.
+  const [autoMix, setAutoMixState] = useState(() => engineRef.current?.getAutoMix() ?? false)
+  const setAutoMix = (on: boolean) => {
+    engineRef.current?.setAutoMix(on)
+    setAutoMixState(engineRef.current?.getAutoMix() ?? on)
+  }
+  // Shuffle mode mirrors the engine's persisted value for the mode picker.
+  const [shuffleMode, setShuffleModeState] = useState<ShuffleMode>(() => engineRef.current?.getShuffleMode() ?? 'off')
+  const setShuffleMode = (mode: ShuffleMode) => {
+    engineRef.current?.setShuffleMode(mode)
+    setShuffleModeState(engineRef.current?.getShuffleMode() ?? mode)
+  }
 
   useEffect(() => {
     const unregister = registerMediaStop('radio', () => engineRef.current?.stop())
@@ -108,8 +131,14 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     const unTransport = registerTransport('radio', {
       toggle: () => e?.togglePause(), next: () => e?.skip(),
       prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
+      volumeUp: () => e?.nudgeVolume(0.1), volumeDown: () => e?.nudgeVolume(-0.1), toggleMute: () => e?.toggleMute(),
     })
-    return () => { unregister(); unTransport(); engineRef.current?.destroy() }
+    // Duck the station under companion speech on this device (lib/speechDucking.ts).
+    const unDuck = registerDuckable('radio', {
+      duck: () => engineRef.current?.duckForSpeech(),
+      restore: () => engineRef.current?.unduckAfterSpeech(),
+    })
+    return () => { unregister(); unTransport(); unDuck(); engineRef.current?.destroy() }
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).
@@ -210,6 +239,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     seekBy: (delta) => e.seekBy(delta),
     reorderQueue: (from, to) => e.reorderQueue(from, to),
     jumpTo: (i) => e.jumpTo(i),
+    enqueueTrack: (t) => e.enqueueTrack(t),
+    upNextCount: () => e.upNextCount(),
     setRepeatOne: (on) => e.setRepeatOne(on),
     getAnalyser: () => e.getAnalyser(),
     togglePause: () => e.togglePause(),
@@ -223,11 +254,15 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     setCrossfadeMs,
     sweetFades,
     setSweetFades,
+    autoMix,
+    setAutoMix,
+    shuffleMode,
+    setShuffleMode,
     lyricLeadSec,
     setLyricLeadSec,
     visualizerEnabled,
     toggleVisualizer,
-  }), [state, e, visualizerEnabled, dsp, crossfadeMs, sweetFades, lyricLeadSec])
+  }), [state, e, visualizerEnabled, dsp, crossfadeMs, sweetFades, autoMix, shuffleMode, lyricLeadSec])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

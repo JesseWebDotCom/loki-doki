@@ -99,6 +99,38 @@ export function plexStreamUrl(ratingKey: string): string {
   return `/api/plex/stream/${encodeURIComponent(ratingKey)}`
 }
 
+// ── Skip intro/credits + scrubber previews ───────────────────────────────────────
+// Both derive from the file itself server-side (ffprobe chapters / an ffmpeg keyframe
+// pass), so they work without Plex Pass. See backend/src/lib/videos/mediaSegments.ts.
+
+export interface MediaSegment {
+  type: 'intro' | 'credits' | 'recap' | 'preview' | 'sponsor'
+  startSec: number
+  endSec: number
+}
+
+export interface TrickplayInfo {
+  url: string
+  intervalSec: number
+  cols: number
+  rows: number
+  tileWidth: number
+  tileHeight: number
+  totalCount: number
+}
+
+export async function getPlexSegments(ratingKey: string): Promise<MediaSegment[]> {
+  const r = await fetch(`/api/plex/segments/${encodeURIComponent(ratingKey)}`, { credentials: 'include' })
+  if (!r.ok) return []
+  return (await r.json() as { segments: MediaSegment[] }).segments ?? []
+}
+
+export async function getPlexTrickplay(ratingKey: string): Promise<TrickplayInfo | null> {
+  const r = await fetch(`/api/plex/trickplay/${encodeURIComponent(ratingKey)}`, { credentials: 'include' })
+  if (!r.ok) return null
+  return (await r.json() as { trickplay: TrickplayInfo | null }).trickplay ?? null
+}
+
 // ── admin: PIN auth + server discovery + config ──────────────────────────────────
 
 export interface PlexPin {

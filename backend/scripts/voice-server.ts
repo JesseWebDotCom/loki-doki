@@ -134,11 +134,33 @@ const server = createServer(async (req, res) => {
       return res.end(wav)
     }
 
-    if (url === '/inference' && req.method === 'POST') {
+    if ((url === '/inference' || url.startsWith('/inference?')) && req.method === 'POST') {
+      // ?timestamps=1 → long-form mode: transformers.js chunks past Whisper's 30s
+      // receptive window (30s chunks, 5s stride) and returns per-chunk timestamps.
+      // Used by podcast transcription; the live-mic path keeps the plain fast call.
+      const wantTimestamps = url.includes('timestamps=1')
       const body = await readBody(req)
       const { audio } = decodeWav(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength))
-      if (audio.length === 0) return json(res, 200, { text: '' })
+      if (audio.length === 0) return json(res, 200, wantTimestamps ? { text: '', segments: [] } : { text: '' })
       const transcriber = await getWhisper()
+      if (wantTimestamps) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const out = (await (transcriber as any)(audio, { return_timestamps: true, chunk_length_s: 30, stride_length_s: 5 })) as {
+          text?: string
+          chunks?: Array<{ timestamp?: [number, number | null]; text?: string }>
+        }
+        const durationSec = audio.length / 16000
+        const segments = (out.chunks ?? [])
+          .map((ch) => {
+            const start = Number(ch.timestamp?.[0] ?? 0)
+            const rawEnd = ch.timestamp?.[1]
+            // The final chunk's end timestamp can be null, so close it at the audio end.
+            const end = rawEnd == null || !Number.isFinite(Number(rawEnd)) ? durationSec : Number(rawEnd)
+            return { start, end: Math.max(end, start), text: String(ch.text ?? '').trim() }
+          })
+          .filter((s) => s.text && Number.isFinite(s.start))
+        return json(res, 200, { text: (out.text ?? '').trim(), segments })
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const out = (await (transcriber as any)(audio)) as { text?: string }
       return json(res, 200, { text: (out.text ?? '').trim() })

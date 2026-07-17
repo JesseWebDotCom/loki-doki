@@ -10,6 +10,8 @@ import { NowPlaying } from '@/components/podcast/NowPlaying'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { fmtTime } from '@/lib/podcast/format'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
+import { FamilyRemainingChip } from '@/components/shared/FamilyRemainingChip'
+import { DevicesPopover } from '@/components/shared/DevicesPopover'
 
 const POP_SIZE = 220 // px, fixed square - cover art has no natural aspect to resize like video
 
@@ -122,11 +124,14 @@ export function PodcastPlayerBar() {
             </div>
           </button>
 
+          <FamilyRemainingChip className="hidden sm:inline-flex" />
           <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
             {fmtTime(positionSec)} / {fmtTime(total)}
           </span>
 
           <div className="flex items-center gap-1">
+            {/* Listening Together: play on / control another session in the house. */}
+            <DevicesPopover />
             <Button variant="ghost" size="icon-sm" onClick={prev} className="size-8 text-muted-foreground hover:text-foreground" aria-label="Previous"><SkipBack className="size-4" /></Button>
             <Button size="icon" onClick={playing ? pause : resume} aria-label={playing ? 'Pause' : 'Play'}
               style={{ background: accent, color: readableOn(accent) }}>

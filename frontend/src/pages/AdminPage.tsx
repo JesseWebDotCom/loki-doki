@@ -13,6 +13,7 @@ import { AdminAccordion } from '@/components/admin/AdminAccordion'
 import { AdminFeaturesTab } from '@/components/admin/AdminFeaturesTab'
 import { AdminAppsTab } from '@/components/admin/AdminAppsTab'
 import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
+import { AdminFamilyAudioTab } from '@/components/admin/AdminFamilyAudioTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
 import { AdminAiEngineTab } from '@/components/admin/AdminAiEngineTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
@@ -24,6 +25,8 @@ import { AdminIntegrationsOverview } from '@/components/admin/AdminIntegrationsO
 import { AdminMonitoringTab } from '@/components/admin/AdminMonitoringTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
+import { RemoteAccessPanel } from '@/components/admin/RemoteAccessPanel'
+import { McpServerPanel } from '@/components/admin/McpServerPanel'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { AdminHomeAssistantTab } from '@/components/admin/AdminHomeAssistantTab'
@@ -33,6 +36,7 @@ import { UninstallPanel } from '@/components/admin/UninstallPanel'
 import { ServerPanel } from '@/components/admin/ServerPanel'
 import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
 import { AdminStorageLocationsTab } from '@/components/admin/AdminStorageLocationsTab'
+import { AdminStorageBackupsTab } from '@/components/admin/AdminStorageBackupsTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
@@ -211,6 +215,16 @@ export function AdminPage() {
               openSignal={openSignal} defaultOpen contentClassName="p-0">
               <AdminSystemTab />
             </AdminAccordion>
+            <AdminAccordion id="remote-access" title="Remote Access"
+              description="Reach Loki Doki away from home through your private tailnet."
+              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
+              <RemoteAccessPanel />
+            </AdminAccordion>
+            <AdminAccordion id="mcp" title="AI Connector (MCP)"
+              description="Expose chosen abilities to a household member's own AI client."
+              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
+              <McpServerPanel />
+            </AdminAccordion>
             <AdminAccordion id="locale" title="Locale & Units"
               description="Measurement units, temperature, currency, and time format."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
@@ -242,6 +256,7 @@ export function AdminPage() {
         {section === 'integrations' && ['sonarr', 'radarr', 'overseerr', 'sabnzbd'].includes(sub ?? '') && <AdminMediaServiceTab service={sub as MediaService} />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
+        {section === 'family-audio' && <AdminFamilyAudioTab />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
         {section === 'ai-engine' && sub === 'runtime' && (
           <div className="p-5"><AdminAiEngineTab /></div>
@@ -252,6 +267,9 @@ export function AdminPage() {
         )}
         {section === 'storage' && sub === 'locations' && (
           <div className="p-5"><AdminStorageLocationsTab /></div>
+        )}
+        {section === 'storage' && sub === 'backups' && (
+          <div className="p-5"><AdminStorageBackupsTab /></div>
         )}
       </div>
       </div>

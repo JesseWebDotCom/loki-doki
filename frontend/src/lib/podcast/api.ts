@@ -7,6 +7,21 @@ export type PodcastStyle = 'recap' | 'in-depth' | 'roundtable' | 'interview' | '
 export interface ShowHost { characterId: string; role: string }
 export interface ShowSegment { type: string; label?: string; params?: Record<string, unknown> }
 
+// ── Podcasting 2.0 tags (RSS shows) ────────────────────────────────────────────────
+/** A <podcast:person> credit. `role` is null when the feed omitted it (the spec's
+ *  default is "host"); the UI applies that default at render time. */
+export interface PodcastPerson {
+  name: string
+  role: string | null
+  group: string | null
+  img: string | null
+  href: string | null
+}
+/** A <podcast:funding> link: how listeners can support the show. */
+export interface PodcastFunding { url: string; label: string | null }
+/** A <podcast:soundbite>: a highlight clip within an episode, rendered as a seek. */
+export interface PodcastSoundbite { startSec: number; durationSec: number; title: string | null }
+
 export interface Show {
   id: string
   ownerUserId: string
@@ -31,8 +46,11 @@ export interface Show {
   link?: string | null
   categories?: string[]
   feedError?: string | null
+  /** Podcasting 2.0 channel tags: who makes the show, and how to support it. */
+  persons?: PodcastPerson[]
+  funding?: PodcastFunding[]
   /** This user's subscription prefs — null unless they subscribe to this show. */
-  subscription?: { autoDownload: boolean; autoDownloadKeep: number | null } | null
+  subscription?: { autoDownload: boolean; autoDownloadKeep: number | null; autoTranscribe?: boolean } | null
 }
 
 export interface Episode {
@@ -54,8 +72,13 @@ export interface Episode {
   publishedAt?: string | number | null
   imageUrl?: string | null
   link?: string | null
+  /** Podcasting 2.0 item tags: episode credits and highlight clips. */
+  persons?: PodcastPerson[]
+  soundbites?: PodcastSoundbite[]
   /** This user's offline copy state — null when not downloaded. */
   download?: { status: 'pending' | 'downloading' | 'ready' | 'failed'; auto: boolean } | null
+  /** True when the episode carries a transcript, so study notes can be made from it. */
+  hasScript?: boolean
 }
 
 export interface EpisodeSource {
@@ -103,6 +126,7 @@ export interface Subscription {
   showId: string
   autoDownload: boolean
   autoDownloadKeep: number | null
+  autoTranscribe?: boolean
   addedAt: string | number
   name: string
   feedUrl: string | null
@@ -153,6 +177,8 @@ export interface ShowInput {
   sourceRef?: string
   autoGenerate?: boolean
   targetMinutes?: number | null
+  /** Recurring generation, e.g. { cadence: 'daily', hour: 6 } (Household Daily preset). */
+  schedule?: { cadence: 'daily'; hour?: number } | null
 }
 
 export async function createShow(input: ShowInput): Promise<Show> {
@@ -174,6 +200,20 @@ export async function generateEpisode(showId: string): Promise<{ episodeId: stri
   const r = await fetch(`/api/podcasts/shows/${showId}/generate`, { ...opts, method: 'POST' })
   if (!r.ok) throw new Error('generate')
   return r.json() as Promise<{ episodeId: string }>
+}
+
+export interface StudyKit {
+  summary: string[]
+  flashcards: { q: string; a: string }[]
+  keyPoints: { time: string; point: string }[]
+}
+
+/** Homework mode: build a study kit from the episode's transcript and save it as a note. */
+export async function makeStudyKit(episodeId: string): Promise<{ noteId: string; kit: StudyKit }> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/study-kit`, { ...opts, method: 'POST' })
+  const data = await r.json().catch(() => null) as { noteId?: string; kit?: StudyKit; error?: string } | null
+  if (!r.ok || !data?.noteId || !data.kit) throw new Error(data?.error ?? 'Could not make study notes')
+  return { noteId: data.noteId, kit: data.kit }
 }
 
 export async function regenerateEpisode(episodeId: string): Promise<void> {

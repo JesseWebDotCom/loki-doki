@@ -46,7 +46,7 @@ Stay in execution mode for:
 
 After writing or editing any frontend code, **always run `npx vite build` in `frontend/` before declaring done.** A successful Vite build (no errors, exit 0) is the minimum bar. `tsc --noEmit` passes but Vite's Babel transform catches additional errors (e.g. syntax errors in JSX/TSX that TypeScript misses). Never rely on `tsc` alone.
 
-After writing or editing backend code, run `bun build --target=bun /path/to/src/index.ts` (no output = clean) to confirm the module graph resolves without errors.
+After writing or editing backend code, run `bun run check:build` from `backend/` (exit 0 = clean) to confirm the module graph resolves without errors. It wraps `bun build --target=bun src/index.ts` and marks playwright's optional `chromium-bidi` requires as external, since those modules are lazy-loaded and intentionally not installed.
 
 If either build fails, fix the errors before reporting the task complete.
 
@@ -709,6 +709,43 @@ Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a p
 // useViewPreference -> [view, setView]
 useViewPreference(key: string, fallback?: 'grid' | 'list')
 ```
+
+### Family audio components - `src/components/shared/FamilyAudioGuard.tsx` and siblings
+
+The kids/family audio guardrail UX (backend: `lib/family/audioPolicy.ts`, admin surface:
+Admin > Family Audio). Three pieces, all driven by `useFamilyAudio()`
+(`src/hooks/useFamilyAudio.ts`, polls `GET /api/family-audio/me`):
+- `FamilyAudioGuard` - mounted ONCE in `App.tsx` inside the player providers; stops
+  music/live-radio/podcast playback when the profile's time budget or quiet hours gate
+  closes, fires the one-time "5 minutes left" warning toast, and clamps player volume to
+  the profile's cap. Renders nothing.
+- `FamilyRemainingChip` - small remaining-audio-time pill for player bars (renders only
+  when the profile has a daily budget). Used by `RadioMiniBar` and `PodcastPlayerBar`.
+- `FamilyAudioBlockedCard` - friendly full-state card ("Audio time is done for today" /
+  quiet hours) for media hubs; renders nothing while the gate is open, so pages mount it
+  unconditionally. Used by the Music home and the Podcasts Listen Now page.
+
+### Listening Together components - `src/components/shared/DevicesPopover.tsx` and siblings
+
+Whole-home player control (backend: `lib/together/`, `routes/together.ts`; see
+`docs/internal/subsystems.md` > Listening Together). One visible component and three
+headless mount points:
+- `DevicesPopover` - THE "play on another device" surface: lists every other live player
+  session in the household, and picking one opens a compact remote (now-playing readout +
+  seek + transport + volume) driving that session. Mounted in the music mini bar and the
+  podcast player bar; do not hand-roll another remote.
+- `TogetherPresence` / `TogetherRemoteReceiver` / `TogetherJamHost` - mounted ONCE each in
+  `App.tsx` inside the player providers (beside `FamilyAudioGuard`). They advertise this
+  session as a player device, execute inbound remote commands through the player contexts'
+  public APIs, and feed the host's player from the Family Jam shared queue. All render nothing.
+
+**Rule: a remote command must go through a player context's public API** (`RadioContext`,
+`PodcastPlaybackContext`, or the media coordinator's `dispatchTransport`), never an audio
+element or engine internals. Add a context method if one is missing, as `enqueueTrack` /
+`upNextCount` (radio) and `setVolume` (podcast) were added for exactly this.
+
+Music-scoped siblings: `components/music/JamBanner.tsx` (start/join/end, on the Music home
+page) and `JamQueueSheet.tsx` (the shared queue with "added by" attribution + dnd reorder).
 
 ### Toasts (app-wide) - `sonner`
 

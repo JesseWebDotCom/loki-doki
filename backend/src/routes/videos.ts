@@ -5,13 +5,23 @@
 import { Hono } from 'hono'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions } from '@/db/schema'
+import { mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
+import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
+import { getVideoViewFlags } from '@/lib/videos/viewFlags'
+import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
+import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
+import { askVideo } from '@/lib/videos/askVideo'
+import { trickplaySheetPath } from '@/lib/videos/trickplay'
+import { buildRecap } from '@/lib/videos/recap'
+import { autoChapters, catchMeUp, studyNotes, studyNotesMarkdown, suggestClips } from '@/lib/videos/aiExtras'
+import { createNote } from '@/lib/notes/store'
+import { getOrCreateRssToken, parseOpml, subscriptionsAsOpml } from '@/lib/videos/portability'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -67,7 +77,14 @@ videosRoute.get('/sources', async (c) => {
     status: p.status ? await p.status() : { configured: true },
     enabled: enabled.includes(p.source),
   })))
-  return c.json({ sources })
+  // Approved-only mode (kids): the UI hides discovery affordances (search, browse,
+  // suggestions) when on; the server filters regardless (lib/videos/allowlist.ts).
+  // viewFlags are the softer per-user limits (no autoplay / Shorts / suggestions).
+  const [allowlistOnly, viewFlags] = await Promise.all([
+    allowlistOnlyEnabled(c.get('user').id),
+    getVideoViewFlags(c.get('user').id),
+  ])
+  return c.json({ sources, allowlistOnly, viewFlags })
 })
 
 // Admin: which sources show up on discovery surfaces (rail, home feed, browse pages).
@@ -182,6 +199,8 @@ videosRoute.get('/home', async (c) => {
 
 videosRoute.get('/suggested', async (c) => {
   const user = c.get('user')
+  // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
+  if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ items: [], building: false })
   const { items, building } = await serveVideosSuggested(user.id, 18)
   return c.json({ items: await stampSmartTitles(items, user.id), building })
 })
@@ -377,6 +396,22 @@ videosRoute.get('/:source/item/:id', async (c) => {
   // if a card leaked through. Classifies synchronously here (single item, the watch path
   // tolerates the ~1s) so the verdict is real rather than a pending "unknown".
   if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+  // Time budget gate: watch start is refused (with a friendly reason) once today's video
+  // minutes are used up or outside the allowed hours. Metering lives on the heartbeats.
+  const timeGate = await checkVideoTime(user.id)
+  if (!timeGate.allowed) {
+    return c.json({
+      error: timeGate.reason === 'hours' ? 'Videos are paused right now. Try again during allowed hours.' : 'Video time is used up for today.',
+      code: 'time_limit',
+    }, 403)
+  }
+  // Attach this user's saved position so the watch page can resume where any device left
+  // off (the same watch state the history/Continue-watching shelves read).
+  const [watch] = await db.select({ positionSec: videoWatchState.positionSec, completed: videoWatchState.completed })
+    .from(videoWatchState)
+    .where(and(eq(videoWatchState.userId, user.id), eq(videoWatchState.source, source), eq(videoWatchState.videoId, item.id)))
+    .limit(1)
+  if (watch) item.watch = { positionSec: watch.positionSec, completed: watch.completed }
   // Rewrite playback for the client: upstream URLs (signed, Referer-gated) never leave
   // the server — progressive and yt-dlp-piped sources both play through /stream below,
   // just via a different server-side strategy depending on the provider.
@@ -708,7 +743,488 @@ videosRoute.put('/watch-state', async (c) => {
       },
     })
   }
+  // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
+  // response tells the player when the budget runs out so it can wind down mid-video.
+  recordWatchBeat(user.id)
+  // Watched videos join the semantic search index organically (fire and forget).
+  ensureVideoIndexed(source, body.videoId, {
+    userId: user.id, userFirstName: user.firstName,
+    title: body.title ?? null, creatorName: body.creatorName ?? null,
+  })
+  const timeGate = await checkVideoTime(user.id)
+  return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Portability: RSS out, OPML in/out ────────────────────────────────────────────
+// Lock-in is disqualifying to this audience: every alt-frontend ships OPML import, and
+// Invidious's per-channel RSS is the most-loved thing about it. See lib/videos/portability.
+
+videosRoute.get('/rss/token', async (c) => {
+  const token = await getOrCreateRssToken(c.get('user').id)
+  return c.json({ token, base: `/api/video-rss/${token}` })
+})
+
+videosRoute.get('/opml/export', async (c) => {
+  const user = c.get('user')
+  const token = await getOrCreateRssToken(user.id)
+  const origin = new URL(c.req.url).origin
+  const opml = await subscriptionsAsOpml(user.id, `${origin}/api/video-rss/${token}`)
+  c.header('Content-Type', 'text/x-opml; charset=utf-8')
+  c.header('Content-Disposition', 'attachment; filename="loki-subscriptions.opml"')
+  return c.body(opml)
+})
+
+// Import: parse, then subscribe to everything we don't already follow. Reports what
+// landed rather than silently succeeding, since a partial import is the normal case.
+videosRoute.post('/opml/import', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { opml?: string }
+  if (!body.opml?.trim()) return c.json({ error: 'opml required' }, 400)
+  const candidates = parseOpml(body.opml)
+  if (candidates.length === 0) return c.json({ imported: 0, skipped: 0, unsupported: 0, total: 0 })
+
+  const enabled = await getEnabledSources()
+  let imported = 0, skipped = 0, unsupported = 0
+  const now = new Date()
+  for (const cand of candidates) {
+    if (cand.source === 'youtube') {
+      const [existing] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
+        .where(and(eq(ytSubscriptions.userId, user.id), eq(ytSubscriptions.externalId, cand.externalId))).limit(1)
+      if (existing) { skipped++; continue }
+      await db.insert(ytSubscriptions).values({
+        id: randomUUID(), userId: user.id, kind: 'channel',
+        externalId: cand.externalId, title: cand.title, createdAt: now,
+      })
+      imported++
+      continue
+    }
+    if (!isGenericSource(cand.source) || !enabled.includes(cand.source)) { unsupported++; continue }
+    const [existing] = await db.select({ id: videoFollows.id }).from(videoFollows)
+      .where(and(eq(videoFollows.userId, user.id), eq(videoFollows.source, cand.source), eq(videoFollows.externalId, cand.externalId))).limit(1)
+    if (existing) { skipped++; continue }
+    await db.insert(videoFollows).values({
+      id: randomUUID(), userId: user.id,
+      source: cand.source as 'reddit' | 'tiktok' | 'vimeo',
+      kind: cand.source === 'reddit' ? 'subreddit' : 'creator',
+      externalId: cand.externalId, title: cand.title, createdAt: now,
+    })
+    imported++
+  }
+  return c.json({ imported, skipped, unsupported, total: candidates.length })
+})
+
+// ── AI extras: auto-chapters, catch-me-up, clip suggestions ─────────────────────
+// All three read the same transcript stack (see lib/videos/aiExtras.ts). Each resolves
+// the item first, which also applies the ceiling/allowlist gates.
+
+/** Item identity + the content gate, shared by the AI extras below. */
+async function gateForAi(c: { req: { param: (k: string) => string }; get: (k: 'user') => { id: string; firstName: string } }):
+  Promise<{ title: string | null; url: string | null } | null> {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+  if (source === 'youtube') {
+    const [v] = await db.select({ title: ytVideosTable.title, author: ytVideosTable.author, channelId: ytVideosTable.channelId })
+      .from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
+    if (v?.title && !(await videoAllowedForUser(user.id, {
+      source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
+      title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
+    }))) return null
+    return { title: v?.title ?? null, url: null }
+  }
+  const provider = getProvider(source)
+  if (!provider) return null
+  const item = await provider.getItem(id, user.id).catch(() => null)
+  if (!item || !(await videoAllowedForUser(user.id, item))) return null
+  return { title: item.title, url: item.url }
+}
+
+// Auto-chapters for videos whose creator never added any. The client asks only when the
+// real chapter list came back empty.
+videosRoute.get('/:source/auto-chapters/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const chapters = await autoChapters({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ chapters })
+})
+
+// Catch me up: a recap of everything before `upto`, and nothing after it.
+videosRoute.get('/:source/catch-up/:id', async (c) => {
+  const user = c.get('user')
+  const uptoSec = Math.floor(Number(c.req.query('upto')) || 0)
+  if (uptoSec < 30) return c.json({ recap: null })
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const recap = await catchMeUp({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, uptoSec, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ recap })
+})
+
+// Homework mode: turn a watched lecture into study material, saved as a real Note so it
+// lands in the notebook they already use. A child's schoolwork never leaves the server.
+videosRoute.post('/:source/study-notes/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const notes = await studyNotes({
+    source, videoId, title: gate.title, url: gate.url,
+    userId: user.id, userFirstName: user.firstName,
+  })
+  if (!notes) return c.json({ error: "There's no transcript to study from on this one." }, 422)
+  const note = await createNote({
+    ownerId: user.id,               // personal by default, like every other note
+    createdBy: user.id,
+    title: gate.title ? `Notes: ${gate.title}`.slice(0, 200) : 'Video notes',
+    body: studyNotesMarkdown(notes, { source, videoId, title: gate.title }),
+    source: 'companion',
+  })
+  return c.json({ noteId: note.id, notes })
+})
+
+// Clippable moments, for the Clipper and the Studio.
+videosRoute.get('/:source/clip-suggestions/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const suggestions = await suggestClips({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ suggestions })
+})
+
+// ── Year in Review: the private Wrapped (see lib/videos/recap.ts) ────────────────
+
+videosRoute.get('/recap', async (c) => {
+  const user = c.get('user')
+  const year = Number(c.req.query('year')) || new Date().getFullYear()
+  const scope = c.req.query('scope') === 'household' ? 'household' as const : 'me' as const
+  const recap = await buildRecap(user.id, year, scope)
+  return c.json({ recap })
+})
+
+// ── Family social layer: moments, timed reactions, movie-night votes, Blend ───────
+// All household-visible on purpose: leaving a reaction for the rest of the family IS the
+// feature. None of it leaves the server, which is exactly what nobody else can offer.
+
+videosRoute.get('/:source/moments/:id', async (c) => {
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const rows = await db.select({
+    id: videoMoments.id, userId: videoMoments.userId, atSec: videoMoments.atSec,
+    emoji: videoMoments.emoji, note: videoMoments.note, createdAt: videoMoments.createdAt,
+    name: users.nickname, firstName: users.firstName,
+  })
+    .from(videoMoments)
+    .leftJoin(users, eq(users.id, videoMoments.userId))
+    .where(and(eq(videoMoments.source, source), eq(videoMoments.videoId, videoId)))
+    .orderBy(asc(videoMoments.atSec))
+  return c.json({
+    moments: rows.map((r) => ({
+      id: r.id, userId: r.userId, atSec: r.atSec, emoji: r.emoji, note: r.note,
+      by: r.name || r.firstName || 'Someone',
+      mine: r.userId === c.get('user').id,
+      createdAt: r.createdAt?.getTime() ?? 0,
+    })),
+  })
+})
+
+videosRoute.post('/:source/moments/:id', async (c) => {
+  const user = c.get('user')
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { atSec?: number; emoji?: string; note?: string }
+  if (!Number.isFinite(body.atSec)) return c.json({ error: 'atSec required' }, 400)
+  const emoji = body.emoji?.trim().slice(0, 8) || null
+  const note = body.note?.trim().slice(0, 300) || null
+  if (!emoji && !note) return c.json({ error: 'emoji or note required' }, 400)
+  const id = randomUUID()
+  await db.insert(videoMoments).values({
+    id, userId: user.id, source, videoId,
+    atSec: Math.max(0, Math.floor(body.atSec as number)), emoji, note, createdAt: new Date(),
+  })
+  return c.json({ id })
+})
+
+// Only the author may remove their own reaction.
+videosRoute.delete('/moments/:momentId', async (c) => {
+  const user = c.get('user')
+  await db.delete(videoMoments).where(and(
+    eq(videoMoments.id, c.req.param('momentId')),
+    eq(videoMoments.userId, user.id),
+  ))
   return c.json({ ok: true })
+})
+
+// Movie-night voting over a shared playlist: tallies are household-wide, one vote per
+// person per entry, toggled off by voting again.
+videosRoute.get('/playlists/:playlistId/votes', async (c) => {
+  const user = c.get('user')
+  const playlistId = c.req.param('playlistId')
+  const rows = await db.select().from(videoVotes).where(eq(videoVotes.playlistId, playlistId))
+  const tally = new Map<string, { source: string; videoId: string; count: number; mine: boolean }>()
+  for (const r of rows) {
+    const key = `${r.source}:${r.videoId}`
+    const cur = tally.get(key) ?? { source: r.source, videoId: r.videoId, count: 0, mine: false }
+    cur.count += 1
+    if (r.userId === user.id) cur.mine = true
+    tally.set(key, cur)
+  }
+  const votes = Array.from(tally.values()).sort((a, b) => b.count - a.count)
+  return c.json({ votes, total: rows.length })
+})
+
+videosRoute.post('/playlists/:playlistId/votes', async (c) => {
+  const user = c.get('user')
+  const playlistId = c.req.param('playlistId')
+  const body = await c.req.json().catch(() => ({})) as { source?: string; videoId?: string; vote?: boolean }
+  const source = body.source?.trim()
+  const videoId = body.videoId?.trim()
+  if (!source || !videoId) return c.json({ error: 'source and videoId required' }, 400)
+  if (body.vote === false) {
+    await db.delete(videoVotes).where(and(
+      eq(videoVotes.userId, user.id), eq(videoVotes.playlistId, playlistId),
+      eq(videoVotes.source, source), eq(videoVotes.videoId, videoId),
+    ))
+  } else {
+    await db.insert(videoVotes)
+      .values({ id: randomUUID(), userId: user.id, playlistId, source, videoId, createdAt: new Date() })
+      .onConflictDoNothing()
+  }
+  return c.json({ ok: true })
+})
+
+// ── Family Blend: things more than one of you would like ─────────────────────────
+// Instagram ships Blend as a shared feed inside a DM group; ours is the household one,
+// computed locally and transparently: videos from creators that MULTIPLE family members
+// follow, that the asker has not watched. No profiling, no model, just the overlap.
+
+videosRoute.get('/blend', async (c) => {
+  const user = c.get('user')
+  // Creators followed by more than one person, with who follows them.
+  const allFollows = await db.select({
+    userId: videoFollows.userId, id: videoFollows.id,
+    source: videoFollows.source, externalId: videoFollows.externalId, title: videoFollows.title,
+  }).from(videoFollows)
+  const byCreator = new Map<string, { followIds: string[]; users: Set<string>; title: string }>()
+  for (const f of allFollows) {
+    const key = `${f.source}:${f.externalId.toLowerCase()}`
+    const cur = byCreator.get(key) ?? { followIds: [], users: new Set<string>(), title: f.title }
+    cur.followIds.push(f.id)
+    cur.users.add(f.userId)
+    byCreator.set(key, cur)
+  }
+  const shared = Array.from(byCreator.values()).filter((v) => v.users.size > 1 && v.users.has(user.id))
+  if (shared.length === 0) return c.json({ items: [], sharedCreators: 0 })
+
+  const followIds = shared.flatMap((s) => s.followIds)
+  const rows = await db.select().from(videoItems)
+    .where(inArray(videoItems.followId, followIds))
+    .orderBy(desc(videoItems.publishedAt))
+    .limit(120)
+  const watched = new Set(
+    (await db.select({ source: videoWatchState.source, videoId: videoWatchState.videoId })
+      .from(videoWatchState).where(eq(videoWatchState.userId, user.id)))
+      .map((w) => `${w.source}:${w.videoId}`),
+  )
+  const items: VideoItem[] = rows
+    .filter((r) => !watched.has(`${r.source}:${r.externalId}`))
+    .map((r) => ({
+      source: r.source as VideoSource, id: r.externalId, url: '', title: r.title,
+      creator: r.creatorId ? { id: r.creatorId, name: r.creatorName ?? '' } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, isAdult: r.isAdult ?? false,
+      publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+    }))
+  const allowed = await filterVideosForUser(user.id, items)
+  return c.json({ items: allowed.slice(0, 24), sharedCreators: shared.length })
+})
+
+// ── Trickplay sheets ─────────────────────────────────────────────────────────────
+// Serves the sprite sheet built by lib/videos/trickplay.ts (Plex, offline saves). Frames
+// of a given file never change, so it's immutable-cached; the sheet lives under data/.
+
+videosRoute.get('/trickplay/:source/:mediaId/sheet.jpg', async (c) => {
+  const p = trickplaySheetPath(c.req.param('source'), c.req.param('mediaId'))
+  const file = Bun.file(p)
+  if (!(await file.exists())) return c.text('Not generated', 404)
+  return new Response(file.stream(), {
+    headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable' },
+  })
+})
+
+// ── Subscription folders ─────────────────────────────────────────────────────────
+// User-made groups over subscriptions/follows, each with its own filtered feed. A
+// creator can live in several folders; membership is (source, externalId) so YouTube
+// channels and hub creators group side by side.
+
+videosRoute.get('/folders', async (c) => {
+  const user = c.get('user')
+  const folders = await db.select().from(videoFolders)
+    .where(eq(videoFolders.userId, user.id))
+    .orderBy(asc(videoFolders.sortOrder), asc(videoFolders.createdAt))
+  if (folders.length === 0) return c.json({ folders: [] })
+  const members = await db.select().from(videoFolderMembers)
+    .where(inArray(videoFolderMembers.folderId, folders.map((f) => f.id)))
+  return c.json({
+    folders: folders.map((f) => ({
+      id: f.id, name: f.name, sortOrder: f.sortOrder,
+      members: members.filter((m) => m.folderId === f.id).map((m) => ({ source: m.source, externalId: m.externalId })),
+    })),
+  })
+})
+
+videosRoute.post('/folders', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { name?: string }
+  const name = body.name?.trim().slice(0, 60)
+  if (!name) return c.json({ error: 'name required' }, 400)
+  const [{ count } = { count: 0 }] = await db.select({ count: sqlCount() }).from(videoFolders).where(eq(videoFolders.userId, user.id))
+  const id = randomUUID()
+  await db.insert(videoFolders).values({ id, userId: user.id, name, sortOrder: Number(count) || 0, createdAt: new Date() })
+  return c.json({ folder: { id, name, sortOrder: Number(count) || 0, members: [] } })
+})
+
+videosRoute.patch('/folders/:id', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { name?: string }
+  const name = body.name?.trim().slice(0, 60)
+  if (!name) return c.json({ error: 'name required' }, 400)
+  await db.update(videoFolders).set({ name })
+    .where(and(eq(videoFolders.id, c.req.param('id')), eq(videoFolders.userId, user.id)))
+  return c.json({ ok: true })
+})
+
+videosRoute.delete('/folders/:id', async (c) => {
+  const user = c.get('user')
+  await db.delete(videoFolders)
+    .where(and(eq(videoFolders.id, c.req.param('id')), eq(videoFolders.userId, user.id)))
+  return c.json({ ok: true })
+})
+
+// Toggle a creator's membership. Owner-checked through the parent folder.
+videosRoute.post('/folders/:id/members', async (c) => {
+  const user = c.get('user')
+  const folderId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { source?: string; externalId?: string; member?: boolean }
+  const source = body.source?.trim()
+  const externalId = body.externalId?.trim()
+  if (!source || !externalId) return c.json({ error: 'source and externalId required' }, 400)
+  const [folder] = await db.select({ id: videoFolders.id }).from(videoFolders)
+    .where(and(eq(videoFolders.id, folderId), eq(videoFolders.userId, user.id))).limit(1)
+  if (!folder) return c.json({ error: 'not found' }, 404)
+  if (body.member === false) {
+    await db.delete(videoFolderMembers).where(and(
+      eq(videoFolderMembers.folderId, folderId),
+      eq(videoFolderMembers.source, source),
+      eq(videoFolderMembers.externalId, externalId),
+    ))
+  } else {
+    await db.insert(videoFolderMembers)
+      .values({ id: randomUUID(), folderId, source, externalId, createdAt: new Date() })
+      .onConflictDoNothing()
+  }
+  return c.json({ ok: true })
+})
+
+// ── Play Something: one-tap shuffle from what you already follow/saved ────────────
+// Netflix's decision-fatigue killer, and the natural "just put something on" button for
+// approved-only kid profiles. Draws from the followed-creator feed cache, skips anything
+// already finished, and runs the policy chokepoint like every other list.
+
+videosRoute.get('/play-something', async (c) => {
+  const user = c.get('user')
+  const follows = await db.select({ id: videoFollows.id }).from(videoFollows).where(eq(videoFollows.userId, user.id))
+  const rows = follows.length
+    ? await db.select().from(videoItems)
+        .where(inArray(videoItems.followId, follows.map((f) => f.id)))
+        .orderBy(desc(videoItems.publishedAt))
+        .limit(300)
+    : []
+  const items: VideoItem[] = rows.map((r) => ({
+    source: r.source as VideoSource, id: r.externalId,
+    url: '', title: r.title,
+    creator: r.creatorId ? { id: r.creatorId, name: r.creatorName ?? '' } : null,
+    thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, isAdult: r.isAdult ?? false,
+    publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+  }))
+  const allowed = await filterVideosForUser(user.id, items)
+  if (allowed.length === 0) return c.json({ item: null })
+  // Exclude anything already watched to the end, so shuffle keeps finding new things.
+  const finished = new Set(
+    (await db.select({ source: videoWatchState.source, videoId: videoWatchState.videoId })
+      .from(videoWatchState)
+      .where(and(eq(videoWatchState.userId, user.id), eq(videoWatchState.completed, true))))
+      .map((w) => `${w.source}:${w.videoId}`),
+  )
+  const pool = allowed.filter((i) => !finished.has(`${i.source}:${i.id}`))
+  const from = pool.length ? pool : allowed
+  return c.json({ item: from[Math.floor(Math.random() * from.length)] })
+})
+
+// ── Ask the video: grounded Q&A over the current video's transcript ──────────────
+
+videosRoute.post('/:source/ask/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as {
+    question?: string
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  }
+  if (!body.question?.trim()) return c.json({ error: 'question required' }, 400)
+  const history = Array.isArray(body.history)
+    ? body.history.filter((t) => (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+    : []
+
+  // Same content gates as watching: ceiling/allowlist verdicts apply to asking too.
+  let title: string | null = null
+  let creatorName: string | null = null
+  let url: string | null = null
+  if (source === 'youtube') {
+    const [v] = await db.select({ title: ytVideosTable.title, author: ytVideosTable.author, channelId: ytVideosTable.channelId })
+      .from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
+    title = v?.title ?? null
+    creatorName = v?.author ?? null
+    if (v?.title && !(await videoAllowedForUser(user.id, {
+      source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
+      title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
+    }))) return c.json({ error: 'not available' }, 403)
+  } else {
+    const provider = getProvider(source)
+    if (!provider) return c.json({ error: 'unknown source' }, 404)
+    const item = await provider.getItem(id, user.id).catch(() => null)
+    if (!item) return c.json({ error: 'not found' }, 404)
+    if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+    title = item.title
+    creatorName = item.creator?.name ?? null
+    url = item.url
+  }
+
+  const result = await askVideo({
+    source, videoId: id, question: body.question, history,
+    title, creatorName, url,
+    userId: user.id, userFirstName: user.firstName,
+  })
+  if (!result) return c.json({ error: 'The companion could not answer right now.' }, 503)
+  return c.json(result)
+})
+
+// ── Semantic search: "find the video where..." across everything the household watched ──
+
+videosRoute.get('/semantic-search', async (c) => {
+  const user = c.get('user')
+  const q = (c.req.query('q') ?? '').trim()
+  if (q.length < 3) return c.json({ hits: [] })
+  const hits = await semanticSearch(user.id, q, 20)
+  return c.json({ hits })
 })
 
 // ── Saves: offline downloads for non-YouTube sources ────────────────────────────

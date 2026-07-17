@@ -20,6 +20,10 @@ import { LiveRadioProvider } from '@/context/LiveRadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { MonitoringAnnounceProvider } from '@/context/MonitoringAnnounceContext'
+import { FamilyAudioGuard } from '@/components/shared/FamilyAudioGuard'
+import { TogetherPresence } from '@/components/shared/TogetherPresence'
+import { TogetherRemoteReceiver } from '@/components/shared/TogetherRemoteReceiver'
+import { TogetherJamHost } from '@/components/shared/TogetherJamHost'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -36,6 +40,8 @@ import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
 import { DisplayPage } from '@/pages/DisplayPage'
 import { HudPage } from '@/pages/HudPage'
+import { TvPage } from '@/pages/TvPage'
+import { TvSignInPage } from '@/pages/TvSignInPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { WeatherSettingsPage } from '@/pages/WeatherSettingsPage'
 import { AppSettingsGenericPage } from '@/pages/AppSettingsGenericPage'
@@ -109,6 +115,7 @@ const VoiceMemosPage = lazy(() => import('@/pages/VoiceMemosPage').then((m) => (
 const JokePage = lazy(() => import('@/pages/JokePage').then((m) => ({ default: m.JokePage })))
 const UnitConverterPage = lazy(() => import('@/pages/UnitConverterPage').then((m) => ({ default: m.UnitConverterPage })))
 const SpeedTestPage = lazy(() => import('@/pages/SpeedTestPage').then((m) => ({ default: m.SpeedTestPage })))
+const RoutinesPage = lazy(() => import('@/pages/RoutinesPage').then((m) => ({ default: m.RoutinesPage })))
 const ShoppingPage = lazy(() => import('@/pages/shopping/ShoppingPage').then((m) => ({ default: m.ShoppingPage })))
 const ProductDetailPage = lazy(() => import('@/pages/shopping/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage })))
 const CodingPage = lazy(() => import('@/pages/coding/CodingPage').then((m) => ({ default: m.CodingPage })))
@@ -125,6 +132,12 @@ const PodcastBrowsePage = lazy(() => import('@/pages/podcast/PodcastBrowsePage')
 const PodcastPreviewPage = lazy(() => import('@/pages/podcast/PodcastPreviewPage').then((m) => ({ default: m.PodcastPreviewPage })))
 const PodcastLibraryPage = lazy(() => import('@/pages/podcast/PodcastLibraryPage').then((m) => ({ default: m.PodcastLibraryPage })))
 const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage').then((m) => ({ default: m.PodcastOfflinePage })))
+const PodcastFiltersPage = lazy(() => import('@/pages/podcast/PodcastFiltersPage').then((m) => ({ default: m.PodcastFiltersPage })))
+const PodcastBookmarksPage = lazy(() => import('@/pages/podcast/PodcastBookmarksPage').then((m) => ({ default: m.PodcastBookmarksPage })))
+const PodcastReplayPage = lazy(() => import('@/pages/podcast/PodcastReplayPage').then((m) => ({ default: m.PodcastReplayPage })))
+const PodcastSnipsPage = lazy(() => import('@/pages/podcast/PodcastSnipsPage').then((m) => ({ default: m.PodcastSnipsPage })))
+const PodcastSearchPage = lazy(() => import('@/pages/podcast/PodcastSearchPage').then((m) => ({ default: m.PodcastSearchPage })))
+const EpisodePage = lazy(() => import('@/pages/podcast/EpisodePage').then((m) => ({ default: m.EpisodePage })))
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
@@ -162,6 +175,8 @@ const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then(
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
 const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
 const MusicReplayPage = lazy(() => import('@/pages/music/MusicReplayPage').then((m) => ({ default: m.MusicReplayPage })))
+const MusicStatsPage = lazy(() => import('@/pages/music/MusicStatsPage').then((m) => ({ default: m.MusicStatsPage })))
+const MusicImportPage = lazy(() => import('@/pages/music/MusicImportPage').then((m) => ({ default: m.MusicImportPage })))
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
@@ -217,6 +232,7 @@ const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPa
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/videos/WatchPage').then((m) => ({ default: m.WatchPage })))
 const VideosSettingsPage = lazy(() => import('@/pages/videos/VideosSettingsPage').then((m) => ({ default: m.VideosSettingsPage })))
+const VideosRecapPage = lazy(() => import('@/pages/videos/VideosRecapPage').then((m) => ({ default: m.VideosRecapPage })))
 
 function AppLoading() {
   return (
@@ -292,7 +308,9 @@ function AdminGuard() {
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 // Wraps all protected app routes. Requires setup complete + authenticated.
-function AuthGuard() {
+/** `fallback` overrides where a signed-out visitor is sent (TV mode goes to its own
+ *  code-based sign-in, since /login asks for a PIN typed on a remote). */
+function AuthGuard({ fallback = '/login' }: { fallback?: string } = {}) {
   const { user, configured, firstRunComplete, welcomeComplete, loading, refetch } = useAuth()
   // null = checking, false = show boot screen, true = already booted
   const [booted, setBooted] = useState<boolean | null>(null)
@@ -306,7 +324,7 @@ function AuthGuard() {
   if (loading || booted === null) return <AppLoading />
 
   if (!configured || !firstRunComplete) return <Navigate to="/setup" replace />
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to={fallback} replace />
 
   if (!booted) {
     return <BootScreen onComplete={() => setBooted(true)} />
@@ -362,6 +380,14 @@ export default function App() {
           <FrigateAnnounceProvider>
           <MonitoringAnnounceProvider>
           <ChatProvider>
+          {/* Family audio guardrails: graceful stop, 5-minute warning, volume cap. */}
+          <FamilyAudioGuard />
+          {/* Listening Together: advertise this session as a player device, and run
+              remote commands aimed at it through the player contexts. */}
+          <TogetherPresence />
+          <TogetherRemoteReceiver />
+          {/* Family Jam: when this session hosts, feed its player from the shared queue. */}
+          <TogetherJamHost />
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
@@ -402,6 +428,8 @@ export default function App() {
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="replay" element={<MusicReplayPage />} />
+                  <Route path="stats" element={<MusicStatsPage />} />
+                  <Route path="import" element={<MusicImportPage />} />
                   <Route path="studio" element={<MusicStudioPage />} />
                   <Route path="studio/:id" element={<MusicStudioLayout />}>
                     <Route index element={<MusicStudioDetailPage />} />
@@ -474,6 +502,7 @@ export default function App() {
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
                   <Route path="liked" element={<YoutubeLikedPage />} />
                   <Route path="offline" element={<VideosOfflinePage />} />
+                  <Route path="recap" element={<VideosRecapPage />} />
                   <Route path="clip" element={<ClipperPage />} />
                   {/* Mine: your videos + the studio and AI generation (former /video app). */}
                   <Route path="mine" element={<MyVideosPage />} />
@@ -511,6 +540,12 @@ export default function App() {
                   <Route path="browse" element={<PodcastBrowsePage />} />
                   <Route path="preview" element={<PodcastPreviewPage />} />
                   <Route path="library" element={<PodcastLibraryPage />} />
+                  <Route path="filters" element={<PodcastFiltersPage />} />
+                  <Route path="bookmarks" element={<PodcastBookmarksPage />} />
+                  <Route path="replay" element={<PodcastReplayPage />} />
+                  <Route path="snips" element={<PodcastSnipsPage />} />
+                  <Route path="search" element={<PodcastSearchPage />} />
+                  <Route path="episode/:id" element={<EpisodePage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="settings" element={<PodcastSettingsPage />} />
@@ -530,6 +565,7 @@ export default function App() {
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/speed-test" element={<SpeedTestPage />} />
+                <Route path="/routines" element={<RoutinesPage />} />
                 <Route path="/shopping" element={<ShoppingPage />} />
                 <Route path="/shopping/product/:retailer/:encodedId" element={<ProductDetailPage />} />
                 <Route path="/coding" element={<CodingPage />} />
@@ -612,6 +648,16 @@ export default function App() {
                 (a <Navigate> to /login would render the full profile picker in a 480px
                 transparent overlay). */}
             <Route path="/hud" element={<HudPage />} />
+
+            {/* TV mode: the 10-foot surface, its own always-dark full-bleed world outside
+                AppShell (a sofa has no sidebar and a remote has no tab bar). Sign-in is
+                Quick Connect, so /tv/signin is deliberately unguarded: it IS the login,
+                and a <Navigate> to /login would ask for a PIN typed on a remote. /tv
+                itself sits behind the normal guard and bounces there when signed out. */}
+            <Route path="/tv/signin" element={<TvSignInPage />} />
+            <Route element={<AuthGuard fallback="/tv/signin" />}>
+              <Route path="/tv" element={<TvPage />} />
+            </Route>
 
             {/* Public shared bookmark collection: no auth, read-only view by slug. */}
             <Route path="/b/:slug" element={<PublicCollectionPage />} />

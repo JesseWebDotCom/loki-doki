@@ -6,6 +6,9 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, sessions, profilePins } from '@/db/schema'
 import { hashSessionToken, issueSession } from '@/lib/session'
+import {
+  approveQuickConnect, consumeQuickConnect, createQuickConnect, getQuickConnect, listPendingQuickConnects,
+} from '@/lib/quickConnect'
 import { verifyPin, hashPin, lockoutDuration } from '@/lib/pin'
 import { getClientIp, pinThrottleCheck, pinThrottleFail, pinThrottleReset } from '@/lib/pinThrottle'
 import { requireAuth, invalidateSessionCache } from '@/middleware/auth'
@@ -176,6 +179,43 @@ auth.post('/logout', requireAuth, async (c) => {
   }
   deleteCookie(c, 'session', { path: '/' })
   return c.json({ success: true })
+})
+
+// ── Quick Connect: sign a TV in from your phone ──────────────────────────────────
+// Nobody wants to type a PIN with a TV remote. The TV asks for a code and polls; a
+// signed-in phone approves it; the TV's next poll gets the session. See lib/quickConnect.
+
+// Unauthenticated by design: this is the pre-login step. It hands out nothing but a
+// random code, which is useless until someone with a real session approves it.
+auth.post('/quick-connect', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { label?: string }
+  const req = createQuickConnect(body.label ?? 'A device')
+  return c.json({ code: req.code, expiresAt: req.expiresAt })
+})
+
+// The waiting device polls here. Once approved, this mints its session cookie, once.
+auth.get('/quick-connect/:code', async (c) => {
+  const code = c.req.param('code')
+  const req = getQuickConnect(code)
+  if (!req) return c.json({ status: 'expired' })
+  if (req.consumed) return c.json({ status: 'expired' })
+  if (!req.approvedUserId) return c.json({ status: 'pending' })
+  const userId = consumeQuickConnect(code)
+  if (!userId) return c.json({ status: 'expired' })
+  await issueSession(c, userId)
+  return c.json({ status: 'approved' })
+})
+
+// The approver's side: list what's waiting, and approve one as yourself.
+auth.get('/quick-connect', requireAuth, (c) => {
+  return c.json({ pending: listPendingQuickConnects() })
+})
+
+auth.post('/quick-connect/:code/approve', requireAuth, (c) => {
+  const user = c.get('user')
+  const ok = approveQuickConnect(c.req.param('code'), user.id)
+  if (!ok) return c.json({ error: 'That code is not valid anymore.' }, 404)
+  return c.json({ ok: true })
 })
 
 export { auth }

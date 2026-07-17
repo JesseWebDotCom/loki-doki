@@ -10,6 +10,7 @@
 import { TTSPlaybackScheduler, type SentencePayload } from "@/lib/voice/tts-playback-scheduler";
 import { attachCharacterBridge, getCharacterBridge } from "@/lib/voice/tts-character-bridge";
 import { splitSentences } from "@/lib/voice/sentence-chunker";
+import { setSpeechActive } from "@/lib/speechDucking";
 
 export interface VoicePlaybackOptions {
   text: string;
@@ -21,6 +22,12 @@ export interface VoicePlaybackOptions {
   rateScale?: number;
   /** Per-chunk emote-driven loudness gain applied to the synthesized PCM. */
   gain?: number;
+  /** Opt-in: apply the current user's personal voice/speed/hushed preference for
+   *  this companion (design: keen-percolating-swan). Only the live companion-chat
+   *  reply path (useCompanionVoice) sets this; every other caller (previews,
+   *  diagnostics, narration, alarms) leaves it unset so they always hear the
+   *  character's/app's raw configured voice, never a personalization override. */
+  applyUserVoicePrefs?: boolean;
 }
 
 export class VoicePlayback {
@@ -35,6 +42,9 @@ export class VoicePlayback {
   private dispatchTail: Promise<void> = Promise.resolve();
   private pendingStartListeners: (() => void)[] = [];
   private pendingEndListeners: (() => void)[] = [];
+  // Applied to the scheduler once it exists (design: keen-percolating-swan); see
+  // ensureScheduler() and TTSPlaybackScheduler.setPitch.
+  private pendingPitch = 0;
 
   get isPlaying(): boolean {
     return this.playing;
@@ -79,6 +89,14 @@ export class VoicePlayback {
     };
   }
 
+  /** Client-side pitch-shift for all FUTURE speech (design: keen-percolating-swan).
+   *  Applied immediately if the scheduler already exists; otherwise remembered and
+   *  applied the next time one is created (see ensureScheduler). */
+  setPitch(semitones: number): void {
+    this.pendingPitch = semitones;
+    this.scheduler?.setPitch(semitones);
+  }
+
   async prime(): Promise<void> {
     this.ensureScheduler();
     const ctx = this.scheduler?.audioContext;
@@ -116,6 +134,7 @@ export class VoicePlayback {
       sentencePause: opts.sentencePause ?? 0.3,
       rateScale: opts.rateScale ?? 1.0,
       gain: opts.gain ?? 1.0,
+      applyUserVoicePrefs: opts.applyUserVoicePrefs || undefined,
     };
 
     const predecessorDrained = this.dispatchTail;
@@ -248,6 +267,7 @@ export class VoicePlayback {
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctor();
     this.scheduler = new TTSPlaybackScheduler(ctx);
+    if (this.pendingPitch !== 0) this.scheduler.setPitch(this.pendingPitch);
     attachCharacterBridge(this.scheduler);
     // "playing" (and the speaking glow) now follows REAL audio: true when the first
     // buffer actually starts, false when playback drains (and nothing's still fetching).
@@ -266,6 +286,10 @@ export class VoicePlayback {
   private notify(playing: boolean): void {
     if (this.playing === playing) return;
     this.playing = playing;
+    // Announcement ducking: this is the single funnel for REAL speech audio
+    // start/end (scheduler-driven, not fetch-driven), so it is the right place to
+    // duck/restore any media playing on this same device. See lib/speechDucking.ts.
+    setSpeechActive(playing);
     this.listeners.forEach((l) => l(playing));
   }
 

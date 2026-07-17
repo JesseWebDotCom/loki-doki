@@ -25,6 +25,7 @@ import { isYouTubeRef, streamSrcForRef, artUrlForRef } from '@/lib/music/trackRe
 import { ensureMediaGraph, getSharedAnalyser, setLoudnessTrimDb } from '@/lib/mediaAudioGraph'
 import { applyStoredDsp } from '@/lib/music/dsp'
 import { getAudioFacts, getWaveform } from '@/lib/music/metaApi'
+import { getTempo } from '@/lib/music/intelApi'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -59,6 +60,11 @@ function isJunkTrack(title: string, artist: string | null): boolean {
 }
 
 export type RadioPhase = 'idle' | 'loading' | 'intro' | 'playing' | 'transition' | 'outro'
+
+/** Shuffle: 'off' plays the queue in order; 'random' picks the next song at random each
+ *  hand-off; 'bag' walks everything in random order with no repeats until the whole queue
+ *  has played (the bag persists per station, so it holds across sessions too). */
+export type ShuffleMode = 'off' | 'random' | 'bag'
 
 export interface RadioState {
   active: boolean
@@ -270,9 +276,36 @@ export class RadioEngine {
   private applyVol(key: ChKey) {
     const c = this.ch[key]
     c.el.muted = this.muted
-    c.el.volume = Math.max(0, Math.min(1, c.level * this.masterVol))
+    c.el.volume = Math.max(0, Math.min(1, c.level * this.masterVol * this.duckFactor))
   }
   private applyAll() { (Object.keys(this.ch) as ChKey[]).forEach(k => this.applyVol(k)) }
+
+  // ── Announcement ducking ───────────────────────────────────────────────────
+  // A multiplier UNDER the user's volume (so setVolume/the family cap keep their
+  // meaning and the UI slider never moves): companion speech drops it to 0.2, then
+  // it ramps back to 1 over ~500ms. Deliberately separate from the crossfade ramps,
+  // which own per-channel `level`. See lib/speechDucking.ts.
+  private duckFactor = 1
+  private duckRamp: ReturnType<typeof setInterval> | null = null
+
+  private rampDuck(to: number, ms: number) {
+    if (this.duckRamp) { clearInterval(this.duckRamp); this.duckRamp = null }
+    if (!this.built || ms <= 0) { this.duckFactor = to; if (this.built) this.applyAll(); return }
+    const from = this.duckFactor
+    const steps = Math.max(1, Math.round(ms / 50))
+    let i = 0
+    this.duckRamp = setInterval(() => {
+      i++
+      this.duckFactor = from + (to - from) * Math.min(1, i / steps)
+      this.applyAll()
+      if (i >= steps) { clearInterval(this.duckRamp!); this.duckRamp = null }
+    }, 50)
+  }
+
+  /** Duck to ~20 percent for a companion announcement. */
+  duckForSpeech() { this.rampDuck(0.2, 150) }
+  /** Restore over ~half a second once the announcement ends. */
+  unduckAfterSpeech() { this.rampDuck(1, 500) }
 
   private ramp(key: ChKey, to: number, ms: number) {
     const c = this.ch[key]
@@ -427,8 +460,78 @@ export class RadioEngine {
     this.deckRefs[deck] = videoId
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
+    this.resetDeckRate(deck)
     this.applyLoudnessTrim(deck, videoId)
     this.analyzeOutro(deck, videoId)
+    this.lookupTempo(deck, videoId)
+  }
+
+  // ── AutoMix: beat-matched transitions ────────────────────────────────────────────
+  // Per-deck BPM from the analysis layer (music_track_features; local-file analysis only,
+  // stream-only tracks simply have none). When both the outgoing and incoming BPM are
+  // known and within 15 percent, the hand-off lands on a beat boundary of the outgoing
+  // song and the incoming deck micro-adjusts playbackRate (max 4 percent) during the
+  // overlap to align tempo, easing back to 1.0 after the blend.
+  private deckBpm: (number | null)[] = [null, null]
+  private rateRamps: (ReturnType<typeof setInterval> | null)[] = [null, null]
+
+  private lookupTempo(deck: number, ref: string) {
+    this.deckBpm[deck] = null
+    void getTempo(ref).then(t => {
+      if (this.deckRefs[deck] !== ref) return   // deck re-cued while we looked up
+      this.deckBpm[deck] = t?.bpm && t.bpm > 0 ? t.bpm : null
+    }).catch(() => { /* tempo is optional */ })
+  }
+
+  private resetDeckRate(deck: number) {
+    const ramp = this.rateRamps[deck]
+    if (ramp) { clearInterval(ramp); this.rateRamps[deck] = null }
+    const el = this.deckEl(deck)
+    try {
+      el.playbackRate = 1
+      if ('preservesPitch' in el) el.preservesPitch = true
+    } catch { /* rate is cosmetic */ }
+  }
+
+  /** The incoming deck's tempo-match rate for this hand-off, or null when AutoMix doesn't
+   *  apply (toggle off, unknown BPM on either side, or tempos too far apart). */
+  private autoMixRate(fromDeck: number, toDeck: number): number | null {
+    if (!this.autoMix) return null
+    const out = this.deckBpm[fromDeck]
+    const inc = this.deckBpm[toDeck]
+    if (!out || !inc) return null
+    // Fold half/double-time detections into the same octave before comparing.
+    let ratio = out / inc
+    if (ratio > 1.6) ratio /= 2
+    else if (ratio < 0.625) ratio *= 2
+    if (ratio < 0.85 || ratio > 1.15) return null
+    const rate = Math.max(0.96, Math.min(1.04, ratio))
+    return Math.abs(rate - 1) < 0.002 ? null : rate
+  }
+
+  /** Ease the deck's playbackRate back to 1.0 (after the overlap has blended). */
+  private easeRateBack(deck: number, runId: number, delayMs: number) {
+    const startRef = this.deckRefs[deck]
+    setTimeout(() => {
+      if (this.stale(runId) || this.deckRefs[deck] !== startRef) return
+      const el = this.deckEl(deck)
+      const from = el.playbackRate
+      if (from === 1) return
+      const steps = 20   // ~2s at 100ms per step
+      let i = 0
+      const prev = this.rateRamps[deck]
+      if (prev) clearInterval(prev)
+      this.rateRamps[deck] = setInterval(() => {
+        i++
+        if (this.stale(runId) || this.deckRefs[deck] !== startRef || i >= steps) {
+          try { el.playbackRate = 1 } catch { /* noop */ }
+          const ramp = this.rateRamps[deck]
+          if (ramp) { clearInterval(ramp); this.rateRamps[deck] = null }
+          return
+        }
+        try { el.playbackRate = from + (1 - from) * (i / steps) } catch { /* noop */ }
+      }, 100)
+    }, Math.max(0, delayMs))
   }
 
   // ── Sweet Fades (Plexamp): find where each track's outro actually begins ────────
@@ -560,7 +663,7 @@ export class RadioEngine {
         if (this.stale(runId)) return finish('skip')
         if (el.error) return finish('end')
         const d = el.duration
-        if (isFinite(d) && d > 0 && el.currentTime >= d - this.effectiveTailSec(deck, d)) return finish('tail')
+        if (isFinite(d) && d > 0 && el.currentTime >= d - this.handOffTailSec(deck, d)) return finish('tail')
         if (!el.paused) {
           if (el.currentTime === lastT) { if (++stuck > 48) return finish('end') } // ~12s stalled
           else { stuck = 0; lastT = el.currentTime }
@@ -583,6 +686,14 @@ export class RadioEngine {
   private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj, display: Partial<RadioState>, quick = false, firstRealLyricSec: number | null = null) {
     this.set({ djText: dj.text })
 
+    // AutoMix: when both songs' BPM are known and close, the incoming deck plays slightly
+    // fast/slow (max 4 percent) during the overlap so the tempos align, then eases back
+    // to 1.0 once the outgoing song is gone.
+    const mixRate = this.autoMixRate(fromDeck, toDeck)
+    if (mixRate !== null) {
+      try { this.deckEl(toDeck).playbackRate = mixRate } catch { /* rate is cosmetic */ }
+    }
+
     // QUICK path (manual skip): no DJ, no bed — a fast crossfade straight to the next song at full
     // volume, so a skip feels immediate.
     if (quick) {
@@ -594,6 +705,7 @@ export class RadioEngine {
       this.ramp(this.deckKey(toDeck), 1, 450)
       this.ramp(this.deckKey(fromDeck), 0, 450)
       setTimeout(() => { if (!this.stale(runId)) { try { this.deckEl(fromDeck).pause() } catch { /* noop */ } } }, 500)
+      if (mixRate !== null) this.easeRateBack(toDeck, runId, 700)
       this.set({ ...display, positionSec: el.currentTime, durationSec: Number.isFinite(el.duration) ? el.duration : 0, djSpeaking: false, skipping: false })
       return
     }
@@ -602,6 +714,9 @@ export class RadioEngine {
     // there's no safe instrumental gap to talk over. Fade the outgoing song under the DJ, then start
     // the incoming track from position 0 at full volume once the DJ finishes — no bleed-in bed.
     if (firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD) {
+      // No overlap on this path (the incoming song starts clean after the DJ), so there's
+      // nothing to beat-match - undo the AutoMix rate before the song starts.
+      if (mixRate !== null) this.resetDeckRate(toDeck)
       // Fade the outgoing song while the DJ speaks; the incoming deck stays silent (pre-buffered).
       this.ramp(this.deckKey(fromDeck), 0, 1200)
       setTimeout(() => { if (!this.stale(runId)) { try { this.deckEl(fromDeck).pause() } catch { /* noop */ } } }, 1300)
@@ -656,6 +771,8 @@ export class RadioEngine {
       if (this.stale(runId)) return
     }
     this.ramp(this.deckKey(toDeck), 1, this.fadeMs())
+    // The overlap has blended - ease the tempo nudge back to natural speed.
+    if (mixRate !== null) this.easeRateBack(toDeck, runId, this.fadeMs() + 200)
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
@@ -767,6 +884,25 @@ export class RadioEngine {
     this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
   }
 
+  /** Append a track to the end of Up Next. Splices the LIVE array (like reorderQueue)
+   *  so the running transition loop picks it up; a no-op when nothing is playing, since
+   *  there is no queue to append to yet. Used by the Family Jam host to pull the shared
+   *  queue's head into its own playback. */
+  enqueueTrack(track: QueuedTrack) {
+    const songs = this.songsRef
+    if (!songs || !this.state.active) return
+    songs.push(track)
+    this.set({ queue: songs.slice(), nextTrack: songs[this.state.index + 1] ?? null })
+  }
+
+  /** How many tracks are still queued after the current one. Lets the jam host know
+   *  when to pull the next shared item without reaching into queue internals. */
+  upNextCount(): number {
+    const songs = this.songsRef
+    if (!songs) return 0
+    return Math.max(0, songs.length - this.state.index - 1)
+  }
+
   /** Play an Up Next item NOW: pull it to the front of Up Next, then skip into it. */
   jumpTo(index: number) {
     const songs = this.songsRef
@@ -783,6 +919,10 @@ export class RadioEngine {
     for (let i = 0; i < songs.length; i++) {
       if (this.stale(runId)) return
       const cur = songs[i]!
+      // Shuffle: pick what plays after this song BEFORE the next deck is pre-cued, so the
+      // whole transition pipeline (prewarm, DJ prep, lyrics peek) targets the right track.
+      if (this.shuffleMode !== 'off') this.pickShuffleNext(songs, i)
+      if (this.shuffleMode === 'bag') this.addToBag(cur.videoId)
       const next = songs[i + 1] ?? null
       this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing', skipping: false })
 
@@ -1003,6 +1143,91 @@ export class RadioEngine {
     return Math.min(Math.max(base, sweet), Math.max(base, durationSec * 0.5))
   }
 
+  // AutoMix: when this hand-off is beat-matchable, snap the transition start to the
+  // outgoing track's beat grid (beat phase assumed from t=0; a sub-beat nudge at most)
+  // so the incoming song's downbeat lands on a beat boundary instead of mid-beat.
+  private handOffTailSec(deck: number, durationSec: number): number {
+    const tail = this.effectiveTailSec(deck, durationSec)
+    const other = deck === 0 ? 1 : 0
+    if (this.autoMixRate(deck, other) === null) return tail
+    const bpm = this.deckBpm[deck]
+    if (!bpm) return tail
+    const beat = 60 / bpm
+    const start = durationSec - tail
+    const snapped = Math.ceil(start / beat) * beat
+    if (snapped >= durationSec - Math.max(1, this.fadeMs() / 1000)) return tail
+    return durationSec - snapped
+  }
+
+  // AutoMix: persisted like crossfade/sweet-fades. Off by default - beat matching bends
+  // pitchless tempo by up to 4 percent, which some listeners will always notice.
+  private autoMix = typeof localStorage !== 'undefined' && localStorage.getItem('music.autoMix') === '1'
+  getAutoMix(): boolean { return this.autoMix }
+  setAutoMix(on: boolean) {
+    this.autoMix = on
+    try { localStorage.setItem('music.autoMix', on ? '1' : '0') } catch { /* quota */ }
+  }
+
+  // ── Shuffle modes ──────────────────────────────────────────────────────────────────
+  // 'random' swaps a random Up Next track into the next slot at every hand-off; 'bag'
+  // does the same but only from tracks that haven't played yet this cycle (the bag is
+  // persisted per station, so "no repeats until everything has played" holds across
+  // sessions). Manual queue edits still win - they happen after the pick.
+  private shuffleMode: ShuffleMode = (() => {
+    try {
+      const raw = localStorage.getItem('music.shuffleMode')
+      return raw === 'random' || raw === 'bag' ? raw : 'off'
+    } catch { return 'off' }
+  })()
+  getShuffleMode(): ShuffleMode { return this.shuffleMode }
+  setShuffleMode(mode: ShuffleMode) {
+    this.shuffleMode = mode
+    try { localStorage.setItem('music.shuffleMode', mode) } catch { /* quota */ }
+  }
+
+  private bagKey(): string {
+    const st = this.state.station
+    return `music.shuffleBag.${st?.stationId ?? st?.id ?? 'queue'}`
+  }
+  private loadBag(): Set<string> {
+    try {
+      const raw = localStorage.getItem(this.bagKey())
+      const arr = raw ? JSON.parse(raw) as unknown : []
+      return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [])
+    } catch { return new Set() }
+  }
+  private saveBag(bag: Set<string>) {
+    try { localStorage.setItem(this.bagKey(), JSON.stringify([...bag].slice(-400))) } catch { /* quota */ }
+  }
+  private addToBag(ref: string) {
+    const bag = this.loadBag()
+    bag.add(ref)
+    this.saveBag(bag)
+  }
+
+  /** Swap the shuffle-picked track into the next slot (index i+1). Runs at the top of
+   *  each playFrom iteration, before the next deck is pre-cued. */
+  private pickShuffleNext(songs: QueuedTrack[], i: number) {
+    const first = i + 1
+    const remaining = songs.length - first
+    if (remaining <= 1) return
+    let pool: number[] = []
+    if (this.shuffleMode === 'bag') {
+      const bag = this.loadBag()
+      for (let j = first; j < songs.length; j++) if (!bag.has(songs[j]!.videoId)) pool.push(j)
+      if (!pool.length) {
+        // Everything has played once - reset the cycle and shuffle the full queue again.
+        this.saveBag(new Set())
+        pool = Array.from({ length: remaining }, (_, n) => first + n)
+      }
+    } else {
+      pool = Array.from({ length: remaining }, (_, n) => first + n)
+    }
+    const j = pool[Math.floor(Math.random() * pool.length)]!
+    if (j === first) return
+    ;[songs[first], songs[j]] = [songs[j]!, songs[first]!]
+  }
+
   // Repeat-one: when on, the current song replays from the top instead of advancing to the
   // next queue entry (a manual skip still moves on). Persisted per device.
   private repeatOne = typeof localStorage !== 'undefined' && localStorage.getItem('music.repeatOne') === '1'
@@ -1096,6 +1321,12 @@ export class RadioEngine {
     if (vol > 0) this.muted = false
     this.set({ volume: vol, muted: this.muted })
     if (this.built) this.applyAll()
+  }
+
+  // Relative step for remote "volume up/down" (controller buttons, voice). Reads the
+  // engine's own master volume so callers never need the current level.
+  nudgeVolume(delta: number) {
+    this.setVolume(this.masterVol + delta)
   }
 
   toggleMute() {

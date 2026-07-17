@@ -46,6 +46,9 @@ export interface VideoItem {
   live?: boolean
   /** Short-form hint (shorts / TikTok / reels) so mixed grids can pick the 9:16 card. */
   vertical?: boolean
+  /** This user's saved playback position (getItem + Continue-watching rows), for
+   *  cross-device resume and card progress bars. */
+  watch?: { positionSec: number; completed: boolean } | null
   /** Provider extras (v.redd.it urls, permalink, uploader handle, etc.). */
   meta?: Record<string, unknown>
 }

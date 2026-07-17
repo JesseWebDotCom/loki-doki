@@ -1,6 +1,9 @@
 import type { Tool, ToolResult } from './index'
 import { getFastModel } from '@/lib/models'
 import { handleCommand, normalizeConnection } from '@/lib/homeAssistant'
+import { getNowPlaying } from '@/lib/pod/nowPlaying'
+import { pushToBrowserSession } from '@/lib/pod/browserSession'
+import { arbitrateLocalMedia } from '@/lib/homeAssistant/mediaArbitration'
 
 // Smart-home control. We do the NLP ourselves against a cached, live-synced catalog
 // of the user's Home Assistant (entities + rooms), resolve commands deterministically
@@ -41,6 +44,24 @@ const LLM_FALLBACK_FIELD = {
   default: true,
 }
 
+const COMFORT_CUES_FIELD = {
+  key: 'comfort_cues',
+  label: 'Respond to comfort cues',
+  description: 'Act on indirect hints like “it’s hot in here”, “it’s dark”, or “that’s too loud” by proposing the matching adjustment in the room you’re speaking from.',
+  type: 'boolean' as const,
+  scope: 'both' as const,
+  default: true,
+}
+
+const COMFORT_CUES_AUTO_FIELD = {
+  key: 'comfort_cues_auto',
+  label: 'Act on comfort cues without asking',
+  description: 'When on, a comfort cue adjusts the room immediately (and says what it did) instead of asking first. Never applies to locks or doors.',
+  type: 'boolean' as const,
+  scope: 'both' as const,
+  default: false,
+}
+
 export const homeAssistantTool: Tool = {
   id: 'homeAssistant',
   name: 'Home Assistant',
@@ -48,18 +69,21 @@ export const homeAssistantTool: Tool = {
   offline: false,
   dataSources: [],
   passMessage: 'text',
-  configSchema: [BASE_URL_FIELD, TOKEN_FIELD, LLM_FALLBACK_FIELD],
+  configSchema: [BASE_URL_FIELD, TOKEN_FIELD, LLM_FALLBACK_FIELD, COMFORT_CUES_FIELD, COMFORT_CUES_AUTO_FIELD],
   examples: [
     'turn off the living room lights',
     'turn on the kitchen lights',
     'dim the bedroom lights to 30%',
     'set the office lights to 50 percent',
+    'make the lights warmer',
+    'set the lights to blue',
     'turn off all the lights',
     'turn on the porch light',
     'lock the front door',
     'unlock the back door',
     'close the garage door',
     'turn on the fan',
+    'set the fan to 50 percent',
     'set the thermostat to 70',
     'set the thermostat to 72 degrees',
     'turn up the heat',
@@ -71,6 +95,11 @@ export const homeAssistantTool: Tool = {
     'turn up the volume in the den',
     'open the blinds halfway',
     'activate movie night scene',
+    // Comfort cues — indirect requests about the room the user is in.
+    "it's hot in here",
+    "it's freezing in here",
+    "it's too dark in here",
+    "that's way too loud",
     'are the office lights on',
     'is the front door locked',
     "what's on in the living room",
@@ -103,6 +132,21 @@ export const homeAssistantTool: Tool = {
     const text = String((args as { text?: unknown })?.text ?? config?.['_rawMessage'] ?? '').trim()
     if (!text) return { success: false, error: 'No home-control command was provided.' }
 
+    // Media arbitration: a bare volume/transport command ("lower the volume", "pause")
+    // with music actually playing on this user's app player controls THAT player, not a
+    // Home Assistant media_player. Naming a device/room (handled by arbitrateLocalMedia
+    // returning null, or the command reaching HA below) still targets HA.
+    const userId = String(config?.['_userId'] ?? '')
+    if (userId) {
+      const local = arbitrateLocalMedia(text)
+      if (local) {
+        const np = getNowPlaying(userId)
+        if (np?.playing && pushToBrowserSession(userId, { type: 'app_action', action: local.action })) {
+          return { success: true, data: { intent: 'control', target: 'local_player', action: local.action }, directReply: local.reply }
+        }
+      }
+    }
+
     const llmFallback = config?.['llm_fallback'] !== false
     const model = llmFallback ? await getFastModel() : undefined
 
@@ -112,6 +156,9 @@ export const homeAssistantTool: Tool = {
       userId: String(config?.['_userId'] ?? ''),
       isAdmin: config?.['_isAdmin'] === true,
       conversationId: String(config?.['_conversationId'] ?? '') || undefined,
+      originAreaId: (config?.['_originAreaId'] as string | undefined) || null,
+      comfortCues: config?.['comfort_cues'] !== false,
+      comfortCuesAuto: config?.['comfort_cues_auto'] === true,
       model,
       llmFallback,
     })

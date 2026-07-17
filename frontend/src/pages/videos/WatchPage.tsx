@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
@@ -32,7 +32,7 @@ import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getRelatedSearches, getSponsorSegments,
-  getComments, getChapters, getVotes, addSubscription, deleteSubscription,
+  getComments, getChapters, getHeatmap, getVotes, addSubscription, deleteSubscription,
   startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy, prewarmStream,
   type VideoMeta, type VideoVotes, type StreamQuality,
 } from '@/lib/youtube/api'
@@ -46,7 +46,7 @@ import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackC
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 import { useShareLink } from '@/hooks/use-share-link'
 import {
-  getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, listSaves, saveVideo, putWatchState, savedFileUrl,
+  getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, getAutoChapters, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
@@ -61,6 +61,15 @@ import { TikTokWatchPlayer } from '@/components/videos/TikTokWatchPlayer'
 import { PlayerControlBar } from '@/components/videos/PlayerControlBar'
 import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
+import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
+import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
+import { CastButton } from '@/components/videos/CastButton'
+import { StudyNotesButton } from '@/components/videos/StudyNotesButton'
+import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
+import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
+import { MomentsPanel } from '@/components/videos/MomentsPanel'
+import { CatchMeUpCard } from '@/components/videos/CatchMeUpCard'
+import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -68,7 +77,13 @@ const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
   channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
 })
 
-type SideTab = 'upnext' | 'transcript' | 'comments'
+/** The metadata snapshot sent with every hub watch-state write (feeds Continue-watching cards). */
+const watchSnapshot = (it: HubVideoItem) => ({
+  title: it.title, thumbnailUrl: it.thumbnailUrl, creatorId: it.creator?.id ?? null,
+  creatorName: it.creator?.name ?? null, durationSec: it.durationSec, isAdult: it.isAdult,
+})
+
+type SideTab = 'upnext' | 'transcript' | 'ask' | 'moments' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -106,12 +121,19 @@ export function WatchPage() {
  *  control (SegBtns, Subscribe, tab underlines, progress bars) follows the video with zero
  *  per-control edits. One of the three sanctioned dynamic-palette surfaces. No art (or a
  *  still-loading palette) simply keeps the mode accent. */
-function WatchCinema({ art, children }: { art: string | null; children: React.ReactNode }) {
+function WatchCinema({ art, ambient, children }: { art: string | null; ambient?: string | null; children: React.ReactNode }) {
   const palette = useArtPalette(art)
   return (
     <div className="relative" style={art ? videoAccentVars(palette) : undefined}>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[560px] overflow-hidden">
         <UltraBlur artUrl={art} palette={palette} scrim="light" />
+        {/* Ambient mode: a soft wash of the CURRENT frame's average color over the static
+            wallpaper, so the room glow follows the video. Only present on native playback
+            (the embed's frames aren't readable); crossfades rather than snapping. */}
+        {ambient && (
+          <div className="absolute inset-0 transition-colors duration-1000"
+            style={{ backgroundImage: `radial-gradient(120% 80% at 50% 0%, ${ambient}, transparent 70%)`, opacity: 0.45 }} />
+        )}
         {/* Dissolve the wallpaper into the layout's true black so it reads as atmosphere. */}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black" />
       </div>
@@ -210,6 +232,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   // ppos=) — autoplay then advances through the playlist's own order instead of algorithmic
   // "related" videos, and the sidebar shows the playlist queue instead of Up Next.
   const pq = usePlaylistQueue()
+  // Per-user limits (kids): noAutoplay suppresses the countdown + hides the toggle.
+  const viewFlags = useVideoViewFlags()
   // "Playing next in Ns" overlay shown instead of navigating immediately on end, so the
   // viewer gets a beat to cancel. Cleared on scrub-back/replay (see onTime/onPlaying below).
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
@@ -266,6 +290,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const { data: related = [] } = useQuery({ queryKey: ['yt-related', videoId], queryFn: () => getRelated(videoId), enabled: online && !!videoId })
   // SponsorBlock segments, auto-skipped + marked on the scrubber (online only).
   const { data: segments = [] } = useQuery({ queryKey: ['yt-sb', videoId], queryFn: () => getSponsorSegments(videoId), enabled: online && !!videoId })
+  // "Most replayed": the rewatch-intensity curve under the scrubber (online only; empty
+  // for videos YouTube has no heat data for, which hides the curve entirely).
+  const { data: heatMarkers = [] } = useQuery({ queryKey: ['yt-heatmap', videoId], queryFn: () => getHeatmap(videoId), enabled: online && !!videoId, staleTime: 60 * 60_000 })
   // Return YouTube Dislike: estimated like/dislike counts (online only).
   const { data: votes } = useQuery({ queryKey: ['yt-votes', videoId], queryFn: () => getVotes(videoId), enabled: online && !!videoId })
   // DeArrow: swap a clickbait title for the community one on the watch header too.
@@ -281,7 +308,25 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const title = da?.title || meta?.title || feedItem?.title || navState.title || 'Video'
   const author = meta?.author ?? feedItem?.author ?? navState.author ?? null
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
-  const resumeSec = (adopt != null ? adopt : meta?.positionSec) ?? 0
+  // A ?t= deep link (semantic search "jump to moment", shared timestamps) beats both the
+  // mini-player adopt and the server-saved resume position.
+  const tParam = Number(params.get('t'))
+  const resumeSec = Number.isFinite(tParam) && tParam > 0 ? Math.floor(tParam) : ((adopt != null ? adopt : meta?.positionSec) ?? 0)
+
+  // Watch Together: transport adapter over the imperative player handle plus the live
+  // position/play mirrors this page already keeps for the mini-player handoff.
+  const ytWtControls = useRef<WtPlayerControls>({
+    play: () => { if (!playingRef.current) playerRef.current?.togglePlay() },
+    pause: () => playerRef.current?.pause(),
+    seek: (sec) => playerRef.current?.seek(sec),
+    isPlaying: () => playingRef.current,
+    position: () => secRef.current,
+  })
+  const wt = useWatchTogether({
+    media: { source: 'youtube', videoId, title, thumbnailUrl: thumbUrl(videoId, 'hq') },
+    controls: ytWtControls,
+    autoJoinId: params.get('wt'),
+  })
 
   // Landing on a watch page means a full player owns playback, so stop any other audio source.
   useEffect(() => { acquireAudio('youtube'); if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -342,22 +387,37 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   // parse). When that turns up nothing, fall back to YouTube's authoritative chapter list
   // (creator-set or auto) via InnerTube, only fetched in that case, so it's cheap.
   const descChapters = useMemo(() => parseChapters(meta?.description), [meta?.description])
-  const { data: itChapters = [] } = useQuery({
+  const { data: itChapters = [], isFetched: itChaptersDone } = useQuery({
     queryKey: ['yt-chapters', videoId],
     queryFn: () => getChapters(videoId),
     enabled: online && !!videoId && !!meta && descChapters.length === 0,
   })
-  const chapters = descChapters.length ? descChapters : itChapters
+  // Last resort: derive chapters from the transcript with the local model, only for
+  // videos that genuinely have none. Commodity elsewhere (Panopto, Kaltura, Mux) and
+  // week-cached server-side, so this costs one pass per video, ever.
+  const noRealChapters = descChapters.length === 0 && itChaptersDone && itChapters.length === 0
+  const { data: aiChapterData } = useQuery({
+    queryKey: ['yt-auto-chapters', videoId],
+    queryFn: () => getAutoChapters('youtube', videoId),
+    enabled: online && !!videoId && noRealChapters,
+    staleTime: 24 * 60 * 60_000,
+  })
+  const chapters = descChapters.length ? descChapters
+    : itChapters.length ? itChapters
+    : (aiChapterData?.chapters ?? [])
 
   // Current playback second, drives the transcript's follow-along highlight.
   const [currentSec, setCurrentSec] = useState(0)
+  // Ambient mode: the live frame color the player samples (null on the embed, where the
+  // pixels aren't readable, so the backdrop keeps the thumbnail palette).
+  const [ambientColor, setAmbientColor] = useState<string | null>(null)
   const videoMeta = useMemo(() => ({
     title: meta?.title ?? feedItem?.title ?? navState.title ?? undefined,
     author, channelId: meta?.channelId ?? null, durationSec: meta?.durationSec ?? null,
   }), [meta?.title, meta?.channelId, meta?.durationSec, author, feedItem?.title, navState.title])
 
   function onEnded() {
-    if (!autoplay) return
+    if (!autoplay || viewFlags.noAutoplay) return
     if (pq.active) { if (pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC }); return }
     if (upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
@@ -400,7 +460,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   }
 
   return (
-   <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
+   <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))} ambient={ambientColor}>
     <PageContainer width="full" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
       {/* Main column: player with the vertical action rail beside it, then a calm title
@@ -421,6 +481,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               onTogglePrivacy={online ? togglePrivacy : undefined}
               onToggleAudioOnly={online ? toggleAudioOnly : undefined}
               durationHintSec={meta?.durationSec ?? null}
+              onAmbientColor={setAmbientColor}
               onNeedsProxyForPip={enablePrivacyForPip}
               autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
               onNeedsProxyForBoost={enablePrivacyForBoost}
@@ -428,6 +489,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               skipSegments={online ? segments : undefined}
               onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
               chapters={chapters}
+              heatMarkers={online ? heatMarkers : undefined}
               onTime={(s) => {
                 secRef.current = s; setCurrentSec(Math.floor(s))
                 // Scrubbing back into the video (or it simply not being at the very end
@@ -449,8 +511,13 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
       </div>
         <YoutubeActionRail videoId={videoId} title={title} author={author}
           channelId={meta?.channelId ?? null} channelThumb={channelThumb} meta={meta}
-          localKind={localKind} isShortVid={isShortVid} onMinimize={minimize} />
+          localKind={localKind} isShortVid={isShortVid} onMinimize={minimize}
+          wtSlot={<WatchTogetherPill wt={wt} />}
+          castSlot={<CastButton source="youtube" videoId={videoId} title={title} atSec={currentSec} />} />
       </div>
+
+        {/* Resuming well past the start: offer a spoiler-safe recap of what came before. */}
+        {online && resumeSec > 120 && <CatchMeUpCard source="youtube" videoId={videoId} resumeSec={resumeSec} />}
 
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} />
@@ -464,10 +531,12 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           tabs={[
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
             { key: 'transcript' as SideTab, label: 'Transcript' },
+            { key: 'ask' as SideTab, label: 'Ask' },
+            { key: 'moments' as SideTab, label: 'Moments' },
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
           active={tab} onChange={setTab}
-          action={tab === 'upnext' ? (
+          action={tab === 'upnext' && !viewFlags.noAutoplay ? (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
               Autoplay
               <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
@@ -489,6 +558,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
+          {tab === 'ask' && <AskVideoPanel source="youtube" videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} />}
+          {tab === 'moments' && <MomentsPanel source="youtube" videoId={videoId} currentSec={currentSec} onSeek={(sec) => playerRef.current?.seek(sec)} />}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
         </SidePanelShell>
       </aside>
@@ -634,7 +705,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes }:
 /** Vertical icon rail beside the player (the TikTok/Reels pattern): like, save, share,
  *  playlist and the ⋯ menu live here as unlabeled circles, so the title block keeps the
  *  full column width. Wraps to a horizontal row under the player on smaller screens. */
-function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize }: {
+function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, meta, localKind, isShortVid, onMinimize, wtSlot, castSlot }: {
   videoId: string
   title: string
   author: string | null
@@ -644,6 +715,10 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
   localKind?: 'audio' | 'video'
   isShortVid: boolean
   onMinimize: () => void
+  /** The page's Watch Together pill (state lives with the page's player, not the rail). */
+  wtSlot?: React.ReactNode
+  /** The page's cast button (needs the live position, which lives with the player). */
+  castSlot?: React.ReactNode
 }) {
   const online = !localKind
   const ui = useYoutubeUI()
@@ -699,6 +774,9 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
         className={cn(railBtn, liked && 'text-[var(--yt-accent-fg)]')}>
         <Heart className={cn('size-4', liked && 'fill-current')} />
       </Button>
+      {wtSlot}
+      {castSlot}
+      <StudyNotesButton source="youtube" videoId={videoId} />
       {!localKind && (
         <Button size="icon" onClick={saveState === 'saving' ? undefined : saveVideoOffline} disabled={saveState === 'saved'}
           title={saveState === 'saved' ? 'Saved offline' : 'Save offline: this server downloads the video so you can watch it later without streaming.'}
@@ -989,6 +1067,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // autoplay fallback for hub sources (matches today's no-queue behavior outside a playlist).
   const pq = usePlaylistQueue()
   const [autoplay, setAutoplay] = useState(true)
+  // Per-user limits (kids): noAutoplay suppresses the countdown + hides the toggle.
+  const viewFlags = useVideoViewFlags()
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
   // TikTok/Vimeo play through a cross-origin embed <iframe>, which the browser won't let us
   // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
@@ -1002,6 +1082,85 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     enabled: !!source && !!id,
   })
   const item: HubVideoItem | undefined = data?.item
+
+  // ── Cross-device resume ────────────────────────────────────────────────────────
+  // Expanding from the mini-player adopts its live position (captured once, synchronously,
+  // before clearDock below wipes it). Otherwise fall back to the server-saved watch state,
+  // written by every device on a 10s heartbeat. Completed or near-finished videos restart.
+  const [wtParams] = useSearchParams()
+  const [adopt] = useState(() => (pb.track?.source === source && pb.track?.videoId === id ? Math.floor(pb.positionSec) : null))
+  const savedPos = item?.watch && !item.watch.completed ? item.watch.positionSec : 0
+  const nearEnd = !!item?.durationSec && savedPos >= item.durationSec * 0.95
+  // A ?t= deep link (semantic search "jump to moment", shared timestamps) beats both.
+  const tParamGeneric = Number(wtParams.get('t'))
+  const resumeSec = Number.isFinite(tParamGeneric) && tParamGeneric > 0 ? Math.floor(tParamGeneric)
+    : adopt != null && adopt > 1 ? adopt : (savedPos > 5 && !nearEnd ? savedPos : 0)
+  // Applied at most once per video, on the first loadedmetadata (see the <video> below).
+  const resumeApplied = useRef(false)
+  useEffect(() => { resumeApplied.current = false }, [source, id])
+
+  // ── Watch Together ─────────────────────────────────────────────────────────────
+  // One delegating transport handle covering whichever player is live (native <video>
+  // or an embed iframe), read at call time via refs so the hook never re-wires.
+  const showEmbedRef = useRef(false)
+  const embedWtControls = useRef<WtPlayerControls | null>(null)
+  const wtControls = useRef<WtPlayerControls>({
+    play: () => { if (showEmbedRef.current) embedWtControls.current?.play(); else void videoRef.current?.play().catch(() => {}) },
+    pause: () => { if (showEmbedRef.current) embedWtControls.current?.pause(); else videoRef.current?.pause() },
+    seek: (sec) => { if (showEmbedRef.current) embedWtControls.current?.seek(sec); else if (videoRef.current) videoRef.current.currentTime = sec },
+    isPlaying: () => (showEmbedRef.current ? (embedWtControls.current?.isPlaying() ?? false) : !!videoRef.current && !videoRef.current.paused),
+    position: () => (showEmbedRef.current ? (embedWtControls.current?.position() ?? 0) : (videoRef.current?.currentTime ?? 0)),
+  })
+  const wt = useWatchTogether({
+    media: { source, videoId: id, title: item?.title ?? 'A video', thumbnailUrl: item?.thumbnailUrl ?? null },
+    controls: wtControls,
+    autoJoinId: wtParams.get('wt'),
+  })
+
+  // Kids time budget: heartbeat responses carry the gate; when the budget runs out the
+  // live player (native or embed) pauses gently, with one low-budget warning beforehand.
+  const timeLimitHit = useRef(false)
+  const timeWarned = useRef(false)
+  const applyTimeGate = useCallback((resp: { timeLimit?: { allowed: boolean; reason?: string; remainingSec: number | null } }) => {
+    const gate = resp.timeLimit
+    if (!gate) return
+    if (!gate.allowed && !timeLimitHit.current) {
+      timeLimitHit.current = true
+      wtControls.current.pause()
+      toast.info(gate.reason === 'hours' ? 'Videos are paused for now. Come back during allowed hours.' : 'Video time is up for today.')
+    } else if (gate.allowed && gate.remainingSec != null && gate.remainingSec <= 300 && !timeWarned.current) {
+      timeWarned.current = true
+      toast.info('About 5 minutes of video time left today.')
+    }
+  }, [])
+
+  // Embed players (TikTok/Vimeo online) report their position up here: the native watch-state
+  // effect below can't see inside an iframe, so this mirrors its 10s heartbeat + unmount flush.
+  const embedPos = useRef({ sec: 0, dur: 0, lastSent: 0 })
+  const itemRef = useRef(item)
+  itemRef.current = item
+  const onEmbedProgress = useCallback((sec: number, dur: number) => {
+    const s = embedPos.current
+    s.sec = sec
+    if (dur > 0) s.dur = dur
+    const now = Date.now()
+    if (now - s.lastSent < 10_000) return
+    s.lastSent = now
+    const it = itemRef.current
+    if (!it) return
+    const completed = s.dur > 0 && sec / s.dur > 0.9
+    void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).then(applyTimeGate).catch(() => {})
+  }, [source, id, applyTimeGate])
+  useEffect(() => {
+    embedPos.current = { sec: 0, dur: 0, lastSent: 0 }
+    return () => {
+      const { sec, dur } = embedPos.current
+      const it = itemRef.current
+      if (!it || sec <= 5) return
+      const completed = dur > 0 && sec / dur > 0.9
+      void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).catch(() => {})
+    }
+  }, [source, id])
 
   // Liked / Watch Later use the same cross-source collections store as YouTube - rows carry
   // videoSource so the Liked/Watch Later pages can badge and route them per source.
@@ -1031,6 +1190,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // on (user hit PiP on an embed source) we drop the iframe and stream a real <video> instead.
   const embedUrl = !localUrl && data?.playback?.mode === 'embed' ? data.playback.embedUrl : null
   const showEmbed = !!embedUrl && !pipStream
+  showEmbedRef.current = showEmbed
   const vstreamUrl = `/api/vstream/${source}/${encodeURIComponent(id)}`
   // A real <video> exists whenever we're not showing the embed (native stream/hls/file modes,
   // or the PiP stream swap) — that's what PiP can target.
@@ -1115,6 +1275,24 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   }
   const toggleNativePlay = () => { const v = videoRef.current; if (!v) return; v.paused ? void v.play().catch(() => {}) : v.pause() }
 
+  // Touch gestures on the native hub player, matching the YouTube one: double-tap the
+  // sides for ±10s, press-and-hold for 2×. Embeds keep their own chrome (TikTok/Vimeo
+  // postMessage APIs expose no rate control), so this only rides the native surface.
+  const rateBeforeHold = useRef(1)
+  const gestures = useVideoGestures({
+    seekBy: (delta) => {
+      const v = videoRef.current
+      if (!v) return
+      v.currentTime = Math.max(0, Math.min(v.currentTime + delta, v.duration || Infinity))
+    },
+    setHold: (on) => {
+      const v = videoRef.current
+      if (!v) return
+      if (on) { rateBeforeHold.current = v.playbackRate; v.playbackRate = 2 }
+      else v.playbackRate = rateBeforeHold.current
+    },
+  }, hasNativeVideo)
+
   // Advances to the playlist's next entry. There's no algorithmic "up next" for hub sources,
   // so outside a playlist context this is simply never triggered.
   function goToNext() {
@@ -1124,7 +1302,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     }
   }
   function onVideoEnded() {
-    if (autoplay && pq.active && pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
+    if (autoplay && !viewFlags.noAutoplay && pq.active && pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
   useEffect(() => {
     if (!countdown) return
@@ -1139,16 +1317,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   useEffect(() => {
     const video = videoRef.current
     if (!video || !item) return
-    const snapshot = {
-      title: item.title, thumbnailUrl: item.thumbnailUrl, creatorId: item.creator?.id ?? null,
-      creatorName: item.creator?.name ?? null, durationSec: item.durationSec, isAdult: item.isAdult,
-    }
+    const snapshot = watchSnapshot(item)
     const onTime = () => {
       const now = Date.now()
       if (now - lastSent.current < 10_000) return
       lastSent.current = now
       const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
-      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
+      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).then(applyTimeGate).catch(() => {})
     }
     video.addEventListener('timeupdate', onTime)
     return () => {
@@ -1158,7 +1333,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
       }
     }
-  }, [source, id, item])
+  }, [source, id, item, applyTimeGate])
 
   const saveMutation = useMutation({
     mutationFn: () => saveVideo(source, id, 'video'),
@@ -1221,7 +1396,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   ]
   if (capabilities?.transcript !== false) {
     tabs.push({ key: 'transcript', label: 'Transcript' })
+    tabs.push({ key: 'ask', label: 'Ask' })
   }
+  // Moments are ours, not the platform's, so every source gets them.
+  tabs.push({ key: 'moments', label: 'Moments' })
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
   return (
@@ -1239,9 +1417,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           <div className={cn('relative', !item.vertical && 'overflow-hidden rounded-card shadow-2xl')}>
             {showEmbed ? (
               source === 'vimeo' ? (
-                <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+                <VimeoWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} controlsRef={embedWtControls} />
               ) : source === 'tiktok' ? (
-                <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical} />
+                <TikTokWatchPlayer embedUrl={embedUrl!} title={item.title} vertical={!!item.vertical}
+                  resumeSec={resumeSec} onProgress={onEmbedProgress} controlsRef={embedWtControls} />
               ) : (
                 <iframe
                   src={embedUrl!}
@@ -1267,10 +1447,29 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   onPause={() => setNativePlaying(false)}
                   onDurationChange={(e) => setNativeDuration(e.currentTarget.duration || 0)}
                   onVolumeChange={(e) => setNativeMuted(e.currentTarget.muted)}
-                  onLoadedMetadata={(e) => { e.currentTarget.volume = readStoredVolume() }}
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget
+                    v.volume = readStoredVolume()
+                    // Resume once per video. The PiP swap (embed to native <video>) instead
+                    // continues from the embed's live position so the handoff feels seamless.
+                    if (!resumeApplied.current) {
+                      resumeApplied.current = true
+                      const at = pipStream ? embedPos.current.sec : resumeSec
+                      if (at > 1 && at < (v.duration || Infinity) * 0.95) v.currentTime = at
+                    }
+                  }}
                   className="size-full"
                 />
-                <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay} />
+                <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay}
+                  gestureHandlers={gestures.handlers} suppressClick={gestures.isHolding}>
+                  {gestures.indicator && (
+                    // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): transient gesture chip over the video surface
+                    <span key={gestures.indicator.id} aria-live="polite"
+                      className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 animate-in fade-in rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+                      {gestureIndicatorText(gestures.indicator)}
+                    </span>
+                  )}
+                </PlayerClickToggle>
                 <PlayerControlBar playing={nativePlaying} muted={nativeMuted}
                   position={currentSec < 0 ? 0 : currentSec} duration={nativeDuration}
                   onToggle={toggleNativePlay}
@@ -1300,6 +1499,9 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             className={cn('size-10 rounded-full bg-white/10 text-foreground/85 shadow-none hover:bg-white/15', liked && 'text-[var(--yt-accent-fg)]')}>
             <Heart className={cn('size-4', liked && 'fill-current')} />
           </Button>
+          <WatchTogetherPill wt={wt} />
+          <CastButton source={source} videoId={id} title={item.title} atSec={currentSec < 0 ? 0 : currentSec} />
+          {capabilities?.transcript !== false && <StudyNotesButton source={source} videoId={id} />}
           {/* design-ok(glass-on-plain-bg): icon rail over the UltraBlur cinema backdrop */}
           <Button size="icon" onClick={(saveMutation.isPending || saveState === 'pending' || saveState === 'downloading') ? undefined : () => saveMutation.mutate()}
             disabled={saveState === 'ready'} aria-label="Save offline"
@@ -1395,6 +1597,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                 ))}
               </div>
             </div>
+          {/* Resuming well past the start: offer a spoiler-safe recap of what came before
+              (sources with no captions answer with nothing and the card says so). */}
+          {capabilities?.transcript !== false && resumeSec > 120 && (
+            <CatchMeUpCard source={source} videoId={id} resumeSec={resumeSec} />
+          )}
           <DescriptionCard views={null} description={item.description ?? null} />
           {/* AI summary lives inline with the description it condenses, not as a rail tab. */}
           {capabilities?.transcript !== false && (
@@ -1425,7 +1632,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           (default) tab, not modules stacked under the panel. */}
       <aside className="min-w-0 xl:sticky xl:top-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col xl:self-start">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}
-          action={tab === 'upnext' && pq.active && pq.playlistId ? (
+          action={tab === 'upnext' && pq.active && pq.playlistId && !viewFlags.noAutoplay ? (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
               Autoplay
               <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
@@ -1448,6 +1655,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
+          {tab === 'ask' && <AskVideoPanel source={source} videoId={id} onSeek={seekTo} />}
+          {tab === 'moments' && <MomentsPanel source={source} videoId={id} currentSec={currentSec < 0 ? 0 : currentSec} onSeek={seekTo} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
       </aside>

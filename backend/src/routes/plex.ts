@@ -16,7 +16,10 @@ import {
   addToPlexWatchlist,
   getPlayback,
   streamPart,
+  partUrl,
 } from '@/lib/plex'
+import { detectSegmentsFromFile, getSegments, putSegments, segmentsChecked } from '@/lib/videos/mediaSegments'
+import { generateTrickplay } from '@/lib/videos/trickplay'
 import { getUserPlexConnection, isUserPlexLinked, isPlexServerConfigured, setUserPlexToken } from '@/lib/plex/account'
 import { getAudioPlayback } from '@/lib/plex/music'
 import { db } from '@/db'
@@ -137,6 +140,32 @@ plexRoute.get('/meta/:ratingKey', async (c) => {
   const { partKey: _omit, ...safe } = pb
   void _omit
   return c.json(safe)
+})
+
+// Skip intro/credits + scrubber previews for Plex playback. Both derive from the file
+// itself (ffprobe chapters / an ffmpeg keyframe pass over the authenticated part URL),
+// so they work without Plex Pass. First call for an item does the work; later calls are
+// cached (segments in the DB, the sprite sheet on disk).
+plexRoute.get('/segments/:ratingKey', async (c) => {
+  const ratingKey = c.req.param('ratingKey')
+  if (await segmentsChecked('plex', ratingKey)) return c.json({ segments: await getSegments('plex', ratingKey) })
+  const conn = await getUserPlexConnection(c.get('user').id)
+  if (!conn) return c.json({ segments: [] })
+  const pb = await getPlayback(conn, ratingKey)
+  if (!pb?.partKey) return c.json({ segments: [] })
+  const segments = await detectSegmentsFromFile(partUrl(conn, pb.partKey), pb.durationMs ? pb.durationMs / 1000 : null)
+  await putSegments('plex', ratingKey, segments)
+  return c.json({ segments })
+})
+
+plexRoute.get('/trickplay/:ratingKey', async (c) => {
+  const ratingKey = c.req.param('ratingKey')
+  const conn = await getUserPlexConnection(c.get('user').id)
+  if (!conn) return c.json({ trickplay: null })
+  const pb = await getPlayback(conn, ratingKey)
+  if (!pb?.partKey || !pb.durationMs) return c.json({ trickplay: null })
+  const info = await generateTrickplay('plex', ratingKey, partUrl(conn, pb.partKey), pb.durationMs / 1000)
+  return c.json({ trickplay: info })
 })
 
 plexRoute.get('/stream/:ratingKey', async (c) => {

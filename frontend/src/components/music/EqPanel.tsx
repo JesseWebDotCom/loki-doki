@@ -14,7 +14,7 @@ const hzLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz))
 
 export function EqPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const radio = useRadio()
-  const { dsp, setDsp, crossfadeMs, setCrossfadeMs, sweetFades, setSweetFades } = radio
+  const { dsp, setDsp, crossfadeMs, setCrossfadeMs, sweetFades, setSweetFades, autoMix, setAutoMix } = radio
 
   const setBand = (i: number, db: number) => {
     const gains = [...dsp.eqGains]
@@ -92,6 +92,13 @@ export function EqPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (
               <span className="block text-xs text-muted-foreground">Each song's loudness picks the best moment to blend in the next one</span>
             </span>
             <Switch checked={sweetFades} onCheckedChange={v => setSweetFades(v === true)} />
+          </label>
+          <label className="flex items-center justify-between text-sm">
+            <span>
+              <span className="font-medium">AutoMix</span>
+              <span className="block text-xs text-muted-foreground">Beat-matched transitions: when tempos are close, songs blend on the beat with a gentle tempo nudge</span>
+            </span>
+            <Switch checked={autoMix} onCheckedChange={v => setAutoMix(v === true)} />
           </label>
           <label className="flex items-center justify-between text-sm">
             <span>

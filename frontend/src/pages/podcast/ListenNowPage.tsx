@@ -19,6 +19,9 @@ import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { getAppByPath } from '@/lib/appCategories'
 import { proxyImg } from '@/lib/img'
+import { useFamilyAudio } from '@/hooks/useFamilyAudio'
+import { FamilyAudioBlockedCard } from '@/components/shared/FamilyAudioBlockedCard'
+import type { PodcastFeed } from '@/lib/podcast/useFeed'
 
 const CHARTS_STALE_MS = 30 * 60 * 1000
 
@@ -31,11 +34,16 @@ function hiResArt(url: string | null): string | null {
 export function ListenNowPage() {
   const { data, isLoading } = usePodcastFeed()
   const { play } = usePodcastPlayback()
+  // Family audio: allowlist-only profiles get the simplified kids lane instead of the
+  // discovery surfaces (charts, suggestions, billboard). The feed itself is already
+  // server-filtered to approved shows for these profiles.
+  const { data: family } = useFamilyAudio()
   // Same query keys as the Browse page so chart fetches are shared between the two.
   const { data: charts } = useQuery({
     queryKey: ['podcast-dir-charts', null],
     queryFn: () => getCharts(null),
     staleTime: CHARTS_STALE_MS,
+    enabled: !family?.allowlistOnly,
   })
   const genres = (charts?.genres ?? []).slice(0, 3)
   const genreCharts = useQueries({
@@ -45,6 +53,10 @@ export function ListenNowPage() {
       staleTime: CHARTS_STALE_MS,
     })),
   })
+
+  if (family?.allowlistOnly) {
+    return <KidsListenNow feed={data} isLoading={isLoading} />
+  }
 
   const cont = data ? continueListening(data.all) : []
   const fresh = data ? newEpisodes(data.all) : []
@@ -127,6 +139,7 @@ export function ListenNowPage() {
         />
       ) : (
         <>
+          <FamilyAudioBlockedCard />
           {billboardItems.length > 0 && (
             <ArtBillboard eyebrow={billboardEyebrow} items={billboardItems} />
           )}
@@ -194,6 +207,68 @@ export function ListenNowPage() {
           )}
 
           {genreSections}
+        </>
+      )}
+    </PageContainer>
+  )
+}
+
+/** Family audio: the simplified Podcasts home for allowlist-only profiles. A big
+ *  artwork grid of the parent-approved shows plus a "For you" stack of their newest
+ *  episodes; no charts, suggestions, or directory rails. */
+function KidsListenNow({ feed, isLoading }: { feed: PodcastFeed | undefined; isLoading: boolean }) {
+  const { play } = usePodcastPlayback()
+  const shows = feed?.shows ?? []
+  const cont = feed ? continueListening(feed.all) : []
+  const fresh = feed ? newEpisodes(feed.all) : []
+  return (
+    <PageContainer width="wide" className="space-y-9 py-6 pb-24">
+      <FamilyAudioBlockedCard />
+      {isLoading ? (
+        <CardGridSkeleton count={4} />
+      ) : shows.length === 0 ? (
+        <EmptyAppState
+          icon={Headphones}
+          gradient={getAppByPath('/podcasts')?.gradient}
+          title="No shows here yet"
+          tagline="Ask a parent to add some shows for you, then they will show up right here."
+        />
+      ) : (
+        <>
+          {cont.length > 0 && (
+            <section>
+              <SectionHeader title="Continue listening" className="mb-4" />
+              <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+                {cont.map(x => <ContinueCard key={x.episode.id} item={x} onPlay={() => play(toTrack(x.episode, x.show), x.episode.watchState?.positionSec ?? 0)} />)}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <SectionHeader title="Your shows" className="mb-4" />
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {shows.map(s => (
+                <Link key={s.id} to={`/podcasts/show/${s.id}`} className="group">
+                  <div className="aspect-square w-full">
+                    <ShowCover showId={s.id} title={s.name} size={320} fill className="transition group-hover:opacity-90" />
+                  </div>
+                  <p className="mt-2 truncate text-sm font-semibold">{s.name}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {fresh.length > 0 && (
+            <section>
+              <SectionHeader title="For you" className="mb-4" />
+              <div className="space-y-1">
+                {fresh.slice(0, 15).map((x, i) => (
+                  <EpisodeRow key={x.episode.id} episode={x.episode} show={x.show}
+                    playlist={{ tracks: fresh.map(f => toTrack(f.episode, f.show)), index: i }} />
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
     </PageContainer>

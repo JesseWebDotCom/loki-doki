@@ -5,18 +5,20 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { SkeletonListRows } from '@/components/shared/SkeletonBlocks'
 import { ConsentManager } from '@/components/admin/ConsentManager'
+import { NetworkProtectionPanel } from '@/components/admin/NetworkProtectionPanel'
 
 // Security admin area. One section with several views (styles / filtering /
 // privacy-mode / consent), driven by the `view` prop from the admin nav. Content
 // profiles live under Admin → Users.
 
-export type SecurityView = 'styles' | 'filtering' | 'privacy-mode' | 'consent'
+export type SecurityView = 'styles' | 'network' | 'filtering' | 'privacy-mode' | 'consent'
 
 export function AdminSecurityTab({ view }: { view?: string }) {
   const v = (view ?? 'styles') as SecurityView
   return (
     <div className="p-5">
       {v === 'styles' && <StylesPanel />}
+      {v === 'network' && <NetworkProtectionPanel />}
       {v === 'filtering' && <FilteringPanel />}
       {v === 'privacy-mode' && <PrivacyModePanel />}
       {v === 'consent' && <ConsentManager />}

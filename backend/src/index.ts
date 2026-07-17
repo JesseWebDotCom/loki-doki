@@ -82,6 +82,9 @@ import { home } from '@/routes/home'
 import { privacy } from '@/routes/privacy'
 import { adminContent } from '@/routes/adminContent'
 import { content } from '@/routes/content'
+import { familyAudio } from '@/routes/familyAudio'
+import { adminFamilyAudio } from '@/routes/adminFamilyAudio'
+import { startFamilyAudioDigestPoller } from '@/lib/family/digest'
 import { consent } from '@/routes/consent'
 import { adminLocale } from '@/routes/adminLocale'
 import { adminSpeedtest } from '@/routes/adminSpeedtest'
@@ -111,11 +114,19 @@ import { ytPlaylists } from '@/routes/ytPlaylists'
 import { ogMetaMiddleware } from '@/lib/youtube/ogMeta'
 import { clipperRoute } from '@/routes/clipper'
 import { videosRoute } from '@/routes/videos'
+import { videoRss } from '@/routes/videoRss'
 import { interestsRoute } from '@/routes/interests'
 import { videoStreamRoute } from '@/routes/videoStream'
 import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
+import { podcastPlayerRoute } from '@/routes/podcastPlayer'
+import { podcastStats } from '@/routes/podcastStats'
+import { podcastPortability } from '@/routes/podcastPortability'
+import { podcastRssOut } from '@/routes/podcastRssOut'
+import { gpodder } from '@/routes/gpodder'
+import { startScrobbleFlusher } from '@/lib/music/scrobble'
+import { podcastAiRoute } from '@/routes/podcastAi'
 import { music } from '@/routes/music'
 import { musicStudio } from '@/routes/musicStudio'
 import { musicInfo } from '@/routes/musicInfo'
@@ -128,6 +139,10 @@ import { musicLibrary } from '@/routes/musicLibrary'
 import { musicCollection } from '@/routes/musicCollection'
 import { musicMeta } from '@/routes/musicMeta'
 import { musicRails } from '@/routes/musicRails'
+import { musicIntel } from '@/routes/musicIntel'
+import { musicScrobble } from '@/routes/musicScrobble'
+import { musicImport } from '@/routes/musicImport'
+import { musicStats } from '@/routes/musicStats'
 import { adminMusicSources } from '@/routes/adminMusicSources'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
@@ -137,6 +152,13 @@ import { createRemoteRoute } from '@/routes/remote'
 import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import adminStorageLocations from '@/routes/adminStorageLocations'
+import adminBackups from '@/routes/adminBackups'
+import adminRemoteAccess from '@/routes/adminRemoteAccess'
+import routinesRoute from '@/routes/routines'
+import adminNetworkProtection from '@/routes/adminNetworkProtection'
+import mcpAdmin, { mcpPublic } from '@/routes/mcp'
+import { cast, castMedia } from '@/routes/cast'
+import { shutdownCast } from '@/lib/cast'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -191,6 +213,8 @@ import { studio as deviceStudio } from '@/routes/deviceStudio'
 // + controllerStudio.ts). Its old module still imports the dropped stream_deck_* tables,
 // so it is intentionally NOT imported here (that would crash boot).
 import { browserSessionRoute } from '@/routes/browserSession'
+import { watchTogether } from '@/routes/watchTogether'
+import { together } from '@/routes/together'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -222,9 +246,18 @@ if (firstBoot) {
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
+  import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
+  import('@/lib/routines/engine').then((m) => m.startRoutinesEngine()).catch(() => {})
+  // DNS filtering is opt-in and fail-safe: only starts if the admin enabled it, and
+  // a failed bind (needs privilege for :53) is surfaced in the admin UI, not fatal.
+  import('@/lib/dns/server').then((m) => m.startDnsServer()).catch(() => {})
   startDropSweep()
   startMediaAlertsSweep()
   startStationCoverBackfill()
+  // Weekly parent watch reports (Sunday evenings): see lib/videos/watchReport.ts.
+  import('@/lib/videos/watchReport').then((m) => m.startWeeklyWatchReports()).catch(() => {})
+  // Semantic video index backfill (recent watch history, slow-paced): semanticIndex.ts.
+  import('@/lib/videos/semanticIndex').then((m) => m.startSemanticBackfill()).catch(() => {})
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
@@ -342,6 +375,13 @@ if (firstBoot) {
   startFeedPoller()
   // Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
   startPodcastFeedPoller()
+  // Family audio: weekly parent digest (Monday morning; app_settings key gates reruns).
+  startFamilyAudioDigestPoller()
+  // AI shows on a daily schedule (e.g. the Household Daily preset): one episode per day.
+  import('@/lib/podcast/dailyScheduler').then((m) => m.startPodcastDailyScheduler()).catch(() => {})
+  // Scrobbling out: drain the listen outbox to ListenBrainz with retry/backoff. All
+  // network I/O for scrobbles lives here, never on a playback path.
+  startScrobbleFlusher()
   // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
@@ -424,6 +464,10 @@ if (firstBoot) {
 
   // Karaoke stem cache: delete prepared karaoke tracks unused for 30 days (boot + daily).
   import('@/lib/stems/karaokeCache').then((m) => m.startKaraokeCacheSweep()).catch(() => {})
+
+  // Music intelligence: daily Mixes For You + Family Blend refresh and the offline
+  // auto-cache pass (lib/music/intelJobs). Delayed past boot; per-user failures isolated.
+  import('@/lib/music/intelJobs').then((m) => m.startMusicIntelJobs()).catch(() => {})
   
   // Bookmarks capture engine + auto-update pollers all drive server-side headless Chromium
   // against third-party sites, so they only start when the Server Browser Automation feature
@@ -473,6 +517,7 @@ async function stopSidecars() {
   try { stopComfyUI() } catch { /* best-effort */ }
   try { stopSearXNG() } catch { /* best-effort */ }
   try { stopVoiceServer() } catch { /* best-effort */ }
+  try { shutdownCast() } catch { /* best-effort */ }
   // Deliberately NOT killing per-user tmux sessions here: they're meant to survive a
   // backend restart (that's the whole point of tmux-backed persistence) — only the
   // stateless PTY-attach sidecar needs to go down.
@@ -591,6 +636,9 @@ app.route('/api/pod', pod)
 app.route('/api/pod', deviceStudio)
 // app.route('/api/stream-deck', streamDeck)  // retired — see controller-layout system
 app.route('/api/browser-session', browserSessionRoute)
+app.route('/api/watch-together', watchTogether)
+// Listening Together: player presence, phone-as-remote commands, Family Jam queue.
+app.route('/api/together', together)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/notes', notesRouter)
@@ -622,6 +670,8 @@ app.route('/api/home', home)
 app.route('/api/privacy', privacy)
 app.route('/api/admin/content', adminContent)
 app.route('/api/content', content)
+app.route('/api/family-audio', familyAudio)
+app.route('/api/admin/family-audio', adminFamilyAudio)
 app.route('/api/consent', consent)
 app.route('/api/admin/locale', adminLocale)
 app.route('/api/admin/speedtest', adminSpeedtest)
@@ -657,12 +707,27 @@ app.route('/api/integrations', integrationsStatus)
 app.route('/api/features', features)
 app.route('/api/videos/studio', studioRoute)
 app.route('/api/videos', videosRoute)
+// Per-user video RSS feeds (token in the URL, no app session) — point any RSS reader at
+// /api/video-rss/<token>/... A separate mount because /api/videos requires a session.
+app.route('/api/video-rss', videoRss)
 app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
+app.route('/api/podcasts', podcastAiRoute)
+app.route('/api/podcasts', podcastPlayerRoute)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
+app.route('/api/podcasts', podcastStats)
+app.route('/api/podcasts/portability', podcastPortability)
 app.route('/api/podcasts', podcastsRoute)
+// Private RSS feeds out (token in the URL, no session) so any LAN podcatcher can
+// subscribe to a generated show or the radio recordings. See routes/podcastRssOut.ts.
+app.route('/api/podcast-rss', podcastRssOut)
+// gpodder.net-compatible sync (AntennaPod). Mounted at the ROOT because the protocol
+// fixes its paths at /api/2/* and /subscriptions/* and clients take a bare host, not a
+// path prefix. Basic-auth on every call; no /api/2 or /subscriptions app route exists
+// to collide with. See routes/gpodder.ts.
+app.route('/', gpodder)
 app.route('/api/music', music)
 app.route('/api/music/studio', musicStudio)
 app.route('/api/music/info', musicInfo)
@@ -675,6 +740,10 @@ app.route('/api/music/library', musicLibrary)
 app.route('/api/music/collection', musicCollection)
 app.route('/api/music/meta', musicMeta)
 app.route('/api/music/rails', musicRails)
+app.route('/api/music/intel', musicIntel)
+app.route('/api/music/scrobble', musicScrobble)
+app.route('/api/music/import', musicImport)
+app.route('/api/music/stats', musicStats)
 app.route('/api/admin/music', adminMusicSources)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
@@ -697,6 +766,14 @@ app.route('/api/time', time)
 app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
 app.route('/api/admin/storage-locations', adminStorageLocations)
+app.route('/api/admin/backups', adminBackups)
+app.route('/api/admin/remote-access', adminRemoteAccess)
+app.route('/api/routines', routinesRoute)
+app.route('/api/admin/network-protection', adminNetworkProtection)
+app.route('/api/admin/mcp', mcpAdmin)
+app.route('/api/mcp', mcpPublic)
+app.route('/api/cast', cast)
+app.route('/api/cast-media', castMedia)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

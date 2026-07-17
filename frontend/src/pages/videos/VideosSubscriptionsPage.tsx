@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Settings2, GalleryHorizontal, Table2 } from 'lucide-react'
+import { Settings2, GalleryHorizontal, Table2, FolderPlus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -18,8 +18,15 @@ import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import { useYtSubs, useYtFeed } from '@/lib/youtube/useData'
 import { getChannelAbout } from '@/lib/youtube/api'
-import { listFollows, getFollowingFeed, getSourceCreator, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
+import { listFollows, getFollowingFeed, getSourceCreator, listFolders, type HubVideoItem, type VideoSource } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
+import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { FolderManagerDialog } from '@/components/videos/FolderManagerDialog'
+import { PlaySomethingButton } from '@/components/videos/PlaySomethingButton'
+import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
+
+type FeedKind = 'all' | 'videos' | 'shorts' | 'live'
+const FEED_KINDS: [FeedKind, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['live', 'Live']]
 
 interface UnifiedChannel {
   id: string
@@ -46,10 +53,35 @@ export function VideosSubscriptionsPage() {
   const { data: genFeedData, isLoading: genFeedLoading } = useQuery({ queryKey: ['videos-following-feed'], queryFn: () => getFollowingFeed(), staleTime: 60_000 })
   const genItems = genFeedData?.items ?? []
 
-  const feedItems = useMemo<HubVideoItem[]>(() => {
+  // Folders (the Collections YouTube never brought back) + the type filter. Both narrow
+  // the same merged feed below; folders filter by creator, the type chips by shape.
+  const { data: foldersData } = useQuery({ queryKey: ['videos-folders'], queryFn: listFolders, staleTime: 60_000 })
+  const folders = foldersData?.folders ?? []
+  const [folderId, setFolderId] = useState<string | null>(null)
+  const [kind, setKind] = useState<FeedKind>('all')
+  const [manageOpen, setManageOpen] = useState(false)
+  const { noShorts } = useVideoViewFlags()
+
+  const allFeedItems = useMemo<HubVideoItem[]>(() => {
     const items = [...ytItems.map(ytItemToHub), ...genItems]
     return items.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
   }, [ytItems, genItems])
+
+  const activeFolder = folders.find((f) => f.id === folderId) ?? null
+  const feedItems = useMemo(() => {
+    let items = allFeedItems
+    if (activeFolder) {
+      const keys = new Set(activeFolder.members.map((m) => `${m.source}:${m.externalId.toLowerCase()}`))
+      items = items.filter((i) => i.creator?.id && keys.has(`${i.source}:${i.creator.id.toLowerCase()}`))
+    }
+    // A hub item is "short" when the provider flagged it vertical (TikTok, Shorts, Reels).
+    if (kind === 'videos') items = items.filter((i) => !i.vertical)
+    else if (kind === 'shorts') items = items.filter((i) => i.vertical)
+    else if (kind === 'live') items = items.filter((i) => i.live)
+    // The per-user "no Shorts" limit wins over the chip selection.
+    if (noShorts) items = items.filter((i) => !i.vertical)
+    return items
+  }, [allFeedItems, activeFolder, kind, noShorts])
 
   const channels = useMemo<UnifiedChannel[]>(() => {
     const yt: UnifiedChannel[] = subs.map((s) => ({
@@ -79,9 +111,12 @@ export function VideosSubscriptionsPage() {
         subtitle={channels.length > 0 ? `${channels.length} ${channels.length === 1 ? 'channel' : 'channels'} across ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'}` : undefined}
         className="pt-6 pb-5"
         actions={
-          <Button asChild variant="outline" className="shrink-0 gap-2 text-muted-foreground hover:text-foreground">
-            <Link to="/videos/settings/channels"><Settings2 className="size-4" /> Manage</Link>
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <PlaySomethingButton />
+            <Button asChild variant="outline" className="gap-2 text-muted-foreground hover:text-foreground">
+              <Link to="/videos/settings/channels"><Settings2 className="size-4" /> Manage</Link>
+            </Button>
+          </div>
         } />
 
       {channels.length > 0 && (
@@ -103,6 +138,27 @@ export function VideosSubscriptionsPage() {
         </section>
       )}
 
+      {/* One scrolling chip line (mobile contract): folders first, then the type filter. */}
+      {channels.length > 0 && (
+        <div className="mb-4 flex items-center gap-3">
+          <ChipRow className="mb-0 min-w-0 flex-1">
+            <Chip label="All channels" active={folderId === null} onClick={() => setFolderId(null)} />
+            {folders.map((f) => (
+              <Chip key={f.id} label={f.name} active={folderId === f.id}
+                onClick={() => setFolderId(folderId === f.id ? null : f.id)} />
+            ))}
+            <button onClick={() => setManageOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-foreground/8 px-3 py-1.5 text-sm text-muted-foreground transition hover:text-foreground">
+              <FolderPlus className="size-3.5" /> {folders.length === 0 ? 'New folder' : 'Edit folders'}
+            </button>
+            <div aria-hidden className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
+            {FEED_KINDS.filter(([k]) => !(noShorts && k === 'shorts')).map(([k, label]) => (
+              <Chip key={k} label={label} active={kind === k} onClick={() => setKind(k)} />
+            ))}
+          </ChipRow>
+        </div>
+      )}
+
       {loading ? (
         <SkeletonCards count={8} className="xl:grid-cols-4" />
       ) : feedItems.length === 0 ? (
@@ -111,12 +167,14 @@ export function VideosSubscriptionsPage() {
             <>You haven't subscribed to any channels yet.{' '}
               <Link to="/videos/settings/channels" className="font-semibold text-[var(--yt-accent-fg)] hover:underline">Add some</Link>
               {' '}to build your feed.</>
-          ) : 'No recent uploads from your subscriptions.'}
+          ) : activeFolder || kind !== 'all'
+            ? 'Nothing here with those filters.'
+            : 'No recent uploads from your subscriptions.'}
         </Card>
       ) : (
         <section>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <SectionHeader title="Latest" className="mb-0" />
+            <SectionHeader title={activeFolder ? activeFolder.name : 'Latest'} className="mb-0" />
             <ViewToggle value={view} onChange={setView} className="shrink-0" />
           </div>
           <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
@@ -128,6 +186,9 @@ export function VideosSubscriptionsPage() {
           </div>
         </section>
       )}
+
+      <FolderManagerDialog open={manageOpen} onOpenChange={setManageOpen}
+        channels={channels.map((c) => ({ source: c.source, externalId: c.externalId, title: c.title, thumbnailUrl: c.thumbnailUrl }))} />
     </PageContainer>
   )
 }

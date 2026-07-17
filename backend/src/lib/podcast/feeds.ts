@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { podcastDownloads, podcastEpisodes, podcastShows, podcastSubscriptions, podcastWatchState } from '@/db/schema'
 import { parsePodcastFeed } from '@/lib/podcast/rss'
+import { logSubscriptionChange } from '@/lib/podcast/gpodderStore'
 import { safeFetch } from '@/lib/ssrfGuard'
 import { logger } from '@/lib/logger'
 
@@ -89,6 +90,7 @@ export async function subscribeToFeed(
     await db.insert(podcastSubscriptions).values({
       id: crypto.randomUUID(), userId, showId: existing.id, addedAt: new Date(),
     }).onConflictDoNothing()
+    await logSubscriptionChange(userId, normalized, 'subscribe').catch(() => {})
     return { showId: existing.id, created: false }
   }
 
@@ -117,6 +119,8 @@ export async function subscribeToFeed(
     link: parsed.link ?? null,
     categoriesJson: JSON.stringify(parsed.categories.length ? parsed.categories : (seed?.genre ? [seed.genre] : [])),
     explicit: parsed.explicit,
+    personsJson: parsed.persons.length ? JSON.stringify(parsed.persons) : null,
+    fundingJson: parsed.funding.length ? JSON.stringify(parsed.funding) : null,
     feedEtag: fetched.etag, feedLastModified: fetched.lastModified, feedFetchedAt: now,
     createdAt: now,
   })
@@ -124,6 +128,7 @@ export async function subscribeToFeed(
   await db.insert(podcastSubscriptions).values({
     id: crypto.randomUUID(), userId, showId, addedAt: now,
   })
+  await logSubscriptionChange(userId, normalized, 'subscribe').catch(() => {})
   logger.info(`[podcast-rss] subscribed: "${name}" (${backlog.length} of ${parsed.episodes.length} episodes)`)
   return { showId, created: true }
 }
@@ -153,6 +158,11 @@ async function insertEpisodes(showId: string, episodes: ParsedEpisodes): Promise
       imageUrl: e.imageUrl, link: e.link,
       publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
       explicit: e.explicit,
+      chaptersUrl: e.chaptersUrl,
+      personsJson: e.persons.length ? JSON.stringify(e.persons) : null,
+      soundbitesJson: e.soundbites.length ? JSON.stringify(e.soundbites) : null,
+      transcriptUrl: e.transcriptUrl,
+      transcriptType: e.transcriptType,
       createdAt: now,
     }))).onConflictDoNothing()
   }
@@ -200,6 +210,8 @@ export async function refreshPodcastFeed(showId: string): Promise<number> {
         artworkUrl: parsed.imageUrl || show.artworkUrl,
         author: parsed.author || show.author,
         link: parsed.link ?? show.link,
+        personsJson: parsed.persons.length ? JSON.stringify(parsed.persons) : show.personsJson,
+        fundingJson: parsed.funding.length ? JSON.stringify(parsed.funding) : show.fundingJson,
         feedEtag: fetched.etag ?? show.feedEtag,
         feedLastModified: fetched.lastModified ?? show.feedLastModified,
         feedFetchedAt: now, feedError: null,
@@ -213,8 +225,31 @@ export async function refreshPodcastFeed(showId: string): Promise<number> {
   }
 
   await runAutoDownloadPass(showId).catch(err => logger.warn(`[podcast-rss] auto-download pass failed for ${showId}: ${err}`))
-  if (added > 0) logger.info(`[podcast-rss] +${added} episode(s) for "${show.name}"`)
+  if (added > 0) {
+    logger.info(`[podcast-rss] +${added} episode(s) for "${show.name}"`)
+    await runAutoTranscribePass(showId, added).catch(err => logger.warn(`[podcast-rss] auto-transcribe pass failed for ${showId}: ${err}`))
+  }
   return added
+}
+
+/** When any subscriber opted into auto-transcribe, queue Whisper jobs for the freshly
+ *  landed episodes (newest first, small cap per refresh so a backlog import doesn't
+ *  swamp the compute lane). Episodes with a feed transcript resolve from the URL at
+ *  first open instead, so only URL-less ones get a Whisper job. */
+export async function runAutoTranscribePass(showId: string, added: number): Promise<void> {
+  const subs = await db.select({ userId: podcastSubscriptions.userId }).from(podcastSubscriptions)
+    .where(and(eq(podcastSubscriptions.showId, showId), eq(podcastSubscriptions.autoTranscribe, true)))
+  if (!subs.length) return
+  const fresh = await db.select({ id: podcastEpisodes.id, transcriptUrl: podcastEpisodes.transcriptUrl })
+    .from(podcastEpisodes)
+    .where(eq(podcastEpisodes.showId, showId))
+    .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
+    .limit(Math.min(Math.max(added, 1), 3))
+  const { enqueueEpisodeTranscription } = await import('@/lib/podcast/transcribe')
+  for (const ep of fresh) {
+    if (ep.transcriptUrl) continue
+    await enqueueEpisodeTranscription(ep.id, null).catch(() => {})
+  }
 }
 
 /** For every auto-download subscriber of this show: enqueue the newest-N episodes they
@@ -261,6 +296,11 @@ export async function runAutoDownloadPass(showId: string): Promise<void> {
  *  refs → gcSweep reclaims blobs); otherwise the show survives and ownership transfers
  *  off the leaver so their account deletion can never cascade the household's show away. */
 export async function unsubscribe(userId: string, showId: string): Promise<void> {
+  // Tombstone for gpodder sync BEFORE anything cascades the feedUrl away.
+  const [forLog] = await db.select({ feedUrl: podcastShows.feedUrl }).from(podcastShows)
+    .where(eq(podcastShows.id, showId)).limit(1)
+  if (forLog?.feedUrl) await logSubscriptionChange(userId, forLog.feedUrl, 'unsubscribe').catch(() => {})
+
   await db.delete(podcastSubscriptions)
     .where(and(eq(podcastSubscriptions.userId, userId), eq(podcastSubscriptions.showId, showId)))
   // Their download refs go too — keeping refs without membership would pin blobs forever.

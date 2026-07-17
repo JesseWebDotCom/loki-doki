@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  X, Plus, Minus, Globe, RefreshCw, BookOpen, Users, Mic, BarChart2, Sparkles, Trash2, Lock,
+  X, Plus, Minus, Globe, RefreshCw, BookOpen, Users, Mic, BarChart2, Sparkles, Trash2, Lock, Sunrise, ChevronRight,
   type LucideIcon,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -15,7 +15,7 @@ import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { CoverPicker } from '@/components/podcast/CoverPicker'
 import { StingerPicker } from '@/components/podcast/StingerPicker'
 import {
-  createShow, updateShow, deleteShow, saveCover, saveStinger, getHostCharacters, generateShowDescription,
+  createShow, updateShow, deleteShow, saveCover, saveStinger, getHostCharacters, generateShowDescription, generateEpisode,
   type Show, type PodcastStyle, type ShowSegment, type ShowHost,
 } from '@/lib/podcast/api'
 import type { StingerSelection } from '@/lib/podcast/stinger'
@@ -51,7 +51,7 @@ const STYLES: { id: PodcastStyle; label: string; icon: LucideIcon }[] = [
   { id: 'story', label: 'Story', icon: Sparkles },
 ]
 
-const SEGMENT_TYPES = ['youtube', 'news', 'sports', 'weather', 'onThisDay', 'bookmarks', 'custom']
+const SEGMENT_TYPES = ['youtube', 'news', 'sports', 'weather', 'onThisDay', 'bookmarks', 'household', 'custom']
 
 // Auto-description building blocks.
 const STYLE_VERB: Record<PodcastStyle, string> = {
@@ -70,7 +70,7 @@ const STYLE_CLOSER: Record<PodcastStyle, string> = {
 const SEGMENT_TOPIC: Record<string, string> = {
   youtube: 'the latest from your subscriptions', news: 'the day’s news', sports: 'sports',
   weather: 'the weather', onThisDay: 'this day in history', custom: 'hand-picked topics',
-  bookmarks: 'the articles you saved this week',
+  bookmarks: 'the articles you saved this week', household: 'what’s happening around the house',
 }
 function joinNames(list: string[]): string {
   if (list.length <= 1) return list[0] ?? ''
@@ -258,6 +258,42 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
     }
   }
 
+  // One-click "Household Daily" preset: a shared family morning show (weather, news, on
+  // this day, household updates) with daily auto-generation, plus today's first episode
+  // kicked off immediately.
+  async function handleHouseholdPreset() {
+    if (saving) return
+    setSaving(true)
+    try {
+      const show = await createShow({
+        name: 'The Household Daily',
+        description: 'Your family’s private morning show: the weather, the day’s news, this day in history, and what’s happening around the house.',
+        style: 'briefing',
+        segments: [
+          { type: 'weather', label: 'Weather' },
+          { type: 'news', label: 'News' },
+          { type: 'onThisDay', label: 'On This Day' },
+          { type: 'household', label: 'Around the House' },
+        ],
+        hosts,
+        visibility: 'shared',
+        autoGenerate: true,
+        schedule: { cadence: 'daily', hour: 6 },
+      })
+      if (show?.id) {
+        try { await generateEpisode(show.id) } catch { /* the daily scheduler covers tomorrow */ }
+      }
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+      toast.success('The Household Daily is set up. Today’s episode is generating; a fresh one arrives every morning.')
+      onClose()
+      if (show?.id) navigate(`/podcasts/show/${show.id}`)
+    } catch {
+      toast.error('Could not create the show')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function handleDelete() {
     if (!initial?.id) return
     setSaving(true)
@@ -285,6 +321,23 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
         </DialogHeader>
 
         <div className="grid max-h-[calc(88vh-9rem)] grid-cols-1 gap-6 overflow-y-auto p-5 md:grid-cols-2">
+          {/* One-click preset: only when starting a fresh, non-YouTube show. */}
+          {!initial?.id && !ytCreate && (
+            <button type="button" onClick={() => void handleHouseholdPreset()} disabled={saving}
+              className="group flex items-center gap-3 rounded-card border border-brand/30 bg-brand/5 p-3.5 text-left transition-colors hover:border-brand/60 hover:bg-brand/10 disabled:opacity-60 md:col-span-2">
+              <span className="grid size-10 shrink-0 place-items-center rounded-control bg-brand/15 text-brand">
+                <Sunrise className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold">The Household Daily</span>
+                <span className="block text-xs text-muted-foreground">
+                  One tap: a shared family morning show with the weather, the news, this day in history, and your household’s own updates. A new episode every morning, automatically.
+                </span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
+          )}
+
           {/* Left: details */}
           <div className="space-y-4">
             <Field label="Show Title">

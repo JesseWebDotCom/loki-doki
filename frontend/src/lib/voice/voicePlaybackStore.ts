@@ -44,6 +44,13 @@ export function stopSpeech(): void {
   getVoicePlayback().stop()
 }
 
+/** Client-side pitch-shift (semitones, ±12) for all future speech; the current
+ *  user's personal preference for the active companion (design: keen-percolating-
+ *  swan). 0 = no shift. */
+export function setVoicePitch(semitones: number): void {
+  getVoicePlayback().setPitch(semitones)
+}
+
 export function pauseSpeech(): Promise<void> {
   return getVoicePlayback().pause()
 }

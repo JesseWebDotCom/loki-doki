@@ -14,14 +14,14 @@ import { onWakeDetected } from '@/lib/voice/wake-word-events'
 // ── Kokoro voice picker (per-character + app default) ────────────────────────
 interface KokoroVoice { id: string; name: string; language?: string; gender?: string }
 
-export function VoicePicker({ value, onChange, previewName }: { value: string; onChange: (v: string) => void; previewName?: string }) {
+export function VoicePicker({ value, onChange, previewName, voicesEndpoint = '/api/admin/voice/voices' }: { value: string; onChange: (v: string) => void; previewName?: string; /** Design: keen-percolating-swan. The end-user voice-customization sheet passes '/api/voice/voices' (requireAuth) instead of the admin-only default. */ voicesEndpoint?: string }) {
   const [voices, setVoices] = useState<KokoroVoice[]>([])
   useEffect(() => {
-    fetch('/api/admin/voice/voices', { credentials: 'include' })
+    fetch(voicesEndpoint, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : { voices: [] }))
       .then((d: { voices: KokoroVoice[] }) => setVoices(d.voices ?? []))
       .catch(() => {})
-  }, [])
+  }, [voicesEndpoint])
 
   // Group by language; build qualified `kokoro:<id>` values. First group = default.
   const byLang = new Map<string, KokoroVoice[]>()

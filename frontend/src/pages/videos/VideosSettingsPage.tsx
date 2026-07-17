@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server, ArrowLeftRight } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
@@ -12,6 +12,7 @@ import { SettingsVideoTitles } from '@/components/settings/SettingsVideoTitles'
 import { SettingsVideoFollows } from '@/components/settings/SettingsVideoFollows'
 import { SettingsVideosQuality } from '@/components/settings/SettingsVideosQuality'
 import { SettingsVideosPlexSync } from '@/components/settings/SettingsVideosPlexSync'
+import { SettingsVideosPortability } from '@/components/videos/SettingsVideosPortability'
 import { CompanionAbilitiesCard } from '@/components/shared/CompanionAbilitiesCard'
 import { ToolConfigFields } from '@/components/shared/ToolConfigFields'
 import { AdminYoutubeLimitsSection } from '@/components/admin/AdminYoutubeLimitsSection'
@@ -45,6 +46,7 @@ const SECTIONS: AppSettingsSection[] = [
     ),
   },
   { id: 'plex-sync',    label: 'Plex sync',           icon: Server,      group: 'Library', content: <SettingsVideosPlexSync /> },
+  { id: 'portability',  label: 'Import & export',     icon: ArrowLeftRight, group: 'Library', content: <SettingsVideosPortability /> },
   { id: 'auto-skip',    label: 'Auto-skip',           icon: SkipForward, group: 'YouTube', content: <SettingsYoutubeAutoSkip /> },
   { id: 'titles',       label: 'Titles & thumbnails', icon: Wand2,       group: 'YouTube', content: <SettingsYoutubeTitlesThumbnails /> },
   { id: 'descriptions', label: 'Descriptions',        icon: FileText,    group: 'YouTube', content: <SettingsYoutubeDescriptions /> },

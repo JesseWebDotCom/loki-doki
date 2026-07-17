@@ -19,7 +19,7 @@ import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { serveYtRecommended } from '@/lib/interests/videos'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
@@ -35,6 +35,10 @@ import {
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
+import { getVideoViewFlags } from '@/lib/videos/viewFlags'
+import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
+import { ensureVideoIndexed } from '@/lib/videos/semanticIndex'
+import { TRANSLATE_LANGUAGES, languageLabel, translateVtt } from '@/lib/videos/translate'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
@@ -1002,7 +1006,20 @@ youtubeRoute.get('/transcript/:videoId', async (c) => {
   if (!absPath || !existsSync(absPath)) return c.json({ error: 'No transcript' }, 404)
 
   const vtt = await readFile(absPath, 'utf-8')
+  // ?lang=<code> serves the same cues translated, so the family can watch anything in
+  // their language. Timing is untouched, so it stays in sync with no alignment work.
+  // A translation failure falls back to the original rather than an empty track.
+  const lang = c.req.query('lang')
+  if (lang && languageLabel(lang)) {
+    const translated = await translateVtt(vtt, lang, videoId)
+    if (translated) return c.text(translated, 200, { 'Content-Type': 'text/vtt' })
+  }
   return c.text(vtt, 200, { 'Content-Type': 'text/vtt' })
+})
+
+// The languages we can translate captions into (the picker's source of truth).
+youtubeRoute.get('/translate-languages', (c) => {
+  return c.json({ languages: TRANSLATE_LANGUAGES })
 })
 
 // Cleaned, plain-text transcript for the "Read transcript" modal. Fetches captions
@@ -1050,6 +1067,18 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       creator: gate.channelId ? { id: gate.channelId, name: gate.author ?? '' } : null,
     }))) {
       return c.json({ error: 'not available' }, 403)
+    }
+  }
+
+  // Time budget gate: watch start is refused (with a friendly reason) once today's video
+  // minutes are used up or outside the allowed hours. Metering lives on the heartbeats.
+  {
+    const timeGate = await checkVideoTime(user.id)
+    if (!timeGate.allowed) {
+      return c.json({
+        error: timeGate.reason === 'hours' ? 'Videos are paused right now. Try again during allowed hours.' : 'Video time is used up for today.',
+        code: 'time_limit',
+      }, 403)
     }
   }
 
@@ -1552,6 +1581,16 @@ youtubeRoute.get('/chapters/:videoId', async (c) => {
   return c.json({ chapters })
 })
 
+// Most-replayed heatmap: the rewatch-intensity curve drawn under the scrubber. Rides the
+// same `next` response as chapters, so it's cached for a day (heat data moves slowly and
+// a cold call costs a full InnerTube round trip). Empty for videos with no heat data.
+youtubeRoute.get('/heatmap/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const markers = await cachedLookup('youtube:heatmap', videoId, 24 * 60 * 60_000, () =>
+    tryInnertube('heatmap', () => innertubeHeatmap(videoId), []))
+  return c.json({ markers: markers ?? [] })
+})
+
 // Return YouTube Dislike — estimated like/dislike counts, proxied server-side.
 youtubeRoute.get('/votes/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
@@ -1574,6 +1613,9 @@ youtubeRoute.get('/playlist/:playlistId', async (c) => {
 // the newest watches → subscription uploads → popular.
 youtubeRoute.get('/recommended', async (c) => {
   const user = c.get('user')
+
+  // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
+  if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ videos: [], building: false })
 
   const suggested = await serveYtRecommended(user.id, 24)
   if (!suggested.building && suggested.videos.length) {
@@ -2194,7 +2236,16 @@ youtubeRoute.post('/watch-state', async (c) => {
     set: { positionSec, completed, origin, updatedAt: now },
   })
 
-  return c.json({ ok: true })
+  // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
+  // response tells the player when the budget runs out so it can wind down mid-video.
+  recordWatchBeat(user.id)
+  // Watched videos join the semantic search index organically (fire and forget).
+  ensureVideoIndexed('youtube', videoId, {
+    userId: user.id, userFirstName: user.firstName,
+    title: body.title ?? null, creatorName: body.author ?? null,
+  })
+  const timeGate = await checkVideoTime(user.id)
+  return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
 })
 
 export { youtubeRoute }

@@ -16,7 +16,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { userPreferences, chatDocuments, characters } from '@/db/schema'
-import { routePrompt, type RouteResult } from '@/llm/router'
+import { routePrompt, replanAfterDeadEnd, type RouteResult } from '@/llm/router'
 import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildBlock, extractSources } from '@/lib/blockBuilder'
@@ -26,7 +26,7 @@ import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
 import { embed } from '@/llm/embed'
 import { buildInteractionFragment, ProfanityStreamBuffer, getProtections, getInteractionStyle } from '@/lib/protections'
 import { resolveToolConfig, getAllowedToolIds } from '@/lib/toolConfig'
-import { toolRegistry } from '@/tools'
+import { toolRegistry, type Tool } from '@/tools'
 import {
   isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext,
 } from '@/lib/homeAssistant/context'
@@ -45,7 +45,8 @@ import { getModel, getFastModel } from '@/lib/models'
 import { maybeStageLearnedAnswer, type LearnCandidate } from '@/lib/notes/learnedAnswer'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
-import { appendVersion as appendArtifactVersion } from '@/lib/artifacts/store'
+import { presentationPolicyFor, verbosityFragment } from '@/lib/presentationPrompt'
+import { appendVersion as appendArtifactVersion, createArtifact } from '@/lib/artifacts/store'
 import type { OpenArtifactDirective } from '@/tools'
 import { logger } from '@/lib/logger'
 
@@ -58,7 +59,43 @@ const activePrimes = new Map<string, () => void>()
 // Structured side-channel events (mirror the chat route's SSE taxonomy). Data is
 // pre-stringified so the chat route can forward it to the wire verbatim; the Pod
 // ignores these.
-export type CompanionTurnEvent = 'routing' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error' | 'directive' | 'artifact_token' | 'artifact_done'
+// `status` is the companion-facing processing signal (Phase 2): a wordless "what
+// am I doing right now" cue — `working`/`searching` while a tool runs, cleared when
+// the reply starts. Distinct from `routing` (which drives the chat-side per-tool
+// text labels); the two are emitted together. Consumers that don't recognize it
+// (the chat stream) ignore it harmlessly.
+// `spoken_cue` is the ONE line the companion may say about its own processing, and
+// only on a genuine change of approach (see replanCue). Chat ignores it; voice
+// surfaces speak it once.
+export type CompanionTurnEvent = 'routing' | 'status' | 'spoken_cue' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error' | 'directive' | 'artifact_token' | 'artifact_done'
+
+// Processing phases surfaced through the `status` event. Kept deliberately small:
+// the companion shows an ambient, wordless "working" state — it never narrates the
+// task ("checking the weather"), which reads as robotic.
+export type CompanionStatusPhase = 'working' | 'searching' | 'retrying'
+
+function statusPhaseFor(toolId: string): CompanionStatusPhase {
+  return toolId === 'search' ? 'searching' : 'working'
+}
+
+// The ONLY thing the companion ever says about its own processing — and only when
+// it genuinely changed approach after a dead end. These are deliberately
+// content-free continuers, NOT task announcements ("Checking the weather…"):
+// announcing the task is what makes an assistant feel like a phone tree, while
+// reconsidering out loud is what a person actually does. Rotated per conversation
+// so it never repeats back-to-back, and emitted at most once per turn.
+const REPLAN_CUES = [
+  'Hmm, let me try that a different way.',
+  'That came up empty — one sec.',
+  'Hold on, let me look at this from another angle.',
+  'Hmm, one second.',
+]
+
+function replanCue(convId: string): string {
+  let h = 0
+  for (let i = 0; i < convId.length; i++) h = (h * 31 + convId.charCodeAt(i)) >>> 0
+  return REPLAN_CUES[h % REPLAN_CUES.length]!
+}
 
 export interface CompanionTurnParams {
   userId: string
@@ -77,6 +114,10 @@ export interface CompanionTurnParams {
   clientTz?: string | null
   /** Used as the per-conversation memory-cache key and the tool `_conversationId`. */
   convId: string
+  /** HA area id of the device that produced this turn (a bound pod/dock), if any.
+   *  Injected into the Home Assistant tool as the origin room for "here" and to break
+   *  bare-domain ambiguity ("turn off the lights" → this room's lights). */
+  originAreaId?: string | null
   /** Prior turns (already token-trimmed by the caller). */
   history: OllamaChatMessage[]
   /** Rolling summary of conversation content OLDER than `history` — injected when
@@ -412,6 +453,12 @@ export async function runCompanionTurn(
     if (canvasTool) { tool = canvasTool; args = { editArtifactId: p.focusedArtifact.id, instruction: p.message } }
   }
 
+  // Per-message length nudge (Phase 3): the router already classified this message,
+  // so `tool` is final here (after all the follow-up overrides above). A prompt hint
+  // only — num_predict stays a ceiling. Captured now so the speculative KV prime and
+  // the real prompt build the identical system prefix.
+  const verbosityHint = verbosityFragment({ ...routeResult, tool, args }, p.message, p.surface)
+
   const hasClientCoords = typeof p.clientLat === 'number' && typeof p.clientLng === 'number'
   // Prime mode sends history WITHOUT a trailing user message — an empty user turn
   // would render template tokens the real turn's prompt doesn't share.
@@ -503,6 +550,7 @@ export async function runCompanionTurn(
     cfg['_isAdmin'] = p.userRole === 'admin'
     cfg['_rawMessage'] = p.message
     cfg['_conversationId'] = p.convId
+    if (p.originAreaId) cfg['_originAreaId'] = p.originAreaId
     cfg['_temperature_unit'] = p.locale.temperature
     cfg['_measurement'] = p.locale.measurement
     cfg['_currency'] = p.locale.currency
@@ -520,6 +568,55 @@ export async function runCompanionTurn(
     return cfg
   }
 
+  // ── Re-plan (Phase 4) ───────────────────────────────────────────────────────
+  // One extra hop out of a dead end, never more. Skipped on primes and on
+  // multi-intent turns (a compound command's failure is better explained than
+  // silently re-attempted). Returns null whenever the second attempt is no better
+  // than the first, so the caller falls back to the honest "found nothing" fold.
+  let replanUsed = false
+  const tryReplan = async (
+    deadTool: Tool,
+    deadArgs: unknown,
+    outcome: 'empty' | 'error',
+  ): Promise<{ tool: Tool; args: unknown; result: import('@/tools').ToolResult } | null> => {
+    if (replanUsed || p.primeOnly || extraCalls.length > 0) return null
+    replanUsed = true
+
+    // Deferred tool loading, in miniature: a re-plan is either "same tool, better
+    // query" or "fall back to the web", so only those two schemas are loaded — the
+    // router model stays near its latency floor instead of reading 57 definitions.
+    const searchTool = toolRegistry.find((t) => t.id === 'search')
+    const candidates = [deadTool, ...(searchTool && searchTool.id !== deadTool.id ? [searchTool] : [])]
+      .filter((t) => allowedToolIds.has(t.id) && (t.offline || !offlineMode))
+    if (candidates.length === 0) return null
+
+    emitEvent('status', JSON.stringify({ phase: 'retrying', toolId: deadTool.id }))
+    emitEvent('spoken_cue', JSON.stringify({ text: replanCue(p.convId) }))
+
+    const r = await replanAfterDeadEnd(
+      p.model,
+      p.message,
+      history,
+      { toolName: deadTool.name, args: deadArgs, outcome },
+      candidates,
+      p.options['num_ctx'] as number | undefined,
+    )
+    if (!r.tool) return null
+
+    let res: import('@/tools').ToolResult
+    try {
+      res = await r.tool.execute(r.args, await buildToolConfig(r.tool.id))
+    } catch (err) {
+      logger.warn(`[companion-turn] replan tool ${r.tool.id} threw: ${err}`)
+      return null
+    }
+    _lap(`replan-tool-done(${r.tool.id})`)
+    // A second dead end → stop. Two failures is a real "I couldn't find it", and
+    // the original fold says so honestly rather than looping.
+    if (!res.success || res.offline || isEmptyResult(res.data)) return null
+    return { tool: r.tool, args: r.args, result: res }
+  }
+
   // The best route was a tool this user is denied — say so instead of silently
   // answering a live question (e.g. weather) from stale model memory.
   if (!tool && routeResult.deniedToolId) {
@@ -532,6 +629,9 @@ export async function runCompanionTurn(
 
   if (tool) {
     emitEvent('routing', JSON.stringify({ tool: tool.id }))
+    // Companion-facing wordless "I'm on it" cue — shown while the tool runs, so a
+    // voice/overlay turn looks actively engaged instead of idly "thinking".
+    emitEvent('status', JSON.stringify({ phase: statusPhaseFor(tool.id), toolId: tool.id }))
 
     if (!tool.offline && offlineMode) {
       emitEvent('offline', JSON.stringify({ tool: tool.id }))
@@ -554,6 +654,23 @@ export async function runCompanionTurn(
         result = { success: false, error: String(err) }
       }
       _lap(`tool-execute-done(${tool.id})`)
+
+      // ── Bounded re-plan: observe → re-plan, ONE hop, dead ends only ──────────
+      // A successful tool call never reaches this, so the happy path keeps its
+      // current latency exactly. Only a genuine dead end (no results / an error)
+      // buys a second attempt — which is also the only moment the companion has
+      // something honest to say about its own thinking (see replanCue).
+      const deadEnd = !result.offline && (!result.success || isEmptyResult(result.data))
+      if (deadEnd) {
+        const rp = await tryReplan(tool, args, result.success ? 'empty' : 'error')
+        if (rp) {
+          // Adopt the recovered attempt wholesale — the normal success path below
+          // then emits/folds it as if it had been the original route.
+          tool = rp.tool
+          args = rp.args
+          result = rp.result
+        }
+      }
 
       if (result.offline) {
         emitEvent('offline', JSON.stringify({ tool: tool.id }))
@@ -672,6 +789,7 @@ export async function runCompanionTurn(
   // command. Failures fold in like primary failures; the turn never dies here.
   for (const call of extraCalls) {
     emitEvent('routing', JSON.stringify({ tool: call.tool.id }))
+    emitEvent('status', JSON.stringify({ phase: statusPhaseFor(call.tool.id), toolId: call.tool.id }))
     let extraResult: import('@/tools').ToolResult
     try {
       extraResult = await call.tool.execute(call.args, await buildToolConfig(call.tool.id))
@@ -762,6 +880,13 @@ export async function runCompanionTurn(
     }
 
     const systemParts: string[] = []
+    // Presentation policy FIRST — it's global and static (same for every text user),
+    // so it forms a shared prefix that warmupModel() pre-warms, giving even
+    // non-default-profile users a turn-1 KV hit before the per-profile content block.
+    // Suppressed on pure-voice surfaces (nothing here is speakable). If you change
+    // this text, update warmupModel() in models.ts or turn 1 pays full prefill.
+    const presentationPolicy = presentationPolicyFor(p.surface)
+    if (presentationPolicy) systemParts.push(presentationPolicy)
     systemParts.push(buildContentPrompt(p.activeDials))
     systemParts.push(_localeBlock)
     if (p.harnessLine) systemParts.push(p.harnessLine)
@@ -849,6 +974,9 @@ export async function runCompanionTurn(
       systemParts.push(`## Earlier in this conversation\n${p.conversationSummary}`)
     }
     if (p.uiContext) systemParts.push(p.uiContext)
+    // Per-message length nudge (Phase 3) — volatile (depends on this message's route),
+    // so it sits in the late zone next to the other per-turn blocks. Cheap (~20 tokens).
+    if (verbosityHint) systemParts.push(verbosityHint)
 
     // Volatile date/time/location goes LAST so the heavy stable prefix above stays
     // KV-cached across turns (the time string changes every minute).
@@ -1021,6 +1149,36 @@ export async function runCompanionTurn(
     }
   }
 
+  // ── Artifact auto-promotion (Phase 5) ──────────────────────────────────────
+  // Runs AFTER the stream, never during it: the prose the user already read stays
+  // byte-for-byte as delivered, and the long code block simply also becomes an
+  // openable canvas artifact. Never on the artifact path (finalText is a pointer
+  // line there) and never on primes. Best-effort — a failure must not cost the reply.
+  if (completed && !artifactMode && !p.primeOnly) {
+    const promo = promotableCodeBlock(finalText)
+    if (promo) {
+      try {
+        const title = promotedArtifactTitle(promo.lang, p.message)
+        const row = await createArtifact({
+          userId: p.userId,
+          type: 'code',
+          title,
+          language: promo.lang,
+          conversationId: p.convId,
+          content: promo.code,
+        })
+        emitEvent('block', JSON.stringify({
+          kind: 'artifact',
+          data: { artifactId: row.id, artifactType: row.type, title: row.title, preview: promo.code.slice(0, 240) },
+        }))
+        _lap(`artifact-promoted(${promo.lang ?? 'code'})`)
+        toolNotes.push(`Canvas: promoted ${promo.lang ?? 'code'} to artifact "${title}"`)
+      } catch (e) {
+        logger.warn(`[companion-turn] artifact auto-promotion failed: ${e}`)
+      }
+    }
+  }
+
   return {
     text: finalText, // RAW — callers persist raw and mask at read time
     toolId: tool?.id ?? null,
@@ -1030,6 +1188,40 @@ export async function runCompanionTurn(
     ...(streamError && { error: streamError }),
     ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 800) }),
   }
+}
+
+// ── Artifact auto-promotion (Phase 5) ────────────────────────────────────────
+// Claude's published threshold: standalone code past ~20 lines belongs in a
+// document pane, not a chat bubble. The `canvas` TOOL already covers the explicit
+// ask ("write me a script"); this covers the rest — a conversational answer that
+// happened to produce a long code block, which the router never sent to canvas.
+//
+// CODE ONLY, deliberately. Claude's rule also promotes long standalone documents,
+// but "the user asked for a document" can't be inferred reliably from a reply, and
+// auto-promoting every long prose answer would be intrusive — that case stays with
+// the canvas tool's explicit route.
+const ARTIFACT_MIN_LINES = 20
+
+/** The longest fenced code block in a reply, if any clears the promotion threshold. */
+function promotableCodeBlock(text: string): { lang: string | null; code: string } | null {
+  const re = /```([\w+#.-]*)[^\S\n]*\n([\s\S]*?)```/g
+  let best: { lang: string | null; code: string; lines: number } | null = null
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const code = (m[2] ?? '').replace(/\n+$/, '')
+    if (!code.trim()) continue
+    const lines = code.split('\n').length
+    if (lines >= ARTIFACT_MIN_LINES && (!best || lines > best.lines)) {
+      best = { lang: (m[1] ?? '').trim() || null, code, lines }
+    }
+  }
+  return best ? { lang: best.lang, code: best.code } : null
+}
+
+function promotedArtifactTitle(lang: string | null, message: string): string {
+  const base = message.trim().replace(/\s+/g, ' ').slice(0, 48)
+  if (base) return base.charAt(0).toUpperCase() + base.slice(1)
+  return lang ? `${lang} snippet` : 'Code snippet'
 }
 
 /** The model sometimes wraps a whole artifact body in a single ```lang … ``` fence

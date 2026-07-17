@@ -4,11 +4,22 @@ import { appendToken as appendArtifactToken, finishStreaming as finishArtifactSt
 
 interface Turn { role: 'user' | 'assistant'; content: string }
 
+/** The companion's wordless "what am I doing" signal during a tool turn. `null`
+ *  when not processing a tool. Drives the ambient working state, never spoken.
+ *  `retrying` = the backend hit a dead end and is making one more attempt. */
+export type CompanionPhase = 'working' | 'searching' | 'retrying' | null
+
 interface CompanionStreamOptions {
   /** Fired when the companion turn emits a playback/narration directive (e.g.
    *  "play heavy metal" or "read this with character voices"). The caller drives
    *  the global mini-player / TTS playback. */
   onDirective?: (directive: Directive) => void
+  /** Fired at most once per turn, and ONLY when the backend genuinely changed
+   *  approach after a dead end ("Hmm, let me try that a different way."). The
+   *  caller speaks it on voice surfaces; text surfaces ignore it. This is the only
+   *  thing the companion ever says about its own processing — never a task
+   *  announcement. */
+  onSpokenCue?: (text: string) => void
 }
 
 // Ephemeral companion chat used OFF the chat app. Streams a reply in place and
@@ -18,6 +29,10 @@ interface CompanionStreamOptions {
 export function useCompanionStream(options?: CompanionStreamOptions) {
   const [response, setResponse] = useState('')
   const [streaming, setStreaming] = useState(false)
+  // Wordless processing signal (Phase 2): set while a tool runs, cleared the moment
+  // real reply text starts or the turn ends. The overlay/dock use it to show an
+  // "on it" state instead of an undifferentiated "thinking" spinner.
+  const [phase, setPhase] = useState<CompanionPhase>(null)
   const historyRef = useRef<Turn[]>([])
   const abortRef = useRef<AbortController | null>(null)
   // Server-side generation id for the in-flight turn. Generation is decoupled
@@ -28,6 +43,8 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
   // loop calls it through a ref) without re-creating on every render.
   const onDirectiveRef = useRef(options?.onDirective)
   onDirectiveRef.current = options?.onDirective
+  const onSpokenCueRef = useRef(options?.onSpokenCue)
+  onSpokenCueRef.current = options?.onSpokenCue
 
   const cancelServerGen = useCallback(() => {
     const genId = genIdRef.current
@@ -55,6 +72,7 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
     const history = historyRef.current.slice(-6)
     historyRef.current = [...history, { role: 'user', content: text }]
     setResponse('')
+    setPhase(null)
     setStreaming(true)
 
     let acc = ''
@@ -87,7 +105,20 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
           if (line.startsWith('event:')) event = line.slice(6).trim()
           else if (line.startsWith('data:')) {
             const data = line.slice(line.charAt(5) === ' ' ? 6 : 5)
-            if (event === 'token') { acc += data; setResponse(acc) }
+            if (event === 'token') {
+              const wasEmpty = acc.length === 0
+              acc += data; setResponse(acc)
+              // First real reply text → processing is over; drop the working cue.
+              if (wasEmpty && data) setPhase(null)
+            }
+            else if (event === 'status') {
+              // Wordless "working"/"searching" cue while a tool runs. Never spoken.
+              try { const s = JSON.parse(data) as { phase?: CompanionPhase }; setPhase(s.phase ?? null) } catch { /* malformed */ }
+            }
+            else if (event === 'spoken_cue') {
+              // A real change of approach — the one line worth saying out loud.
+              try { const c = JSON.parse(data) as { text?: string }; if (c.text) onSpokenCueRef.current?.(c.text) } catch { /* malformed */ }
+            }
             else if (event === 'gen') {
               try { genIdRef.current = (JSON.parse(data) as { genId?: string }).genId ?? null } catch { /* ignore */ }
             }
@@ -126,8 +157,8 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
         setResponse('Sorry — I hit a snag with that one. Mind trying again?')
       }
     }
-    finally { setStreaming(false); abortRef.current = null; genIdRef.current = null }
+    finally { setStreaming(false); setPhase(null); abortRef.current = null; genIdRef.current = null }
   }, [cancelServerGen])
 
-  return { response, streaming, submit, cancel }
+  return { response, streaming, phase, submit, cancel }
 }

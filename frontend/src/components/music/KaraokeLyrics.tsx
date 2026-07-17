@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { useActiveLyricIndex } from './nowPlayingParts'
-import type { LyricLine } from '@/lib/music/catalogApi'
+import type { LyricLine, TranslatedLyricLine } from '@/lib/music/catalogApi'
 
 // Big-screen karaoke lyric renderer. The active line fills left-to-right (the classic
 // karaoke "wipe") over its own duration; the next line previews below so singers read
@@ -19,6 +19,10 @@ interface Props {
   offsetSec?: number    // LRCLIB→audio alignment shift
   accent: string        // wipe/highlight colour (album palette vibrant)
   className?: string
+  /** Optional per-line translation/romanization, index-aligned with `lines`. */
+  secondary?: TranslatedLyricLine[] | null
+  /** Show the romanized pronunciation line (non-Latin sources). */
+  showRoman?: boolean
 }
 
 const GAP_FOR_PIPS = 5   // seconds of instrumental before the count-in dots appear
@@ -61,7 +65,7 @@ function wordWipeFill(cur: LyricLine, next: LyricLine | null, t: number): number
   return clamp01(sungChars / totalChars)
 }
 
-export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, className }: Props) {
+export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, className, secondary, showRoman = true }: Props) {
   // Read-ahead so lines arrive a touch before they're sung (user-tunable in Music settings).
   const { lyricLeadSec } = useRadio()
   const t = position - offsetSec + lyricLeadSec
@@ -111,6 +115,9 @@ export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, classNam
 
   const { cur, next, prev, nextNext, fill, showPips, pipsLit } = view!
   const note = next ? '♪' : ' '
+  // Translation / pronunciation for the active + upcoming line (index-aligned arrays).
+  const curSec = cur && secondary ? secondary[active] ?? null : null
+  const nextSec = next && secondary ? secondary[active + 1] ?? null : null
 
   return (
     <div className={cn('flex flex-col items-center justify-center gap-6 px-8 text-center', className)}>
@@ -139,8 +146,26 @@ export function KaraokeLyrics({ lines, position, offsetSec = 0, accent, classNam
         </p>
       )}
 
+      {/* Secondary lines for the active entry: romanized pronunciation (sing this) above
+          the translation (understand this). Both optional, driven by the language menu. */}
+      {!showPips && curSec && (showRoman && curSec.r ? (
+        <div className="flex flex-col items-center gap-1">
+          <p className="max-w-5xl text-2xl font-semibold md:text-3xl" style={{ color: accent }}>{curSec.r}</p>
+          {curSec.t && <p className="max-w-5xl text-xl font-medium text-white/55 md:text-2xl">{curSec.t}</p>}
+        </div>
+      ) : curSec.t ? (
+        <p className="max-w-5xl text-xl font-medium text-white/55 md:text-2xl">{curSec.t}</p>
+      ) : null)}
+
       {/* Upcoming lines */}
-      <p className="max-w-5xl truncate text-2xl font-semibold text-white/60 md:text-3xl">{next?.text || ' '}</p>
+      <div className="flex flex-col items-center gap-1">
+        <p className="max-w-5xl truncate text-2xl font-semibold text-white/60 md:text-3xl">{next?.text || ' '}</p>
+        {nextSec && (showRoman && nextSec.r ? (
+          <p className="max-w-5xl truncate text-lg font-medium text-white/35 md:text-xl">{nextSec.r}</p>
+        ) : nextSec.t ? (
+          <p className="max-w-5xl truncate text-lg font-medium text-white/35 md:text-xl">{nextSec.t}</p>
+        ) : null)}
+      </div>
       <p className="max-w-4xl truncate text-xl font-medium text-white/30 md:text-2xl">{nextNext?.text || ' '}</p>
     </div>
   )

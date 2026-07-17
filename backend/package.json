@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "NODE_ENV=development bun run --hot src/index.ts",
+    "check:build": "bun build --target=bun src/index.ts --external 'chromium-bidi/*' --outdir=/tmp/loki-bunbuild-check",
     "start": "bun run src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",

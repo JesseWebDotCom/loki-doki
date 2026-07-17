@@ -202,6 +202,7 @@ export interface UpdateDeviceInput {
   characterId?: string | null
   wakeWord?: string | null
   orientation?: number
+  areaId?: string | null
 }
 
 /** Edit a device's settings (name, owner, companion, wake word). Only provided
@@ -213,6 +214,7 @@ export async function updateDevice(id: string, input: UpdateDeviceInput): Promis
   if (input.characterId !== undefined) patch.characterId = input.characterId
   if (input.wakeWord !== undefined) patch.wakeWord = input.wakeWord
   if (input.orientation !== undefined) patch.orientation = input.orientation
+  if (input.areaId !== undefined) patch.areaId = input.areaId
   if (Object.keys(patch).length === 0) {
     const [row] = await db.select().from(devices).where(eq(devices.id, id)).limit(1)
     return row ?? null

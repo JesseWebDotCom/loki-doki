@@ -17,6 +17,14 @@ browserSessionRoute.get('/', requireAuth, (c) => {
   // they default to a plain web tab, which is the pre-existing behavior.
   const isDock = c.req.query('dock') === '1'
   const surface = c.req.query('surface') === 'hud' ? 'hud' as const : 'app' as const
+  // The tab's stable player-device id. Two features address sessions by it: Listening
+  // Together targets THIS session (pushToDeviceSession) instead of "the user's most
+  // recent tab", and video casting picks a screen to play on. `label`/`tv` are what the
+  // cast picker shows; older clients send none of these and aren't addressable.
+  const rawDevice = c.req.query('device')
+  const deviceId = rawDevice && /^[a-zA-Z0-9_-]{8,64}$/.test(rawDevice) ? rawDevice : null
+  const label = c.req.query('label')?.trim().slice(0, 60) || undefined
+  const isTv = c.req.query('tv') === '1'
   const ip = getArbitrationIp(c)
   c.header('X-Accel-Buffering', 'no')
   return streamSSE(c, async (stream) => {
@@ -40,6 +48,9 @@ browserSessionRoute.get('/', requireAuth, (c) => {
       surface,
       ip,
       lastYield: null,
+      deviceId,
+      label,
+      isTv,
     }
     const unregister = registerBrowserSession(user.id, entry)
     // Graceful close (dock quit, tab closed) unregisters immediately so same-machine web

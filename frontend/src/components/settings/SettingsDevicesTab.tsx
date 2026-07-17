@@ -3,6 +3,7 @@ import { Cpu } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { DeviceScreenDeckEditor, type DeckLocks } from '@/components/shared/DeviceScreenDeckEditor'
 import { resolveDeviceModel } from '@/lib/deviceCatalog'
+import { SettingsQuickConnect } from '@/components/settings/SettingsQuickConnect'
 import { cn } from '@/lib/cn'
 
 // Settings → Devices: the owner-facing screen-deck editor. Reads/writes the exact same
@@ -43,16 +44,26 @@ export function SettingsDevicesTab() {
       .catch(() => setDevices([]))
   }, [])
 
+  // Quick Connect belongs here whatever the Pod situation is: a TV signing in has nothing
+  // to do with owning a screen Pod, and this is where people look for device setup.
   if (devices === null) {
-    return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+    return (
+      <div className="space-y-5 p-1">
+        <SettingsQuickConnect />
+        <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+      </div>
+    )
   }
 
   if (devices.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-        <Cpu className="size-10 opacity-30" />
-        <p className="text-sm">None of your devices have a screen to customize.</p>
-        <p className="text-caption opacity-70">Speaker-only Pods (like an Atom Echo) don't have screens to swipe between.</p>
+      <div className="space-y-5 p-1">
+        <SettingsQuickConnect />
+        <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+          <Cpu className="size-10 opacity-30" />
+          <p className="text-sm">None of your devices have a screen to customize.</p>
+          <p className="text-caption opacity-70">Speaker-only Pods (like an Atom Echo) don't have screens to swipe between.</p>
+        </div>
       </div>
     )
   }
@@ -68,6 +79,8 @@ export function SettingsDevicesTab() {
           Customize which screens your device shows, in what order, including the controller's buttons.
         </p>
       </div>
+
+      <SettingsQuickConnect />
 
       {devices.length > 1 && (
         <div className="flex flex-wrap gap-1.5">

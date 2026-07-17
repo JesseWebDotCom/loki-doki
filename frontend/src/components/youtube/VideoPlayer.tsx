@@ -1,15 +1,20 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions, Lock, FastForward } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock, thumbUrl } from '@/lib/youtube/format'
-import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, REMUX_QUALITIES, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel } from '@/lib/youtube/api'
+import { fileUrl, proxyStreamUrl, saveWatchState, getDownloadStatus, getStoryboards, ytImageProxy, REMUX_QUALITIES, type SkipSegment, type WatchMeta, type StreamQuality, type StoryboardLevel, type YtHeatMarker } from '@/lib/youtube/api'
 import { activeChapter, type Chapter } from '@/lib/youtube/chapters'
 import { pickStoryboardLevel, frameForTime } from '@/lib/youtube/storyboard'
 import { VideoThumb } from '@/components/youtube/media'
 import { useZoomToFillFullscreen } from '@/hooks/use-zoom-to-fill-fullscreen'
 import { useAudioBoost } from '@/hooks/use-audio-boost'
+import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
+import { useVideoAmbient } from '@/hooks/use-video-ambient'
+import { getChannelSpeed, setChannelSpeed } from '@/lib/videos/channelSpeed'
+import { applyDsp, ensureMediaGraph } from '@/lib/mediaAudioGraph'
 import { useMediaAnalyser } from '@/hooks/use-media-analyser'
 import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { paletteFromColors } from '@/lib/artPalette'
@@ -91,6 +96,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   onSkip?: (category: string) => void
   // Chapter markers (parsed from the description) shown on the scrubber.
   chapters?: Chapter[]
+  /** "Most replayed" heat markers drawn as a curve under the scrubber (YouTube only). */
+  heatMarkers?: YtHeatMarker[]
   // Fires with current playback time (~2×/sec) so callers can follow along (transcript).
   onTime?: (sec: number) => void
   // Fires (~2×/sec) with the play/pause state, letting the watch page decide whether to
@@ -110,7 +117,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   onToggleAudioOnly?: () => void
   /** Total duration from metadata - the 1080p remux pipe can't report its own. */
   durationHintSec?: number | null
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false, onTogglePrivacy, onToggleAudioOnly, durationHintSec }, ref) {
+  /** Live ambient color sampled from the playing frame (native playback only; null on
+   *  the embed, where the pixels aren't readable). Lets the page's cinema backdrop
+   *  breathe with the content instead of sitting on the static thumbnail. */
+  onAmbientColor?: (color: string | null) => void
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, onNeedsProxyForPip, autoRequestPip = false, onPipRequestHandled, onNeedsProxyForBoost, autoOpenBoost = false, onBoostOpenHandled, audioOnly = false, skipSegments, onSkip, chapters, heatMarkers, onTime, onPlaying, videoMeta, aspect = 'video', frameless = false, onTogglePrivacy, onToggleAudioOnly, durationHintSec, onAmbientColor }, ref) {
   const stripVariant = useVisualizerPref()
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -135,9 +146,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
   const [buffering, setBuffering] = useState(true)
-  const [rate, setRate] = useState(1)
+  // Playback speed, seeded from this channel's remembered rate (see lib/videos/channelSpeed):
+  // set 1.5x once on a lecture channel and every later video from it opens at 1.5x.
+  const channelKey = videoMeta?.channelId ?? null
+  const [rate, setRateState] = useState(() => getChannelSpeed(channelKey) ?? 1)
+  // Re-seed when navigating between channels within one mounted player.
+  const seededFor = useRef(channelKey)
+  useEffect(() => {
+    if (seededFor.current === channelKey) return
+    seededFor.current = channelKey
+    setRateState(getChannelSpeed(channelKey) ?? 1)
+  }, [channelKey])
+  // A user-picked rate is remembered for the channel; hold-to-2x is transient and must not
+  // be (hence setRateState, not setRate, in the gesture path below).
+  const setRate = (r: number) => { setRateState(r); setChannelSpeed(channelKey, r) }
   // Settings popover: which sub-menu is open (null = closed).
-  const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality'>(null)
+  const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality' | 'sleep' | 'subtitles'>(null)
   // Captions: OUR toggle, persisted per device, default OFF. The YouTube embed otherwise
   // honors Google's sticky caption preference with no way to turn it off from our chrome
   // (controls: 0) - "it always shows subtitles". The embed is forced to match on ready;
@@ -185,6 +209,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     applyCcToPlayers(next)
     return next
   })
+  // Subtitle language: '' = the video's own captions, otherwise a translated track built
+  // on the fly from the same cues (timing untouched, so it stays in sync). Per device.
+  const [subLang, setSubLangState] = useState(() => { try { return localStorage.getItem('videos.subLang') ?? '' } catch { return '' } })
+  const setSubLang = (code: string) => {
+    setSubLangState(code)
+    try { localStorage.setItem('videos.subLang', code) } catch { /* quota */ }
+    // Picking a language is also a request to see subtitles.
+    if (code && !ccOnRef.current) toggleCc()
+  }
+  const { data: subLangs = [] } = useQuery({
+    queryKey: ['yt-translate-languages'],
+    queryFn: async () => {
+      const r = await fetch('/api/youtube/translate-languages', { credentials: 'include' })
+      if (!r.ok) return [] as Array<{ code: string; label: string }>
+      return (await r.json() as { languages: Array<{ code: string; label: string }> }).languages
+    },
+    staleTime: Infinity,
+    enabled: menu === 'subtitles',
+  })
+  const transcriptTrackSrc = `/api/youtube/transcript/${videoId}${subLang ? `?lang=${subLang}` : ''}`
+
   const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
   // Persisted per device; defaults to the 1080p remux tier - full quality is the whole
@@ -338,11 +383,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     else if (y?.seekTo) { try { y.seekTo(sec, true) } catch { /* noop */ } }
   }
 
+  // Kids time budget: the watch-state response carries the gate. When the budget runs
+  // out mid-video, pause gently (once) instead of hard-cutting; a low-budget warning
+  // fires once so "one more video" decisions are informed.
+  const timeLimitHit = useRef(false)
+  const timeWarned = useRef(false)
+  const applyTimeGate = (gate: { allowed: boolean; reason?: string; remainingSec: number | null } | null) => {
+    if (!gate) return
+    if (!gate.allowed && !timeLimitHit.current) {
+      timeLimitHit.current = true
+      const m = mediaRef.current, y = ytRef.current
+      if (m) { try { m.pause() } catch { /* noop */ } } else { try { y?.pauseVideo?.() } catch { /* noop */ } }
+      toast.info(gate.reason === 'hours' ? 'Videos are paused for now. Come back during allowed hours.' : 'Video time is up for today.')
+    } else if (gate.allowed && gate.remainingSec != null && gate.remainingSec <= 300 && !timeWarned.current) {
+      timeWarned.current = true
+      toast.info('About 5 minutes of video time left today.')
+    }
+  }
+
   const persist = (completed = false) => {
     const s = read(); if (!s) return
     if (s.t < 1 && !completed) return
     const done = completed || (s.d ? s.t >= s.d * 0.97 : false)
-    void saveWatchState(videoId, s.t, done, videoMeta)
+    void saveWatchState(videoId, s.t, done, videoMeta).then(applyTimeGate)
   }
 
   // No dependency array: the handle must close over the CURRENT remux/seek state (an
@@ -414,7 +477,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             // Re-enforce OUR caption preference every time playback (re)starts - YouTube
             // re-applies its sticky captions-on state at play, overriding the onReady set.
             if (e.data === 1) enforceEmbedCc(e.target, ccOnRef.current)
-            if (e.data === YT.PlayerState?.ENDED) { setEndedUi(true); persist(true); onEnded?.() }
+            if (e.data === YT.PlayerState?.ENDED) { setEndedUi(true); persist(true); endedWithSleep() }
           },
         },
       })
@@ -526,6 +589,96 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   }
   const { isFullscreen, fillMode, toggleFullscreen, toggleFillMode } = useZoomToFillFullscreen(mediaRef, wrapRef)
   const { boost, setBoost } = useAudioBoost(mediaRef)
+
+  // ── Sleep timer ────────────────────────────────────────────────────────────────
+  // Pause after N minutes (or at the end of this video). Survives navigation within the
+  // player mount; a fresh video keeps a running timer, which is the point at bedtime.
+  const [sleepMin, setSleepMin] = useState<number | null>(null)
+  const [sleepEndOfVideo, setSleepEndOfVideo] = useState(false)
+  const [sleepLeftSec, setSleepLeftSec] = useState<number | null>(null)
+  const pauseNow = useCallback(() => {
+    const m = mediaRef.current, y = ytRef.current
+    if (m) { try { m.pause() } catch { /* noop */ } } else { try { y?.pauseVideo?.() } catch { /* noop */ } }
+  }, [])
+  useEffect(() => {
+    if (sleepMin == null) { setSleepLeftSec(null); return }
+    let left = sleepMin * 60
+    setSleepLeftSec(left)
+    const iv = setInterval(() => {
+      left -= 1
+      setSleepLeftSec(left)
+      if (left <= 0) {
+        clearInterval(iv)
+        setSleepMin(null)
+        pauseNow()
+        toast.info('Sleep timer: paused')
+      }
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [sleepMin, pauseNow])
+
+  // "Stop after this video": swallow the ended signal so autoplay-next never fires, and
+  // clear the arming. Read through a ref because the embed's ENDED handler is created
+  // once, at mount, and would otherwise see the mount-time value forever.
+  const sleepEndRef = useRef(sleepEndOfVideo)
+  sleepEndRef.current = sleepEndOfVideo
+  const endedWithSleep = useCallback(() => {
+    if (!sleepEndRef.current) { onEnded?.(); return }
+    setSleepEndOfVideo(false)
+    toast.info('Sleep timer: stopped after this video')
+  }, [onEnded])
+
+  // ── Screen lock ────────────────────────────────────────────────────────────────
+  // Locks touch input over the video (kids in the back seat, a phone in a pocket).
+  // Everything on the surface is swallowed until the small unlock chip is tapped.
+  const [screenLocked, setScreenLocked] = useState(false)
+
+  // ── Stable volume ──────────────────────────────────────────────────────────────
+  // Loudness levelling across mixed sources. Needs the Web-Audio graph, so it only
+  // applies on native playback (the cross-origin embed is untouchable, same as boost).
+  const [stableVolume, setStableVolumeState] = useState(() => {
+    try { return localStorage.getItem('videos.stableVolume') === '1' } catch { return false }
+  })
+  const setStableVolume = (on: boolean) => {
+    setStableVolumeState(on)
+    try { localStorage.setItem('videos.stableVolume', on ? '1' : '0') } catch { /* quota */ }
+    const el = mediaRef.current
+    if (el) ensureMediaGraph(el)   // build the chain on this user gesture if needed
+    applyDsp({ stableVolume: on })
+  }
+  // Re-assert on mount/source change: applyDsp is global, but a freshly-built graph for
+  // this element needs the setting pushed once it exists.
+  useEffect(() => {
+    if (!stableVolume) return
+    const el = mediaRef.current
+    if (el) { ensureMediaGraph(el); applyDsp({ stableVolume: true }) }
+  }, [stableVolume, nativeVideoSrc, nativeAudioSrc])
+
+  // ── Ambient color ──────────────────────────────────────────────────────────────
+  // Sampled from the live frame on native playback and handed to the page, which tints
+  // its cinema backdrop with it. The embed's pixels aren't readable, so it stays null.
+  const ambient = useVideoAmbient(mediaRef, !!nativeVideoSrc && !!onAmbientColor)
+  const onAmbientRef = useRef(onAmbientColor)
+  onAmbientRef.current = onAmbientColor
+  useEffect(() => { onAmbientRef.current?.(ambient) }, [ambient])
+  // Leaving native playback (or unmounting) hands the page back its thumbnail palette.
+  useEffect(() => () => { onAmbientRef.current?.(null) }, [])
+
+  // ── Touch gestures ─────────────────────────────────────────────────────────────
+  // Double-tap sides to seek ±10s, press-and-hold for 2x. The held rate is transient:
+  // it restores the channel's remembered rate on release (never overwrites it).
+  const rateBeforeHold = useRef(1)
+  const gestures = useVideoGestures({
+    seekBy: (delta) => {
+      const target = Math.max(0, Math.min(posRef.current + delta, duration || Infinity))
+      seekTo(target)
+      setPosition(target)
+    },
+    setHold: (on) => {
+      if (on) { rateBeforeHold.current = rate; setRateState(2) }
+      else setRateState(rateBeforeHold.current)
+    },
+  }, !screenLocked)
   // Live spectrum for the audio-only EQ overlay (shares the boost's Web-Audio graph).
   const getAnalyser = useMediaAnalyser(mediaRef, !nativeVideoSrc && !!nativeAudioSrc)
 
@@ -630,6 +783,40 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     return i >= 0 ? chapters[i]!.title : null
   }, [chapters, position])
 
+  // Jump ahead: the next most-replayed peak after the playhead. YouTube gates this behind
+  // Premium; the heat data it needs is the same curve already drawn below. Only offered
+  // when the peak is meaningfully ahead and meaningfully hotter than here, so it never
+  // becomes a "skip 3 seconds" button.
+  const jumpAheadSec = useMemo(() => {
+    if (!heatMarkers?.length || !duration) return null
+    const max = Math.max(...heatMarkers.map(m => m.intensity))
+    if (max <= 0) return null
+    const hereMs = position * 1000
+    const ahead = heatMarkers.filter(m => m.startMs > hereMs + 20_000 && m.intensity >= max * 0.85)
+    const here = heatMarkers.find(m => m.startMs <= hereMs && hereMs < m.startMs + (m.durationMs || 1))
+    // Already in a hot stretch: nothing worth skipping to.
+    if (here && here.intensity >= max * 0.85) return null
+    const target = ahead[0]
+    return target ? Math.floor(target.startMs / 1000) : null
+  }, [heatMarkers, duration, position])
+
+  // Most-replayed heat curve under the scrubber: normalized intensities → one SVG
+  // polyline over the bar's width. Drawn only when YouTube actually has heat data.
+  const heatPath = useMemo(() => {
+    if (!heatMarkers?.length) return null
+    const max = Math.max(...heatMarkers.map(m => m.intensity))
+    if (max <= 0) return null
+    const span = heatMarkers[heatMarkers.length - 1]!.startMs + (heatMarkers[heatMarkers.length - 1]!.durationMs || 1)
+    if (span <= 0) return null
+    const pts = heatMarkers.map(m => {
+      const x = (m.startMs / span) * 100
+      const y = 100 - (m.intensity / max) * 100
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    })
+    // Close the shape along the baseline so it fills as an area under the curve.
+    return `0,100 ${pts.join(' ')} 100,100`
+  }, [heatMarkers])
+
   // PiP is offered whenever there's real video content to show — including the iframe
   // embed, via the proxy-switch in togglePip above — but not in audio-only mode (just a
   // static poster behind a hidden <audio>, nothing to put in a video PiP window).
@@ -669,11 +856,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                 seekTo(remuxOffsetRef.current + (mediaRef.current?.currentTime ?? 0))
                 return
               }
-              persist(true); onEnded?.()
+              persist(true); endedWithSleep()
             }}>
             {/* Subtitles for the native paths (private stream / offline): the transcript VTT
                 as a real track, shown only when our CC toggle is on. */}
-            <track kind="subtitles" srcLang="en" label="Subtitles" src={`/api/youtube/transcript/${videoId}`} default={ccOn} />
+            {/* Keyed on the language so switching swaps the cues rather than leaving the
+                first-loaded track in place. */}
+            <track key={subLang} kind="subtitles" srcLang={subLang || 'en'}
+              label={subLang ? 'Translated' : 'Subtitles'} src={transcriptTrackSrc} default={ccOn} />
           </video>
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
@@ -701,7 +891,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               onLoadedMetadata={startLocalAt} onCanPlay={() => setBuffering(false)} onPlaying={() => setBuffering(false)}
               onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
               onError={() => { if (onlineAudio) void handleStreamError('audio', nativeAudioSrc) }}
-              onEnded={() => { persist(true); onEnded?.() }} />
+              onEnded={() => { persist(true); endedWithSleep() }} />
           </div>
         ) : null}
       </div>
@@ -745,6 +935,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         pausedFrame && 'pointer-events-auto translate-y-0 from-black/90 opacity-100')}>
         <div ref={scrubRef} onMouseDown={onScrubDown} onMouseMove={onScrubMove} onMouseLeave={onScrubLeave}
           className="relative mb-3 h-1 cursor-pointer rounded-full bg-white/25">
+          {/* Most replayed: the rewatch-intensity curve, sitting just above the bar. */}
+          {heatPath && (
+            <svg aria-hidden viewBox="0 0 100 100" preserveAspectRatio="none"
+              className="pointer-events-none absolute inset-x-0 bottom-full mb-0.5 h-4 w-full overflow-visible">
+              <polyline points={heatPath} className="fill-white/25 stroke-white/50" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            </svg>
+          )}
           {/* SponsorBlock segment markers */}
           {segMarks.map((s, i) => (
             // design-ok(raw-palette-semantic): SponsorBlock warning marks on the scrubber over the video surface
@@ -778,6 +975,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           </div>
           <span className="text-xs tabular-nums text-white/80">{fmtClock(position)} / {fmtClock(duration)}</span>
           {currentChapter && <span className="hidden truncate text-xs font-medium text-white/70 sm:block max-w-[40%]">· {currentChapter}</span>}
+          {/* Jump ahead: skip to the next most-replayed peak (Premium on YouTube). */}
+          {jumpAheadSec != null && (
+            <button onClick={() => { seekTo(jumpAheadSec); setPosition(jumpAheadSec) }}
+              title="Jump to the part people replay most"
+              className="hidden items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold transition hover:bg-white/25 sm:flex">
+              <FastForward className="size-3" /> Jump ahead
+            </button>
+          )}
           <div className="flex-1" />
 
           {/* Captions: OUR toggle (persisted, default off) - the embed otherwise honors
@@ -803,6 +1008,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                   <>
                     <MenuRow label="Playback speed" value={rate === 1 ? 'Normal' : `${rate}×`} onClick={() => setMenu('speed')} />
                     {qualityLabel != null && <MenuRow label="Quality" value={qualityLabel} onClick={() => setMenu('quality')} />}
+                    <MenuRow label="Sleep timer"
+                      value={sleepLeftSec != null ? fmtClock(sleepLeftSec) : sleepEndOfVideo ? 'End of video' : 'Off'}
+                      onClick={() => setMenu('sleep')} />
+                    {/* Translated subtitles only exist on the native paths: the embed
+                        renders Google's own captions and won't take our track. */}
+                    {!useIframe && (
+                      <MenuRow label="Subtitle language"
+                        value={subLang ? (subLangs.find((l) => l.code === subLang)?.label ?? subLang) : 'Original'}
+                        onClick={() => setMenu('subtitles')} />
+                    )}
+                    {/* Stable volume + screen lock need a real element / touch surface:
+                        Web Audio can't reach the cross-origin embed, same as boost. */}
+                    {!useIframe && (
+                      <OptionRow label="Stable volume" active={stableVolume}
+                        onClick={() => setStableVolume(!stableVolume)} />
+                    )}
+                    <OptionRow label="Lock screen" active={screenLocked}
+                      onClick={() => { setScreenLocked(true); setMenu(null) }} />
                     {/* Playback modes live IN the player (Plex-style), not in page chrome. */}
                     {onTogglePrivacy && (
                       <OptionRow label="Private stream" active={privacyProxy}
@@ -820,6 +1043,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                       <OptionRow key={s} label={s === 1 ? 'Normal' : `${s}×`} active={rate === s}
                         onClick={() => { setRate(s); setMenu(null) }} />
                     ))}
+                  </Submenu>
+                )}
+                {menu === 'subtitles' && (
+                  <Submenu title="Subtitle language" onBack={() => setMenu('main')}>
+                    <OptionRow label="Original" active={!subLang} onClick={() => { setSubLang(''); setMenu(null) }} />
+                    {subLangs.map((l) => (
+                      <OptionRow key={l.code} label={l.label} active={subLang === l.code}
+                        onClick={() => { setSubLang(l.code); setMenu(null) }} />
+                    ))}
+                  </Submenu>
+                )}
+                {menu === 'sleep' && (
+                  <Submenu title="Sleep timer" onBack={() => setMenu('main')}>
+                    <OptionRow label="Off" active={sleepMin == null && !sleepEndOfVideo}
+                      onClick={() => { setSleepMin(null); setSleepEndOfVideo(false); setMenu(null) }} />
+                    {[10, 20, 30, 45, 60].map(m => (
+                      <OptionRow key={m} label={`${m} minutes`} active={sleepMin === m}
+                        onClick={() => { setSleepEndOfVideo(false); setSleepMin(m); setMenu(null) }} />
+                    ))}
+                    <OptionRow label="End of video" active={sleepEndOfVideo}
+                      onClick={() => { setSleepMin(null); setSleepEndOfVideo(true); setMenu(null) }} />
                   </Submenu>
                 )}
                 {menu === 'quality' && (
@@ -885,8 +1129,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
       {/* Click anywhere on the video to toggle play/pause; shows a play badge when paused.
           Covers the whole surface (z-10) but sits below the control bar (z-30), which
-          only captures pointer events on hover, so taps on the video always toggle. */}
-      <button onClick={() => { if (menu) { setMenu(null); return } toggle() }} aria-label={playing ? 'Pause' : 'Play'}
+          only captures pointer events on hover, so taps on the video always toggle.
+          Touch gestures (double-tap sides = ±10s, press-and-hold = 2×) ride the same
+          surface via pointer events; a gesture that fired swallows the click. */}
+      <button onClick={() => { if (menu) { setMenu(null); return } if (gestures.isHolding()) return; toggle() }}
+        aria-label={playing ? 'Pause' : 'Play'} {...gestures.handlers}
         className="absolute inset-0 z-10 flex items-center justify-center">
         {/* Idle embed BEFORE first play or AFTER the end: no frame worth keeping, so cover
             the iframe with our own poster to hide YouTube's cued/endscreen chrome ("More
@@ -907,6 +1154,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           </span>
         )}
       </button>
+
+      {/* Gesture feedback: a transient chip for a double-tap seek, a persistent one while
+          hold-to-2× is engaged. Keyed on the gesture id so repeats re-run the animation. */}
+      {gestures.indicator && (
+        // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): transient gesture chip over the video surface
+        <span key={gestures.indicator.id} aria-live="polite"
+          className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 animate-in fade-in rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+          {gestureIndicatorText(gestures.indicator)}
+        </span>
+      )}
+
+      {/* Screen lock: swallow every touch on the surface until the unlock chip is tapped
+          (kids in the back seat). Above the control bar, below nothing. */}
+      {screenLocked && (
+        <div className="absolute inset-0 z-40 flex items-start justify-center pt-4"
+          onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          {/* design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome) design-ok(hand-styled-button): unlock chip over the locked video surface */}
+          <button onClick={() => setScreenLocked(false)}
+            className="flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/85">
+            <Lock className="size-3.5" /> Screen locked · tap to unlock
+          </button>
+        </div>
+      )}
     </div>
   )
 })

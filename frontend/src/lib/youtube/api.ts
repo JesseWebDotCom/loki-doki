@@ -344,6 +344,15 @@ export async function getChapters(videoId: string): Promise<YtChapter[]> {
   return (await r.json() as { chapters: YtChapter[] }).chapters ?? []
 }
 
+/** One "most replayed" heat marker: rewatch intensity (0-1) over a time slice. */
+export interface YtHeatMarker { startMs: number; durationMs: number; intensity: number }
+
+export async function getHeatmap(videoId: string): Promise<YtHeatMarker[]> {
+  const r = await fetch(`/api/youtube/heatmap/${videoId}`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { markers: YtHeatMarker[] }).markers ?? []
+}
+
 // ── Return YouTube Dislike ─────────────────────────────────────────────────────────
 
 export interface VideoVotes { likes: number; dislikes: number; rating: number; viewCount: number }
@@ -683,8 +692,19 @@ export async function getTranscriptText(videoId: string): Promise<string | null>
 
 export interface WatchMeta { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null; origin?: 'youtube' | 'music' }
 
-export async function saveWatchState(videoId: string, positionSec: number, completed: boolean, meta?: WatchMeta): Promise<void> {
-  await fetch('/api/youtube/watch-state', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId, positionSec, completed, ...meta }) }).catch(() => {})
+export interface WatchTimeGate {
+  allowed: boolean
+  reason?: 'budget' | 'hours'
+  remainingSec: number | null
+}
+
+export async function saveWatchState(videoId: string, positionSec: number, completed: boolean, meta?: WatchMeta): Promise<WatchTimeGate | null> {
+  try {
+    const r = await fetch('/api/youtube/watch-state', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId, positionSec, completed, ...meta }) })
+    if (!r.ok) return null
+    const data = await r.json() as { timeLimit?: WatchTimeGate }
+    return data.timeLimit ?? null
+  } catch { return null }
 }
 
 export interface HistoryRow {

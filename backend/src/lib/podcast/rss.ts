@@ -5,6 +5,20 @@
 
 import { stripHtml, decodeEntities } from '@/lib/htmlText'
 
+export interface ParsedPodcastPerson {
+  name: string
+  role: string | null          // host | guest | ... (Podcast Taxonomy; defaults to host per spec)
+  group: string | null
+  img: string | null
+  href: string | null
+}
+
+export interface ParsedPodcastSoundbite {
+  startSec: number
+  durationSec: number
+  title: string | null
+}
+
 export interface ParsedPodcastEpisode {
   guid: string                 // dedup key: <guid> → enclosure URL → hash(title+pubDate)
   title: string
@@ -17,6 +31,16 @@ export interface ParsedPodcastEpisode {
   durationSec: number | null   // itunes:duration (HH:MM:SS / MM:SS / seconds)
   publishedAt: number | null   // Unix ms
   explicit: number | null      // <itunes:explicit>: 1=explicit, 0=clean, null=unknown (inherits channel)
+  chaptersUrl: string | null   // Podcasting 2.0 <podcast:chapters url= /> JSON document
+  persons: ParsedPodcastPerson[]        // Podcasting 2.0 <podcast:person> episode credits
+  soundbites: ParsedPodcastSoundbite[]  // Podcasting 2.0 <podcast:soundbite> highlights
+  transcriptUrl: string | null // Podcasting 2.0 <podcast:transcript url= type= /> (best format wins)
+  transcriptType: string | null
+}
+
+export interface ParsedPodcastFunding {
+  url: string
+  label: string | null
 }
 
 export interface ParsedPodcastFeed {
@@ -27,6 +51,8 @@ export interface ParsedPodcastFeed {
   imageUrl: string | null
   categories: string[]
   explicit: number | null      // channel-level <itunes:explicit>
+  persons: ParsedPodcastPerson[]        // Podcasting 2.0 channel-level credits
+  funding: ParsedPodcastFunding[]       // Podcasting 2.0 <podcast:funding> links
   episodes: ParsedPodcastEpisode[]
 }
 
@@ -71,6 +97,95 @@ export function parseItunesDuration(raw: string): number | null {
   return sec > 0 ? sec : null
 }
 
+/** Podcasting 2.0 <podcast:person role="host" img="…" href="…">Jane Doe</podcast:person>.
+ *  The tag text is the display name; absent role means "host" per the spec, but we keep
+ *  null and let the UI default so a feed's explicit roles stay distinguishable. */
+function parsePersons(block: string): ParsedPodcastPerson[] {
+  const out: ParsedPodcastPerson[] = []
+  const seen = new Set<string>()
+  const re = /<podcast:person\b([^>]*)>([\s\S]*?)<\/podcast:person>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(block)) !== null && out.length < 24) {
+    const attrs = m[1]!
+    const name = stripHtml(m[2]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim()
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const pick = (a: string) => {
+      const v = decodeEntities(attrs.match(new RegExp(`\\b${a}=["']([^"']*)["']`, 'i'))?.[1] ?? '')
+      return v || null
+    }
+    const httpOnly = (v: string | null) => (v && /^https?:/i.test(v) ? v : null)
+    out.push({
+      name: name.slice(0, 120),
+      role: pick('role')?.toLowerCase() ?? null,
+      group: pick('group')?.toLowerCase() ?? null,
+      img: httpOnly(pick('img')),
+      href: httpOnly(pick('href')),
+    })
+  }
+  return out
+}
+
+/** Podcasting 2.0 <podcast:funding url="…">Support the show!</podcast:funding>. */
+function parseFunding(header: string): ParsedPodcastFunding[] {
+  const out: ParsedPodcastFunding[] = []
+  const re = /<podcast:funding\b([^>]*)>([\s\S]*?)<\/podcast:funding>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(header)) !== null && out.length < 4) {
+    const url = decodeEntities(m[1]!.match(/\burl=["']([^"']*)["']/i)?.[1] ?? '')
+    if (!url || !/^https?:/i.test(url)) continue
+    if (out.some(f => f.url === url)) continue
+    const label = stripHtml(m[2]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim().slice(0, 120) || null
+    out.push({ url, label })
+  }
+  return out
+}
+
+/** Podcasting 2.0 <podcast:soundbite startTime="73.0" duration="60.0">Title</podcast:soundbite>.
+ *  Both attributes are required by the spec; bites with junk numbers are dropped. */
+function parseSoundbites(block: string): ParsedPodcastSoundbite[] {
+  const out: ParsedPodcastSoundbite[] = []
+  const re = /<podcast:soundbite\b([^>]*?)(?:\/>|>([\s\S]*?)<\/podcast:soundbite>)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(block)) !== null && out.length < 16) {
+    const attrs = m[1]!
+    const startSec = Number.parseFloat(attrs.match(/\bstartTime=["']([^"']*)["']/i)?.[1] ?? '')
+    const durationSec = Number.parseFloat(attrs.match(/\bduration=["']([^"']*)["']/i)?.[1] ?? '')
+    if (!Number.isFinite(startSec) || startSec < 0 || !Number.isFinite(durationSec) || durationSec <= 0) continue
+    const title = m[2] ? stripHtml(m[2].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim().slice(0, 160) || null : null
+    out.push({ startSec, durationSec, title })
+  }
+  return out.sort((a, b) => a.startSec - b.startSec)
+}
+
+/** Rank a Podcasting 2.0 <podcast:transcript> type: timestamped formats we can
+ *  normalize score highest. 0 = unusable (html/plain text carry no timings). */
+function transcriptTypeRank(mime: string, url: string): number {
+  const m = mime.toLowerCase()
+  const u = url.toLowerCase()
+  if (m.includes('json') || u.endsWith('.json')) return 3
+  if (m.includes('vtt') || u.endsWith('.vtt')) return 2
+  if (m.includes('srt') || m.includes('subrip') || u.endsWith('.srt')) return 1
+  return 0
+}
+
+/** Pick the best usable <podcast:transcript> from an item block. An episode may list
+ *  several (html + vtt + json is common); prefer json > vtt > srt, skip the rest. */
+function pickTranscript(block: string): { url: string; type: string } | null {
+  let best: { url: string; type: string; rank: number } | null = null
+  for (const m of block.match(/<podcast:transcript\b[^>]*>/gi) ?? []) {
+    const url = decodeEntities(m.match(/\burl=["']([^"']+)["']/i)?.[1] ?? '')
+    const type = m.match(/\btype=["']([^"']+)["']/i)?.[1] ?? ''
+    if (!url || !/^https?:/i.test(url)) continue
+    const rank = transcriptTypeRank(type, url)
+    if (rank === 0) continue
+    if (!best || rank > best.rank) best = { url, type, rank }
+  }
+  return best ? { url: best.url, type: best.type } : null
+}
+
 /** True when an enclosure's MIME (or URL extension, when MIME is junk) looks like audio. */
 function isAudioEnclosure(url: string, mime: string): boolean {
   const m = mime.toLowerCase()
@@ -102,6 +217,8 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
     if (text && !categories.includes(text)) categories.push(text)
   }
   const feedExplicit = parseExplicit(tag(header, 'itunes:explicit'))
+  const feedPersons = parsePersons(header)
+  const funding = parseFunding(header)
 
   const episodes: ParsedPodcastEpisode[] = []
   const blockRe = /<item[\s>]([\s\S]*?)<\/item>/gi
@@ -135,8 +252,19 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
       // Episode explicit tag, inheriting the channel's when the item omits its own (common:
       // publishers often set it once at the channel level).
       explicit: parseExplicit(tag(block, 'itunes:explicit')) ?? feedExplicit,
+      // Podcasting 2.0 chapters: a JSON document URL. Only http(s) URLs are kept.
+      chaptersUrl: (() => {
+        const url = decodeEntities(attr(block, 'podcast:chapters', 'url'))
+        return url && /^https?:/i.test(url) ? url : null
+      })(),
+      persons: parsePersons(block),
+      soundbites: parseSoundbites(block),
+      ...(() => {
+        const t = pickTranscript(block)
+        return { transcriptUrl: t?.url ?? null, transcriptType: t?.type ?? null }
+      })(),
     })
   }
 
-  return { title, description, link, author, imageUrl, categories, explicit: feedExplicit, episodes }
+  return { title, description, link, author, imageUrl, categories, explicit: feedExplicit, persons: feedPersons, funding, episodes }
 }

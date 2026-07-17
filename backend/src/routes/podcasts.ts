@@ -19,6 +19,9 @@ import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { ScriptTurn } from '@/lib/podcast/types'
 import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/policy'
+import {
+  audioGateFor, familyEntrySetsFor, podcastShowAllowed, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import { servePodcastRail } from '@/lib/interests/podcasts'
 import type { AppEnv } from '@/types'
 
@@ -83,6 +86,8 @@ async function loadVisibleShows(user: Actor) {
     link: podcastShows.link,
     categoriesJson: podcastShows.categoriesJson,
     feedError: podcastShows.feedError,
+    personsJson: podcastShows.personsJson,
+    fundingJson: podcastShows.fundingJson,
     createdAt: podcastShows.createdAt,
   }).from(podcastShows)
     // Push the visibility filter into SQL (indexed on owner_user_id) instead of scanning
@@ -101,10 +106,15 @@ async function loadVisibleShows(user: Actor) {
     : []
   const ownerMap = Object.fromEntries(owners.map(o => [o.id, o]))
 
+  // Family audio: allowlist-only profiles only see approved shows (AI shows included);
+  // blocklisted shows disappear for anyone they apply to.
+  const familySets = await familyEntrySetsFor(user.id)
+
   return shows
     // An RSS show someone ELSE subscribed to isn't in this user's library until they
     // subscribe too (discovery happens in the browse directory, not the shows list).
     .filter(s => s.source !== 'rss' || subMap.has(s.id))
+    .filter(s => !familySets.hasAny || podcastShowAllowed(familySets, s))
     .map(s => {
       const sub = subMap.get(s.id)
       return {
@@ -112,9 +122,12 @@ async function loadVisibleShows(user: Actor) {
         hosts: safeParse(s.hostsJson, [] as unknown[]),
         segments: safeParse(s.segmentsJson, [] as unknown[]),
         categories: safeParse(s.categoriesJson, [] as string[]),
+        // Podcasting 2.0 channel tags (RSS shows): person credits + funding links.
+        persons: safeParse(s.personsJson, [] as unknown[]),
+        funding: safeParse(s.fundingJson, [] as unknown[]),
         ownerName: ownerMap[s.ownerUserId] ? `${ownerMap[s.ownerUserId]!.firstName}`.trim() : 'Unknown',
         isOwn: s.ownerUserId === user.id,
-        subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep } : null,
+        subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep, autoTranscribe: sub.autoTranscribe } : null,
       }
     })
 }
@@ -127,6 +140,9 @@ podcastsRoute.get('/shows', async (c) => {
 // podcasts.ts): listening + subscription signals, genre-chart/topic-search candidates,
 // subscribed/listened shows excluded, rotation + "Not interested".
 podcastsRoute.get('/suggested', async (c) => {
+  // Family audio: no discovery rail for allowlist-only profiles.
+  const sets = await familyEntrySetsFor(c.get('user').id)
+  if (sets.allowlistOnly) return c.json({ items: [], building: false })
   const { items, building } = await servePodcastRail(c.get('user').id)
   return c.json({ items, building })
 })
@@ -162,6 +178,8 @@ podcastsRoute.get('/feed', async (c) => {
     ;(episodesByShow[e.showId] ??= []).push({
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(e.soundbitesJson, [] as unknown[]),
+      persons: safeParse(e.personsJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
       download: downloadMap.get(e.id) ?? null,
     })
@@ -230,9 +248,16 @@ podcastsRoute.post('/shows', async (c) => {
     segments?: { type: string; label?: string; params?: Record<string, unknown> }[]
     visibility?: 'personal' | 'shared'
     sourceRef?: string
+    autoGenerate?: boolean
+    /** Recurring generation, e.g. { cadence: 'daily', hour: 7 } (Household Daily preset). */
+    schedule?: { cadence: 'daily'; hour?: number } | null
   }>()
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400)
+
+  const schedule = body.schedule?.cadence === 'daily'
+    ? { cadence: 'daily' as const, hour: Math.max(0, Math.min(23, Math.round(Number(body.schedule.hour ?? 7)))) }
+    : null
 
   const sourceRef = body.sourceRef?.trim() || null
   // Shows built from a YouTube source (sourceRef set) take their title from the channel/
@@ -251,6 +276,8 @@ podcastsRoute.post('/shows', async (c) => {
     visibility: body.visibility ?? 'personal',
     source: 'user',
     sourceRef,
+    autoGenerate: body.autoGenerate === true,
+    scheduleJson: schedule ? JSON.stringify(schedule) : null,
     targetMinutes: (body as { targetMinutes?: number | null }).targetMinutes ?? null,
     createdAt: new Date(),
   })
@@ -551,11 +578,82 @@ podcastsRoute.get('/episodes/:id', async (c) => {
     episode: {
       ...episode,
       chapters: safeParse(episode.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(episode.soundbitesJson, [] as unknown[]),
+      persons: safeParse(episode.personsJson, [] as unknown[]),
       transcript,
       watchState: watch ?? null,
       sources,
+      hasScript: !!episode.scriptJson,
     },
   })
+})
+
+// Homework mode: turn an episode's existing transcript into a kid-friendly study kit
+// (bullet summary + flashcards + timestamped key points) saved as a note in the notes
+// app. Transcript sources are strictly the ones that already exist: the generated
+// episode's own script, else the transcript of the YouTube video that seeded it. No new
+// transcription is ever performed; an episode with neither is rejected (and the UI
+// hides the action).
+podcastsRoute.post('/episodes/:id/study-kit', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+
+  const [episode] = await db.select().from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, episode.showId))
+  if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
+  if (!(await podcastEpisodeAllowed(user.id, episode))) return c.json({ error: 'Not found' }, 404)
+
+  // 1) The generated episode's own script (speaker ids resolved to names).
+  let transcript: { speaker: string; text: string }[] = []
+  if (episode.scriptJson) {
+    let turns: ScriptTurn[] = []
+    try { turns = JSON.parse(episode.scriptJson) as ScriptTurn[] } catch { turns = [] }
+    const ids = [...new Set(turns.map(t => t.host).filter(Boolean))]
+    const rows = ids.length
+      ? await db.select({ id: characters.id, name: characters.name }).from(characters).where(inArray(characters.id, ids))
+      : []
+    const nameMap = new Map(rows.map(r => [r.id, r.name]))
+    transcript = turns.filter(t => t.text?.trim()).map(t => ({ speaker: nameMap.get(t.host) ?? 'Host', text: t.text }))
+  }
+
+  // 2) Fallback: the source video's transcript, via the existing resolver.
+  if (!transcript.length) {
+    const [src] = await db.select().from(podcastEpisodeSources)
+      .where(and(eq(podcastEpisodeSources.episodeId, episodeId), eq(podcastEpisodeSources.sourceType, 'youtube')))
+      .limit(1)
+    if (src) {
+      const [userRow] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, user.id))
+      const { resolveVideoTranscript } = await import('@/lib/podcast/transcript')
+      const text = await resolveVideoTranscript(
+        { videoId: src.sourceId, title: src.title ?? undefined }, user.id, userRow?.firstName ?? 'user',
+      ).catch(() => null)
+      if (text?.trim()) transcript = [{ speaker: src.title ?? 'Narrator', text }]
+    }
+  }
+
+  if (!transcript.length) return c.json({ error: 'This episode has no transcript to study from' }, 400)
+
+  try {
+    const { generateStudyKit, studyKitMarkdown } = await import('@/lib/podcast/studyKit')
+    const kit = await generateStudyKit({
+      episodeTitle: episode.title,
+      showName: show.name,
+      transcript,
+      durationSec: episode.durationSec ?? null,
+    })
+    const { createNote } = await import('@/lib/notes/store')
+    const note = await createNote({
+      ownerId: user.id,
+      createdBy: user.id,
+      title: `Study notes: ${episode.title}`,
+      body: studyKitMarkdown(kit, episode.title, show.name),
+      source: 'companion',
+    })
+    return c.json({ noteId: note.id, kit })
+  } catch {
+    return c.json({ error: 'Could not make study notes right now' }, 502)
+  }
 })
 
 podcastsRoute.get('/shows/:id/episodes', async (c) => {
@@ -586,8 +684,12 @@ podcastsRoute.get('/shows/:id/episodes', async (c) => {
     episodes: episodes.map(e => ({
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(e.soundbitesJson, [] as unknown[]),
+      persons: safeParse(e.personsJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
       download: downloadMap.get(e.id) ?? null,
+      // Whether this episode carries the transcript the study-kit action needs.
+      hasScript: !!e.scriptJson,
     })),
   })
 })
@@ -707,7 +809,9 @@ podcastsRoute.delete('/episodes/:id', async (c) => {
 
 // Serve a local audio file with clamped Range support (seek without re-buffering).
 // `pin` holds an in-flight read on a blob so GC can't unlink it mid-stream.
-function streamLocalAudio(c: { req: { header(name: string): string | undefined } }, absPath: string, contentType: string, pin?: string | null): Response {
+// Exported for the token-authed private RSS feeds (routes/podcastRssOut.ts), which
+// serve the same generated-episode and radio-recording files to external podcatchers.
+export function streamLocalAudio(c: { req: { header(name: string): string | undefined } }, absPath: string, contentType: string, pin?: string | null): Response {
   let stat: ReturnType<typeof statSync>
   try { stat = statSync(absPath) } catch { return Response.json({ error: 'File missing' }, { status: 404 }) }
 
@@ -777,6 +881,22 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
   // even if it slipped past the list filters. Classifies synchronously (single episode).
   if (!(await podcastEpisodeAllowed(user.id, { id: episodeId, title: episode.title, description: episode.description, explicit: episode.explicit }))) {
     return c.json({ error: 'Not available' }, 403)
+  }
+  // Family audio hard gates: time budget/quiet hours, and allowlist/blocklist on the
+  // show. Range requests re-check, so an exhausted budget also stops long streams.
+  {
+    const gate = await audioGateFor(user.id)
+    if (!gate.allowed) {
+      logFamilyAudioEvent(user.id, gate.reason === 'quiet_hours' ? 'quiet_hours_block' : 'budget_exhausted', { label: episode.title, medium: 'podcast' })
+      return c.json({ error: gate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+    }
+    const sets = await familyEntrySetsFor(user.id)
+    const [showRow] = await db.select({ id: podcastShows.id, name: podcastShows.name, feedUrl: podcastShows.feedUrl })
+      .from(podcastShows).where(eq(podcastShows.id, episode.showId)).limit(1)
+    if (sets.hasAny && !podcastShowAllowed(sets, showRow ?? { id: episode.showId })) {
+      logFamilyAudioEvent(user.id, 'blocked_play', { label: showRow?.name ?? episode.title, medium: 'podcast', reason: 'show' })
+      return c.json({ error: 'This show is not available on this profile', code: 'family_blocked' }, 403)
+    }
   }
 
   // 1. Generated episode: per-user file.
@@ -894,6 +1014,18 @@ const SUGGESTION_TEMPLATES = [
     style: 'roundtable',
     segments: [{ type: 'sports', label: 'Sports' }],
   },
+  {
+    templateKey: 'household-daily',
+    title: 'The Household Daily',
+    description: 'Your family\'s private morning show: weather, news, this day in history, and what\'s happening around the house. A fresh episode every morning.',
+    style: 'briefing',
+    segments: [
+      { type: 'weather', label: 'Weather' },
+      { type: 'news', label: 'News' },
+      { type: 'onThisDay', label: 'On This Day' },
+      { type: 'household', label: 'Around the House' },
+    ],
+  },
 ]
 
 podcastsRoute.get('/suggestions', async (c) => {
@@ -942,7 +1074,9 @@ podcastsRoute.post('/suggestions/:id/accept', async (c) => {
   // Mark suggestion accepted
   await db.update(podcastSuggestions).set({ status: 'accepted' }).where(eq(podcastSuggestions.id, suggId))
 
-  // Create a show from the template
+  // Create a show from the template. The Household Daily preset is inherently a family
+  // show: shared with the household and generated automatically every morning.
+  const isHouseholdDaily = sugg.templateKey === 'household-daily'
   const showId = crypto.randomUUID()
   await db.insert(podcastShows).values({
     id: showId,
@@ -953,8 +1087,10 @@ podcastsRoute.post('/suggestions/:id/accept', async (c) => {
     style: sugg.style as any,
     hostsJson: '[]',
     segmentsJson: sugg.segmentsJson,
-    visibility: 'personal',
+    visibility: isHouseholdDaily ? 'shared' : 'personal',
     source: 'suggested',
+    autoGenerate: isHouseholdDaily,
+    scheduleJson: isHouseholdDaily ? JSON.stringify({ cadence: 'daily', hour: 6 }) : null,
     createdAt: new Date(),
   })
 

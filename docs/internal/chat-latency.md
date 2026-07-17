@@ -356,6 +356,31 @@ Tool call latency breakdown:
 
 ---
 
+## Re-plan Hook (dead ends only) — added 2026-07
+
+**Files:** `backend/src/llm/router.ts` → `replanAfterDeadEnd()`, `backend/src/lib/companionTurn.ts` → `tryReplan()`
+
+A routed tool that returns **no results or an error** buys exactly ONE more attempt: the router
+model re-picks (same tool with a corrected/broader query, or a fall back to search) and the result
+is adopted as if it had been the original route.
+
+**Why it costs the happy path nothing:** it is a dead-end hook, not a loop around every turn. A
+successful tool call never calls it. Only the already-broken path (which was heading for "I found
+nothing" anyway) pays the extra ~2–3s router call + tool execution.
+
+**Bounds:** one hop per turn (`replanUsed`), skipped on primes and multi-intent turns, candidate set
+is just `[deadTool, search]` (2 schemas — keeps granite4.1:3b near its floor), `REPLAN_TIMEOUT_MS =
+8_000`, and a second dead end gives up rather than looping.
+
+**Timing:** look for `[CHAT-TIMING] replan-tool-done(<tool>)`, and `[ROUTER] replan result=…`.
+
+## Companion Status Cue — added 2026-07
+
+`companionTurn` emits a `status` SSE event (`working`/`searching`/`retrying`) alongside `routing`.
+It is metadata only — no model call, no added latency — and drives the companion's wordless
+"working" affordance. A `spoken_cue` event fires ONLY on a re-plan; the phrases are a static
+in-process list, so no LLM call is ever made in the request path to produce them.
+
 ## What NOT to Change Without Re-Testing
 
 1. **Warmup system prompt**: must stay in sync with `chat.ts` prefix or KV cache misses on every first turn
@@ -364,6 +389,8 @@ Tool call latency breakdown:
 4. **`SEARCH_INTENT_RE`**: do not add a score threshold back. The regex fires unconditionally because all-minilm scores "what is X" at ~0.20 regardless of examples or descriptions. A score gate silently breaks all topic queries.
 5. **Tool `examples` arrays**: they are now **capability descriptions**, not user utterances. Do not revert to user utterances. Adding "what is [specific thing]" examples does not help; all-minilm doesn't generalize from them. If a tool isn't routing correctly, check whether the capability description is specific enough and whether SEARCH_INTENT_RE covers the pattern.
 6. **Memory block instruction**: the "never mention unprompted" wording is intentionally explicit. Softening it causes the model to volunteer memories in greetings (Tom Petty problem).
+6a. **Presentation policy position + warmup**: `PRESENTATION_POLICY` (`lib/presentationPrompt.ts`) is the FIRST system-prompt part on text surfaces and is duplicated into `warmupModel()`. Change one and you must change the other, or turn 1 of every conversation pays full prefill again. It is suppressed on voice surfaces on purpose (nothing in it is speakable).
+6b. **Re-plan stays dead-end-only**: do not "improve" `tryReplan` into a loop that runs on successful tool calls. That converts a rare recovery into a per-turn ~2–3s tax on the happy path.
 7. **Memory cache TTL**: if lowered below the sweep idle window (5 min), memory re-computation changes the system prompt mid-conversation and breaks KV cache
 8. **History token budget**: raising above 1200 adds perceptible prefill delay per turn
 

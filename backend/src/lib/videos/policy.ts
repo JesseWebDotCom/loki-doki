@@ -12,6 +12,7 @@
 import { getUserCeiling } from '@/lib/contentPolicy'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { getClassifications, ensureClassifications, classificationBlocks, classify } from '@/lib/media/classify'
+import { allowlistViewFor, allowlistPermits } from '@/lib/videos/allowlist'
 import { logger } from '@/lib/logger'
 import type { VideoItem } from '@/lib/videos/types'
 
@@ -32,6 +33,11 @@ function descriptionOf(it: VideoItem): string | null {
 
 /** Filter a list of video items for a user under their profile's video policy. */
 export async function filterVideosForUser(userId: string, items: VideoItem[]): Promise<VideoItem[]> {
+  if (!items.length) return items
+  // Allowlist-only mode runs OUTSIDE the fail-open try below: a classifier hiccup must
+  // never widen a kid's approved-only world. See lib/videos/allowlist.ts for fail rules.
+  const allowlist = await allowlistViewFor(userId)
+  if (allowlist) items = items.filter((it) => allowlistPermits(allowlist, it))
   try {
     if (!items.length) return items
     const policy = await videoPolicyFor(userId)
@@ -107,6 +113,9 @@ export async function filterYtItemsForUser<T extends { videoId: string; title: s
  *  filter, this classifies SYNCHRONOUSLY so the verdict is real (the watch path tolerates the
  *  ~1s) rather than a pending "unknown". Returns true when the item is ALLOWED. Fails open. */
 export async function videoAllowedForUser(userId: string, item: VideoItem): Promise<boolean> {
+  // Allowlist-only gate first, outside the fail-open try (see filterVideosForUser).
+  const allowlist = await allowlistViewFor(userId)
+  if (allowlist && !allowlistPermits(allowlist, item)) return false
   try {
     const policy = await videoPolicyFor(userId)
     if (policy.tier === 'open' && policy.adult === 'allow') return true

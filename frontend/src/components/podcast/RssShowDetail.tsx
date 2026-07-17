@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Play, Pause,
-  RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus,
-  Settings2, Trash2,
+  RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus, ListStart,
+  Settings2, Trash2, SlidersHorizontal, Bookmark, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -27,6 +27,11 @@ import {
   downloadEpisode, removeEpisodeDownload,
   type Episode, type Show,
 } from '@/lib/podcast/api'
+import { getBookmarks } from '@/lib/podcast/playerApi'
+import { setAutoTranscribe } from '@/lib/podcast/aiApi'
+import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
+import { BookmarkRow } from '@/components/podcast/BookmarkRow'
+import { PodcastCredits, PodcastFundingLink, PodcastHighlights } from '@/components/podcast/PodcastCredits'
 import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 
 const PAGE_SIZE = EPISODE_PAGE_SIZE
@@ -43,6 +48,7 @@ export function RssShowDetail({ show }: { show: Show }) {
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [playbackSettingsOpen, setPlaybackSettingsOpen] = useState(false)
 
   const { data: episodes = [], isLoading } = useQuery({
     queryKey: ['podcast-episodes', show.id],
@@ -160,6 +166,9 @@ export function RssShowDetail({ show }: { show: Show }) {
             {refreshing ? <Spinner className="text-current" /> : <RotateCw className="size-4" />}
           </Button>
 
+          {/* Podcasting 2.0: the show's own support link, when the feed publishes one. */}
+          <PodcastFundingLink funding={show.funding} />
+
           {show.subscription && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -169,6 +178,10 @@ export function RssShowDetail({ show }: { show: Show }) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuItem onSelect={() => setPlaybackSettingsOpen(true)}>
+                  <SlidersHorizontal className="size-4" /> Playback settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <AutoDownloadSettings showId={show.id} subscription={show.subscription} />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={() => setConfirmUnsubscribe(true)}>
@@ -179,6 +192,12 @@ export function RssShowDetail({ show }: { show: Show }) {
           )}
         </>}
       />
+
+      {/* ── Podcasting 2.0 person credits (renders nothing when the feed has none) ── */}
+      <PodcastCredits persons={show.persons} title="Who makes this" className="mb-6" />
+
+      {/* ── Bookmarks in this show ── */}
+      <ShowBookmarksSection showId={show.id} />
 
       {/* ── Episode list ── */}
       <EpisodesToolbar
@@ -227,22 +246,69 @@ export function RssShowDetail({ show }: { show: Show }) {
         destructive
         onConfirm={() => void handleUnsubscribe()}
       />
+
+      <ShowPlaybackSettings showId={show.id} showName={show.name} open={playbackSettingsOpen} onOpenChange={setPlaybackSettingsOpen} />
     </PageContainer>
   )
 }
 
-/** Auto-download prefs, rendered inside the settings dropdown. */
+/** Bookmarked moments across this show's episodes - collapsed to a short list. */
+function ShowBookmarksSection({ showId }: { showId: string }) {
+  const qc = useQueryClient()
+  const [showAll, setShowAll] = useState(false)
+  const { data: bookmarks = [] } = useQuery({
+    queryKey: ['podcast-bookmarks', showId],
+    queryFn: () => getBookmarks({ showId }),
+  })
+  if (bookmarks.length === 0) return null
+  const visible = showAll ? bookmarks : bookmarks.slice(0, 3)
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['podcast-bookmarks', showId] })
+    void qc.invalidateQueries({ queryKey: ['podcast-bookmarks'] })
+  }
+  return (
+    <section className="mb-6">
+      <h2 className="mb-1 flex items-center gap-1.5 text-sm font-bold">
+        <Bookmark className="size-4 text-brand" /> Bookmarks
+      </h2>
+      <div className="space-y-0.5">
+        {visible.map(b => <BookmarkRow key={b.id} bookmark={b} showThumb={false} onChanged={refresh} />)}
+      </div>
+      {bookmarks.length > 3 && (
+        <button onClick={() => setShowAll(v => !v)} className="mt-1 px-3 text-xs font-medium text-muted-foreground hover:text-foreground">
+          {showAll ? 'Show fewer' : `Show all ${bookmarks.length}`}
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Auto-download + auto-transcribe prefs, rendered inside the settings dropdown. */
 function AutoDownloadSettings({ showId, subscription }: {
   showId: string
-  subscription: { autoDownload: boolean; autoDownloadKeep: number | null }
+  subscription: { autoDownload: boolean; autoDownloadKeep: number | null; autoTranscribe?: boolean }
 }) {
   const qc = useQueryClient()
   const [auto, setAuto] = useState(subscription.autoDownload)
   const [keep, setKeep] = useState(subscription.autoDownloadKeep ?? 3)
+  const [transcribe, setTranscribe] = useState(subscription.autoTranscribe ?? false)
   useEffect(() => {
     setAuto(subscription.autoDownload)
     setKeep(subscription.autoDownloadKeep ?? 3)
-  }, [subscription.autoDownload, subscription.autoDownloadKeep])
+    setTranscribe(subscription.autoTranscribe ?? false)
+  }, [subscription.autoDownload, subscription.autoDownloadKeep, subscription.autoTranscribe])
+
+  async function toggleTranscribe(v: boolean) {
+    setTranscribe(v)
+    try {
+      await setAutoTranscribe(showId, v)
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+      toast.success(v ? 'New episodes will be transcribed automatically.' : 'Auto-transcribe turned off.')
+    } catch {
+      setTranscribe(!v)
+      toast.error('Could not update auto-transcribe.')
+    }
+  }
 
   async function toggleAuto(v: boolean) {
     setAuto(v)
@@ -284,6 +350,10 @@ function AutoDownloadSettings({ showId, subscription }: {
           />
         </label>
       )}
+      <label className="flex cursor-pointer items-center justify-between gap-3 text-xs font-medium">
+        <span className="flex items-center gap-1.5"><FileText className="size-3.5" /> Auto-transcribe new episodes</span>
+        <Switch checked={transcribe} onCheckedChange={v => void toggleTranscribe(v)} className="scale-75" />
+      </label>
     </div>
   )
 }
@@ -298,7 +368,7 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
   onToggle: () => void
   onInvalidate: () => Promise<void>
 }) {
-  const { track, playing, play, enqueue, pause, resume } = usePodcastPlayback()
+  const { track, playing, play, enqueue, playNextInQueue, pause, resume, seek } = usePodcastPlayback()
   const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
@@ -330,6 +400,14 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
     }
+  }
+
+  /** Jump to a soundbite: seek when this episode is already loaded, otherwise start it
+   *  at that moment. Either way the tap lands on the highlight. */
+  function handleSeekHighlight(startSec: number) {
+    if (!ready) return
+    if (isCurrent) { seek(startSec); if (!playing) resume(); return }
+    play(toTrack(episode, show), startSec)
   }
 
   return (
@@ -406,7 +484,14 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
           </div>
         )}
 
-        {/* Expanded actions */}
+        {/* Expanded: Podcasting 2.0 episode credits + soundbite highlights, then actions. */}
+        {expanded && (
+          <div onClick={e => e.stopPropagation()}>
+            <PodcastCredits persons={episode.persons} title="In this episode" className="mt-3" />
+            <PodcastHighlights soundbites={episode.soundbites} onSeek={handleSeekHighlight} className="mt-3" />
+          </div>
+        )}
+
         {expanded && (
           <div className="mt-3 flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
             {ready && (
@@ -415,9 +500,15 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
               </Button>
             )}
             {ready && (
+              <Button type="button" variant="outline" size="sm" onClick={() => playNextInQueue(toTrack(episode, show))}
+                className="gap-1.5 text-muted-foreground hover:text-foreground">
+                <ListStart className="size-3.5" /> Play next
+              </Button>
+            )}
+            {ready && (
               <Button type="button" variant="outline" size="sm" onClick={() => enqueue(toTrack(episode, show))}
                 className="gap-1.5 text-muted-foreground hover:text-foreground">
-                <ListPlus className="size-3.5" /> Up Next
+                <ListPlus className="size-3.5" /> Add to queue
               </Button>
             )}
             {!dl && (

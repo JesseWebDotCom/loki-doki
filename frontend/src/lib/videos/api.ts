@@ -96,7 +96,13 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function getVideoSources(): Promise<{ sources: SourceInfo[] }> {
+export interface VideoViewFlags {
+  noAutoplay: boolean
+  noShorts: boolean
+  noSuggestions: boolean
+}
+
+export function getVideoSources(): Promise<{ sources: SourceInfo[]; allowlistOnly?: boolean; viewFlags?: VideoViewFlags }> {
   return getJson('/api/videos/sources')
 }
 
@@ -282,9 +288,183 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Cast ─────────────────────────────────────────────────────────────────────────
+
+export interface CastTarget { deviceId: string; label: string; isTv: boolean }
+
+/** Your other signed-in screens, as cast targets. */
+export function listCastTargets(): Promise<{ targets: CastTarget[] }> {
+  return getJson('/api/watch-together/cast/targets')
+}
+
+export function castTo(
+  media: { source: VideoSource | 'youtube'; videoId: string; title: string },
+  deviceId: string,
+  atSec?: number,
+): Promise<{ ok: true }> {
+  return sendJson('/api/watch-together/cast', 'POST', { media, deviceId, atSec })
+}
+
+// ── Portability ──────────────────────────────────────────────────────────────────
+
+/** The per-user RSS token + feed base (the URL carries the credential; readers can't
+ *  send our session cookie). */
+export function getRssToken(): Promise<{ token: string; base: string }> {
+  return getJson('/api/videos/rss/token')
+}
+
+export function importOpml(opml: string): Promise<{ imported: number; skipped: number; unsupported: number; total: number }> {
+  return sendJson('/api/videos/opml/import', 'POST', { opml })
+}
+
+// ── AI extras ────────────────────────────────────────────────────────────────────
+
+export interface AiChapter { start: number; title: string }
+export interface ClipSuggestion { startSec: number; endSec: number; title: string; why: string }
+
+/** LLM-derived chapters, for videos whose creator never added any. */
+export function getAutoChapters(source: VideoSource | 'youtube', videoId: string): Promise<{ chapters: AiChapter[] }> {
+  return getJson(`/api/videos/${source}/auto-chapters/${encodeURIComponent(videoId)}`)
+}
+
+/** Spoiler-safe recap of everything before `uptoSec` (never past it). */
+export function getCatchUp(source: VideoSource | 'youtube', videoId: string, uptoSec: number): Promise<{ recap: string | null }> {
+  return getJson(`/api/videos/${source}/catch-up/${encodeURIComponent(videoId)}?upto=${Math.floor(uptoSec)}`)
+}
+
+export function getClipSuggestions(source: VideoSource | 'youtube', videoId: string): Promise<{ suggestions: ClipSuggestion[] }> {
+  return getJson(`/api/videos/${source}/clip-suggestions/${encodeURIComponent(videoId)}`)
+}
+
+export interface StudyNotes {
+  summary: string
+  keyPoints: Array<{ atSec: number; text: string }>
+  flashcards: Array<{ q: string; a: string }>
+}
+
+/** Homework mode: study material from this video, saved as a real Note. */
+export function makeStudyNotes(source: VideoSource | 'youtube', videoId: string): Promise<{ noteId: string; notes: StudyNotes }> {
+  return sendJson(`/api/videos/${source}/study-notes/${encodeURIComponent(videoId)}`, 'POST', {})
+}
+
+// ── Year in Review ───────────────────────────────────────────────────────────────
+
+export interface RecapPerson {
+  userId: string
+  name: string
+  minutes: number
+  videoCount: number
+  topCreator: string | null
+  topCreatorShare: number
+}
+
+export interface Recap {
+  scope: 'me' | 'household'
+  year: number
+  totalMinutes: number
+  videoCount: number
+  topCreators: Array<{ name: string; count: number }>
+  byMonth: number[]
+  busiestDay: { day: string; minutes: number } | null
+  longestStreak: number
+  people: RecapPerson[]
+  sharedCreators: string[]
+  note: string | null
+}
+
+export function getRecap(year: number, scope: 'me' | 'household'): Promise<{ recap: Recap }> {
+  return getJson(`/api/videos/recap?year=${year}&scope=${scope}`)
+}
+
+// ── Family social layer ──────────────────────────────────────────────────────────
+
+export interface VideoMoment {
+  id: string
+  userId: string
+  atSec: number
+  emoji: string | null
+  note: string | null
+  by: string
+  mine: boolean
+  createdAt: number
+}
+
+export function listMoments(source: VideoSource | 'youtube', videoId: string): Promise<{ moments: VideoMoment[] }> {
+  return getJson(`/api/videos/${source}/moments/${encodeURIComponent(videoId)}`)
+}
+export function addMoment(source: VideoSource | 'youtube', videoId: string, atSec: number, body: { emoji?: string; note?: string }): Promise<{ id: string }> {
+  return sendJson(`/api/videos/${source}/moments/${encodeURIComponent(videoId)}`, 'POST', { atSec, ...body })
+}
+export function removeMoment(momentId: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/moments/${momentId}`, 'DELETE', {})
+}
+
+export interface VoteTally { source: VideoSource; videoId: string; count: number; mine: boolean }
+
+export function listVotes(playlistId: string): Promise<{ votes: VoteTally[]; total: number }> {
+  return getJson(`/api/videos/playlists/${playlistId}/votes`)
+}
+export function castVote(playlistId: string, source: VideoSource, videoId: string, vote: boolean): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/playlists/${playlistId}/votes`, 'POST', { source, videoId, vote })
+}
+
+/** Family Blend: fresh videos from creators more than one of you follows. */
+export function getBlend(): Promise<{ items: HubVideoItem[]; sharedCreators: number }> {
+  return getJson('/api/videos/blend')
+}
+
+// ── Subscription folders ─────────────────────────────────────────────────────────
+
+export interface FolderMember { source: VideoSource; externalId: string }
+export interface VideoFolder { id: string; name: string; sortOrder: number; members: FolderMember[] }
+
+export function listFolders(): Promise<{ folders: VideoFolder[] }> {
+  return getJson('/api/videos/folders')
+}
+export function createFolder(name: string): Promise<{ folder: VideoFolder }> {
+  return sendJson('/api/videos/folders', 'POST', { name })
+}
+export function renameFolder(id: string, name: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}`, 'PATCH', { name })
+}
+export function deleteFolder(id: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}`, 'DELETE', {})
+}
+export function setFolderMember(id: string, source: VideoSource, externalId: string, member: boolean): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}/members`, 'POST', { source, externalId, member })
+}
+
+/** One-tap shuffle from what this user follows (null when there's nothing to play). */
+export function playSomething(): Promise<{ item: HubVideoItem | null }> {
+  return getJson('/api/videos/play-something')
+}
+
+export interface SemanticHit {
+  source: VideoSource
+  videoId: string
+  title: string
+  creatorName: string | null
+  thumbnailUrl: string | null
+  score: number
+  /** Best-matching transcript moment (null when the match was title/description). */
+  seekSec: number | null
+  snippet: string | null
+}
+
+/** Semantic "find the moment" search over everything the household has watched. */
+export function semanticSearch(q: string): Promise<{ hits: SemanticHit[] }> {
+  return getJson(`/api/videos/semantic-search?q=${encodeURIComponent(q)}`)
+}
+
+export interface VideoTimeGate {
+  allowed: boolean
+  reason?: 'budget' | 'hours'
+  remainingSec: number | null
+}
+
 export function putWatchState(
   source: VideoSource, videoId: string, positionSec: number, completed: boolean, snapshot?: WatchStateSnapshot,
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; timeLimit?: VideoTimeGate }> {
   return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed, ...snapshot })
 }
 

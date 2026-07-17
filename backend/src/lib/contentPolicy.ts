@@ -303,13 +303,15 @@ export async function setDefaultProfileSlug(slug: string): Promise<void> {
 }
 
 // ── Per-user assignment + resolution ─────────────────────────────────────────────
-async function getUserPref(userId: string, key: string): Promise<unknown | null> {
+// Exported for sibling policy modules (videos/allowlist.ts) that store admin-managed
+// per-user flags in the same preference store.
+export async function getUserPref(userId: string, key: string): Promise<unknown | null> {
   const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
     .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key))).limit(1)
   if (!row) return null
   try { return JSON.parse(row.value) } catch { return null }
 }
-async function setUserPref(userId: string, key: string, value: unknown): Promise<void> {
+export async function setUserPref(userId: string, key: string, value: unknown): Promise<void> {
   const now = new Date()
   await db.insert(userPreferences)
     .values({ id: crypto.randomUUID(), userId, key, value: JSON.stringify(value), updatedAt: now })

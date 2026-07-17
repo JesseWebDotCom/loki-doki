@@ -136,6 +136,7 @@ export const devices = sqliteTable('devices', {
   pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
   capabilities: text('capabilities'),             // JSON: { screen, camera, sampleRate }
   groupId: text('group_id'),                       // device_groups.id; null → built-in Default
+  areaId: text('area_id'),                          // HA area id this device lives in → "here"/room-context resolution; null = unbound
   layoutTemplateId: text('layout_template_id'),    // device_layout_templates.id; null → built-in default layout
   layoutOverrides: text('layout_overrides'),       // JSON: per-device tweak { theme?, volume?, alarmVolume? }
   controllerLayoutTemplateId: text('controller_layout_template_id'), // → controller_layout_templates.id; null = builtin:blank
@@ -752,8 +753,9 @@ export const musicPlaylists = sqliteTable('music_playlists', {
   coverPath: text('cover_path'),
   visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
   // manual = hand-built; magic = AI vibe-generated (recipe in rulesJson for Regenerate);
-  // smart = rule-based, re-evaluated on read (no persisted track rows).
-  kind: text('kind', { enum: ['manual', 'magic', 'smart'] }).notNull().default('manual'),
+  // smart = rule-based, re-evaluated on read (no persisted track rows);
+  // blend = Family Blend output (owned by a music_blends row, auto-refreshed daily).
+  kind: text('kind', { enum: ['manual', 'magic', 'smart', 'blend'] }).notNull().default('manual'),
   rulesJson: text('rules_json'),
   generatedAt: integer('generated_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -1725,6 +1727,11 @@ export const podcastShows = sqliteTable('podcast_shows', {
   // Show-level parental advisory from <itunes:explicit> / collectionExplicitness:
   // null=unknown, 0=clean, 1=explicit. Feeds kid-safe podcast filtering.
   explicit: integer('explicit'),
+  // Podcasting 2.0 channel tags: <podcast:person> credits (JSON array of
+  // {name, role, group, img, href}) and <podcast:funding> links (JSON array of
+  // {url, label}). Populated from the feed on subscribe/refresh; null when absent.
+  personsJson: text('persons_json'),
+  fundingJson: text('funding_json'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId),
@@ -1751,6 +1758,20 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   imageUrl: text('image_url'),        // episode-level itunes:image
   link: text('link'),
   publishedAt: integer('published_at', { mode: 'timestamp' }),
+  // Podcasting 2.0 <podcast:chapters> JSON document URL from the feed. Fetched lazily on
+  // first chapter request and cached into chaptersJson (chaptersFetchedAt marks the fetch,
+  // including empty/failed results, so a chapterless episode isn't re-fetched every open).
+  chaptersUrl: text('chapters_url'),
+  chaptersFetchedAt: integer('chapters_fetched_at', { mode: 'timestamp' }),
+  // Podcasting 2.0 item tags: <podcast:person> episode credits (JSON array of
+  // {name, role, group, img, href}) and <podcast:soundbite> highlights (JSON array of
+  // {startSec, durationSec, title}). Parsed inline from the feed item; null when absent.
+  personsJson: text('persons_json'),
+  soundbitesJson: text('soundbites_json'),
+  // Podcasting 2.0 <podcast:transcript> document URL + declared MIME from the feed.
+  // Fetched lazily on first transcript request and normalized into podcastTranscripts.
+  transcriptUrl: text('transcript_url'),
+  transcriptType: text('transcript_type'),
   // Shared media_assets rendition once any household member downloads this episode.
   assetId: text('asset_id'),
   // Episode-level parental advisory from <itunes:explicit>/trackExplicitness: null=unknown,
@@ -1807,6 +1828,8 @@ export const podcastSubscriptions = sqliteTable('podcast_subscriptions', {
   showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
   autoDownload: integer('auto_download', { mode: 'boolean' }).notNull().default(false),
   autoDownloadKeep: integer('auto_download_keep'),  // null → default 3
+  // Whisper-transcribe fresh episodes automatically as the feed poller lands them.
+  autoTranscribe: integer('auto_transcribe', { mode: 'boolean' }).notNull().default(false),
   notify: integer('notify', { mode: 'boolean' }).notNull().default(false),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
@@ -2343,6 +2366,118 @@ export const mediaProgress = sqliteTable('media_progress', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, (t) => ({
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
+}))
+
+// The family social layer: private, household-only reactions to video. Netflix has
+// Moments, niconico has timed comments, YouTube has neither privately; the point here is
+// that a family can leave things for each other on a video without any of it leaving the
+// house. Household-visible by design (that IS the feature), so no per-user scoping on read.
+//
+// One row is both a bookmark and a timed reaction: `note` present = a saved Moment worth
+// a card, `emoji` present = a scrubber pin. Either or both.
+export const videoMoments = sqliteTable('video_moments', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  atSec: integer('at_sec').notNull(),
+  emoji: text('emoji'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Movie-night voting over a shared playlist: one row per person per entry. The winner is
+// simply the entry with the most votes (ties break by earliest vote).
+export const videoVotes = sqliteTable('video_votes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  playlistId: text('playlist_id').notNull(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  voteUnique: uniqueIndex('video_votes_unique').on(t.userId, t.playlistId, t.source, t.videoId),
+}))
+
+// Media segments (lib/videos/mediaSegments.ts): typed time-spans a player can act on
+// (intro/credits/recap/preview), so skip affordances have ONE model across SponsorBlock
+// and locally detected intros. A single row with type 'none' is the "checked, found
+// nothing" sentinel that stops re-probing on every open. Household-shared: the segments
+// of a file are a property of the file, not of a viewer.
+export const mediaSegments = sqliteTable('media_segments', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),                       // 'plex' | 'local' | hub VideoSource
+  mediaId: text('media_id').notNull(),                    // ratingKey / save id
+  type: text('type').notNull(),                           // intro|credits|recap|preview|sponsor|none
+  startSec: integer('start_sec').notNull(),
+  endSec: integer('end_sec').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Subscription folders: user-made groups over subscriptions/follows across every source
+// ("Science", "Kids", "Gaming"), each with its own filtered feed. YouTube killed
+// Collections a decade ago and never replaced it; this is the most-requested library
+// feature in every alt-frontend community. A creator may sit in several folders.
+export const videoFolders = sqliteTable('video_folders', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const videoFolderMembers = sqliteTable('video_folder_members', {
+  id: text('id').primaryKey(),
+  folderId: text('folder_id').notNull().references(() => videoFolders.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),                       // 'youtube' | hub VideoSource
+  externalId: text('external_id').notNull(),              // channelId / creator id
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  memberUnique: uniqueIndex('video_folder_members_unique').on(t.folderId, t.source, t.externalId),
+}))
+
+// Semantic video search index (lib/videos/semanticIndex.ts): one row per embedded chunk.
+// segment -1 = title/description meta row; 0+ = transcript windows with their start time,
+// so search results can jump straight to the matching moment. Household-shared.
+export const videoEmbeddings = sqliteTable('video_embeddings', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  segment: integer('segment').notNull(),
+  startSec: integer('start_sec'),
+  text: text('text').notNull(),
+  embedding: text('embedding').notNull(),                  // JSON number[]
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  chunkUnique: uniqueIndex('video_embeddings_chunk').on(t.source, t.videoId, t.segment),
+}))
+
+// Kids time budgets: seconds of video actually watched per user per local day, metered
+// from player position heartbeats (lib/videos/watchTime.ts). Read by the budget gate
+// and the weekly parent report.
+export const videoWatchTime = sqliteTable('video_watch_time', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),                              // 'YYYY-MM-DD', server-local
+  seconds: real('seconds').notNull().default(0),
+}, (t) => ({
+  userDayUnique: uniqueIndex('video_watch_time_user_day').on(t.userId, t.day),
+}))
+
+// Kids allowlist-only mode: when a user's `videos.allowlistOnly` preference is on, the
+// video policy layer keeps ONLY items from these parent-approved creators (or these
+// individually approved videos) — no search discovery, no suggestions, no unvetted
+// up-next. Entries are per-child and admin-managed (Admin > Accounts).
+export const videoAllowlist = sqliteTable('video_allowlist', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),                       // 'youtube' | hub VideoSource
+  kind: text('kind', { enum: ['creator', 'video'] }).notNull(),
+  externalId: text('external_id').notNull(),              // channelId / creator id / video id
+  title: text('title'),
+  thumbnailUrl: text('thumbnail_url'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  userEntryUnique: uniqueIndex('video_allowlist_user_entry').on(t.userId, t.source, t.kind, t.externalId),
 }))
 
 export const bookProgress = sqliteTable('book_progress', {
@@ -3036,6 +3171,80 @@ export const plexPathMappings = sqliteTable('plex_path_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Network protection (DNS filtering) ────────────────────────────────────────
+// Per-device query log rollup and custom rules for the opt-in DNS ad/tracker
+// blocker (lib/dns). Blocklists themselves live on disk (data/dns); this table is
+// just the small relational state: named device profiles keyed by client IP, and
+// manual allow/deny overrides. Global config (enabled, upstreams, categories)
+// lives in app_settings under 'dns.config'.
+export const dnsDevices = sqliteTable('dns_devices', {
+  ip: text('ip').primaryKey(),
+  label: text('label').notNull(),
+  profile: text('profile').notNull().default('default'), // 'default' | 'kids' | 'unfiltered'
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  queries: integer('queries').notNull().default(0),
+  blocked: integer('blocked').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const dnsRules = sqliteTable('dns_rules', {
+  id: text('id').primaryKey(),
+  domain: text('domain').notNull(),
+  action: text('action').notNull(), // 'allow' | 'deny'
+  profile: text('profile'), // null = applies to all profiles
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── Routines ────────────────────────────────────────────────────────────────
+// User-defined trigger/condition/action automations. Authored in the Routines app
+// or conversationally by the companion (with a staged confirm), executed
+// DETERMINISTICALLY by lib/routines/engine.ts: no LLM in the run loop unless the
+// routine explicitly contains an ask-companion action. trigger and actions are
+// JSON (see lib/routines/types.ts) so new trigger/action kinds don't need
+// migrations.
+export const routines = sqliteTable('routines', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  trigger: text('trigger').notNull(), // JSON RoutineTrigger
+  actions: text('actions').notNull(), // JSON RoutineAction[]
+  createdVia: text('created_via').notNull().default('app'), // 'app' | 'companion'
+  lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
+  lastResult: text('last_result'), // 'ok' | 'error'
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const routineRuns = sqliteTable('routine_runs', {
+  id: text('id').primaryKey(),
+  routineId: text('routine_id').notNull().references(() => routines.id, { onDelete: 'cascade' }),
+  firedBy: text('fired_by').notNull(), // 'time' | 'ha-state' | 'frigate' | 'service' | 'webhook' | 'manual'
+  status: text('status').notNull(), // 'ok' | 'error'
+  detail: text('detail'), // per-action outcome summary or error text
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+})
+
+// ─── Backups ───────────────────────────────────────────────────────────────────
+// One row per backup run (scheduled, manual, or the automatic pre-update snapshot).
+// The DB snapshot itself is a VACUUM INTO copy at <destinationPath>/db/<dbFileName>;
+// user files mirror to <destinationPath>/files/. destinationPath is captured at run
+// time so rows stay meaningful if the admin later changes the destination.
+export const backups = sqliteTable('backups', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull().default('manual'), // 'manual' | 'scheduled' | 'pre-update'
+  status: text('status').notNull().default('running'), // 'running' | 'complete' | 'failed'
+  destinationPath: text('destination_path').notNull(),
+  dbFileName: text('db_file_name'),
+  dbSizeBytes: integer('db_size_bytes'),
+  filesSynced: integer('files_synced'), // files copied by the mirror pass; null = mirror skipped
+  filesBytes: integer('files_bytes'), // bytes copied by the mirror pass
+  error: text('error'),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+})
+
 // ─── Plex per-user library provisioning ────────────────────────────────────────
 // One row per (user, content type) once a private Plex "show" library has been
 // created and shared to only that user's Plex account. `sharedServerId` is the id
@@ -3344,6 +3553,22 @@ export const remoteSnippets = sqliteTable('remote_snippets', {
 // at the next profile build). creator/title are denormalized off the served card so the
 // penalty works without re-resolving the item. Swept daily (lib/interests/impressions.ts):
 // rotation state is forgotten after idle periods, dismissals are kept forever.
+// Cached LLM lyric translations, one row per (track, language). trackKey is the
+// normalized "artist|title"; sourceHash fingerprints the exact source lines (aligned
+// vs raw LRCLIB text can differ) so a stale cache regenerates instead of mis-pairing.
+// lines is a JSON array of { t: translation, r: romanized pronunciation | null } in
+// source-line order. Generated once, shared household-wide (lyrics are not per-user).
+export const lyricTranslations = sqliteTable('lyric_translations', {
+  id: text('id').primaryKey(),
+  trackKey: text('track_key').notNull(),
+  lang: text('lang').notNull(),
+  sourceHash: text('source_hash').notNull(),
+  lines: text('lines').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  trackLangUnique: unique().on(t.trackKey, t.lang),
+}))
+
 export const suggestionImpressions = sqliteTable('suggestion_impressions', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -3359,4 +3584,335 @@ export const suggestionImpressions = sqliteTable('suggestion_impressions', {
 }, t => ({
   userDomainRefUnique: unique().on(t.userId, t.domain, t.ref),
   userDomainIdx: index('suggestion_impressions_user_domain_idx').on(t.userId, t.domain),
+}))
+
+// ─── Music intelligence: Mixes For You + Family Blend ────────────────────────────
+// music_mixes: the cached daily "Mixes For You" per user - recent listening clustered in
+// embedding space plus sonic neighbors, 3-6 named mixes. Recomputed by the daily music
+// intel job (lib/music/intelJobs); tracks_json is [{videoId,title,artist}] using the
+// unified track-ref carrier. key is the stable per-slot identity ('mix-1'..'mix-6') so
+// "Not interested" dismissals (suggestion_impressions ref `mix:<key>`) survive refreshes.
+export const musicMixes = sqliteTable('music_mixes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),             // 'mix-1'..'mix-6'
+  name: text('name').notNull(),           // named from the dominant artist/genre
+  subtitle: text('subtitle'),
+  tracksJson: text('tracks_json').notNull(),
+  computedAt: integer('computed_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userKeyUnique: unique().on(t.userId, t.key) }))
+
+// music_blends: Family Blend definitions - two or more household profiles' listening
+// blended into one auto-refreshing shared playlist (playlist_id points at a normal
+// music_playlists row with kind 'blend', visibility 'shared'). match_percent is the
+// taste-match score across members (embedding-centroid similarity, artist-overlap
+// fallback). Refreshed daily by the music intel job.
+export const musicBlends = sqliteTable('music_blends', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  memberIdsJson: text('member_ids_json').notNull(),   // JSON string[] of user ids (includes owner)
+  playlistId: text('playlist_id').notNull(),
+  matchPercent: integer('match_percent'),
+  refreshedAt: integer('refreshed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ── Family audio controls ─────────────────────────────────────────────────────
+// Per-profile kids/family audio guardrails (music + podcasts): allowlist-only mode,
+// blocklist, daily time budget, quiet hours, and a volume cap. Settings row is
+// optional; a missing row means "no restrictions". See lib/family/audioPolicy.ts.
+export const familyAudioSettings = sqliteTable('family_audio_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  allowlistOnly: integer('allowlist_only', { mode: 'boolean' }).notNull().default(false),
+  dailyAudioMinutes: integer('daily_audio_minutes'),      // null = unlimited
+  quietHoursStart: text('quiet_hours_start'),             // 'HH:MM' local, null = none
+  quietHoursEnd: text('quiet_hours_end'),
+  maxVolumePercent: integer('max_volume_percent'),        // null = uncapped
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Allowlist/blocklist entries. `ref` is the identity: artists use a normalized name
+// key, stations/playlists their row id, podcast shows the show id or canonical feed
+// URL. `altRef` carries a secondary identity (artist MBID, 'itunes:<id>') so chart
+// rows that omit the feed URL still match.
+export const familyAudioEntries = sqliteTable('family_audio_entries', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  list: text('list', { enum: ['allow', 'block'] }).notNull(),
+  kind: text('kind', { enum: ['artist', 'playlist', 'station', 'podcastShow'] }).notNull(),
+  ref: text('ref').notNull(),
+  altRef: text('alt_ref'),
+  label: text('label').notNull(),
+  addedBy: text('added_by'),                              // admin user id (informational)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userListKindRefUnique: unique().on(t.userId, t.list, t.kind, t.ref),
+  userIdx: index('family_audio_entries_user_idx').on(t.userId),
+}))
+
+// Daily listening ledger, accrued from the players' now-playing heartbeats
+// (routes/deviceStudio.ts). One row per (user, local day, medium).
+export const familyAudioUsage = sqliteTable('family_audio_usage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),                             // local 'YYYY-MM-DD'
+  medium: text('medium', { enum: ['music', 'podcast'] }).notNull(),
+  seconds: integer('seconds').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userDayMediumUnique: unique().on(t.userId, t.day, t.medium),
+  dayIdx: index('family_audio_usage_day_idx').on(t.day),
+}))
+
+// Guardrail events (blocked plays, budget exhaustion) — feeds the weekly parent digest.
+export const familyAudioEvents = sqliteTable('family_audio_events', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['blocked_play', 'budget_exhausted', 'quiet_hours_block'] }).notNull(),
+  detail: text('detail'),                                 // JSON {label?, medium?, reason?}
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userCreatedIdx: index('family_audio_events_user_created_idx').on(t.userId, t.createdAt),
+}))
+
+// Weekly parent digest snapshots (per household week). payload holds the per-child raw
+// numbers; summary is the optional LLM-written blurb. Surfaced in Admin > Family audio
+// and announced via an admin-targeted notification.
+export const familyAudioDigests = sqliteTable('family_audio_digests', {
+  id: text('id').primaryKey(),
+  weekStart: text('week_start').notNull().unique(),       // local 'YYYY-MM-DD' (Monday)
+  payload: text('payload').notNull().default('{}'),
+  summary: text('summary'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ── Podcast player: per-show playback settings, Up Next queue, bookmarks, filters ──
+
+// Per-user playback preferences for one show (real RSS subscription or generated show).
+// Null speed = app default (1x); null trimSilence/voiceBoost = follow the user's global
+// toggle; 0/1 override it for this show only. Applied automatically when an episode of
+// the show starts playing.
+export const podcastShowSettings = sqliteTable('podcast_show_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
+  speed: real('speed'),
+  skipIntroSec: integer('skip_intro_sec').notNull().default(0),
+  skipOutroSec: integer('skip_outro_sec').notNull().default(0),
+  trimSilence: integer('trim_silence'),   // null = inherit global; 0/1 per-show override
+  voiceBoost: integer('voice_boost'),     // null = inherit global; 0/1 per-show override
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userShowUnique: unique().on(t.userId, t.showId),
+}))
+
+// Server-persisted per-user "Up Next" episode queue (ordered by position ascending).
+// The player drains it on auto-advance; it survives reloads and syncs across devices.
+export const podcastQueue = sqliteTable('podcast_queue', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull().default(0),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userEpUnique: unique().on(t.userId, t.episodeId),
+  userPosIdx: index('podcast_queue_user_pos_idx').on(t.userId, t.position),
+}))
+
+// Timestamped per-user bookmarks inside episodes (position + optional note).
+export const podcastBookmarks = sqliteTable('podcast_bookmarks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  positionSec: real('position_sec').notNull().default(0),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_bookmarks_user_idx').on(t.userId),
+  episodeIdx: index('podcast_bookmarks_episode_idx').on(t.episodeId),
+}))
+
+// Saved smart episode filters (the music smartRules pattern): rulesJson holds a
+// { match, rules } document evaluated over the user's visible episodes on every read.
+export const podcastEpisodeFilters = sqliteTable('podcast_episode_filters', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  rulesJson: text('rules_json').notNull().default('{}'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_episode_filters_user_idx').on(t.userId),
+}))
+
+// ── Listening Together: player devices + Family Jam (see lib/together/) ──────────
+
+// User-editable names for browser player sessions ("Living Room TV", "Kitchen iPad").
+// The id is a client-minted stable device id (localStorage); everything ELSE about a
+// live session (current player state, last seen) is in-memory only - the name is the
+// single piece worth persisting across restarts.
+export const playerDevices = sqliteTable('player_devices', {
+  id: text('id').primaryKey(),                            // client device id
+  name: text('name').notNull(),                           // user-chosen label
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),  // who named it
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Family Jam: a shared, server-held Up Next queue any household member can add to.
+// At most one active jam per household (enforced in routes/together.ts). DB-backed
+// rather than in-memory because reorder/attribution need durable ordering, the rows
+// are tiny, and a server restart mid-party should not eat the queue.
+export const musicJams = sqliteTable('music_jams', {
+  id: text('id').primaryKey(),
+  hostUserId: text('host_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  hostName: text('host_name').notNull(),
+  hostDeviceId: text('host_device_id').notNull(),          // presence device consuming the queue
+  name: text('name').notNull().default('Family Jam'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
+})
+
+// One queued track in a jam, with member attribution ("added by Maya").
+export const musicJamItems = sqliteTable('music_jam_items', {
+  id: text('id').primaryKey(),
+  jamId: text('jam_id').notNull().references(() => musicJams.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),                     // track ref (yt id / local: / plex:)
+  title: text('title').notNull(),
+  author: text('author'),
+  thumbnail: text('thumbnail').notNull().default(''),
+  position: integer('position').notNull().default(0),
+  addedById: text('added_by_id').references(() => users.id, { onDelete: 'set null' }),
+  addedByName: text('added_by_name').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  jamPosIdx: index('music_jam_items_jam_pos_idx').on(t.jamId, t.position),
+}))
+
+// ── Portability: scrobbling out + gPodder-compatible sync ─────────────────────────
+
+// Outbox for listens headed to an external scrobble service (ListenBrainz). Playback
+// paths only ever INSERT here (local, fast, fire-and-forget); a background flusher does
+// the network submission with retry/backoff, so an offline server or a bad token can
+// never slow a play. Sent rows are deleted; rows that exhaust their attempts stay as
+// 'failed' so the settings UI can report them honestly.
+export const scrobbleQueue = sqliteTable('scrobble_queue', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  service: text('service', { enum: ['listenbrainz'] }).notNull().default('listenbrainz'),
+  // {artist, title, durationSec|null, listenedAt (epoch sec)}
+  payloadJson: text('payload_json').notNull(),
+  status: text('status', { enum: ['pending', 'failed'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp' }),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  statusIdx: index('scrobble_queue_status_idx').on(t.status, t.nextAttemptAt),
+  userIdx: index('scrobble_queue_user_idx').on(t.userId),
+}))
+
+// gPodder-compatible sync: devices a podcatcher (AntennaPod etc.) registered against
+// this server. Purely informational; the sync protocol keys on (user, deviceId).
+export const gpodderDevices = sqliteTable('gpodder_devices', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull(),
+  caption: text('caption'),
+  type: text('type'),               // desktop | laptop | mobile | server | other
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userDeviceUnique: unique().on(t.userId, t.deviceId) }))
+
+// Subscription change log (tombstones included) so gpodder clients can ask "what
+// changed since T". Written on every subscribe/unsubscribe, in-app or device-driven.
+// timestamp is epoch SECONDS (the gpodder wire unit).
+export const gpodderSubscriptionLog = sqliteTable('gpodder_subscription_log', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  feedUrl: text('feed_url').notNull(),
+  action: text('action', { enum: ['subscribe', 'unsubscribe'] }).notNull(),
+  deviceId: text('device_id'),      // null = changed in the app itself
+  timestamp: integer('timestamp').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userTsIdx: index('gpodder_sub_log_user_ts_idx').on(t.userId, t.timestamp) }))
+
+// Episode actions uploaded by gpodder clients (play/download/delete/new). 'play'
+// actions also fold into podcastWatchState so positions sync into the app; the rest
+// are kept verbatim for the protocol's download side.
+export const gpodderEpisodeActions = sqliteTable('gpodder_episode_actions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id'),
+  podcastUrl: text('podcast_url').notNull(),
+  episodeUrl: text('episode_url').notNull(),
+  action: text('action').notNull(),
+  positionSec: integer('position_sec'),
+  startedSec: integer('started_sec'),
+  totalSec: integer('total_sec'),
+  actionAt: integer('action_at').notNull(),   // epoch seconds
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userAtIdx: index('gpodder_episode_actions_user_at_idx').on(t.userId, t.actionAt) }))
+
+// ── AI-native podcast listening ─────────────────────────────────────────────────
+// One canonical timestamped transcript per episode. source 'feed' = normalized from a
+// Podcasting 2.0 <podcast:transcript> document (SRT/VTT/JSON); 'whisper' = produced by
+// the local Whisper job. segmentsJson holds the canonical
+// [{ startSec, endSec, text, speaker? }] array; a companion FTS5 index
+// (podcast_transcript_fts, created in db/index.ts) powers library-wide search.
+export const podcastTranscripts = sqliteTable('podcast_transcripts', {
+  id: text('id').primaryKey(),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['feed', 'whisper'] }).notNull(),
+  format: text('format'),               // original document format: 'vtt' | 'srt' | 'json' | 'whisper'
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  segmentsJson: text('segments_json'),
+  segmentCount: integer('segment_count'),
+  requestedBy: text('requested_by'),    // user who asked for a Whisper run (audit only, no FK)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeUnique: unique().on(t.episodeId),
+}))
+
+// Per-episode AI insights generated from the transcript: a pre-listen summary plus
+// 3-5 takeaways. Auto-chapters generated alongside land in podcastEpisodes.chaptersJson
+// (via lib/podcast/chapters.ts) so the existing chapters endpoint/UI serves them;
+// chaptersGenerated just records that this episode's chapters are AI-made.
+export const podcastEpisodeAi = sqliteTable('podcast_episode_ai', {
+  id: text('id').primaryKey(),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  summary: text('summary'),
+  takeawaysJson: text('takeaways_json'),
+  chaptersGenerated: integer('chapters_generated', { mode: 'boolean' }).notNull().default(false),
+  model: text('model'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeUnique: unique().on(t.episodeId),
+}))
+
+// Snips: "clip that" moments. The transcript around a playback position (snapped to
+// segment boundaries), LLM-titled and summarized. noteId links the snip to a Note when
+// the user saves it there (notes are the household knowledge store; snips stay the
+// structured, deep-linkable library entry).
+export const podcastSnips = sqliteTable('podcast_snips', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  startSec: real('start_sec').notNull().default(0),
+  endSec: real('end_sec').notNull().default(0),
+  title: text('title').notNull(),
+  summary: text('summary'),
+  transcriptText: text('transcript_text').notNull(),
+  noteId: text('note_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_snips_user_idx').on(t.userId),
+  episodeIdx: index('podcast_snips_episode_idx').on(t.episodeId),
 }))
