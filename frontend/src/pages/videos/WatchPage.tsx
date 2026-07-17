@@ -1066,6 +1066,23 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     autoJoinId: wtParams.get('wt'),
   })
 
+  // Kids time budget: heartbeat responses carry the gate; when the budget runs out the
+  // live player (native or embed) pauses gently, with one low-budget warning beforehand.
+  const timeLimitHit = useRef(false)
+  const timeWarned = useRef(false)
+  const applyTimeGate = useCallback((resp: { timeLimit?: { allowed: boolean; reason?: string; remainingSec: number | null } }) => {
+    const gate = resp.timeLimit
+    if (!gate) return
+    if (!gate.allowed && !timeLimitHit.current) {
+      timeLimitHit.current = true
+      wtControls.current.pause()
+      toast.info(gate.reason === 'hours' ? 'Videos are paused for now. Come back during allowed hours.' : 'Video time is up for today.')
+    } else if (gate.allowed && gate.remainingSec != null && gate.remainingSec <= 300 && !timeWarned.current) {
+      timeWarned.current = true
+      toast.info('About 5 minutes of video time left today.')
+    }
+  }, [])
+
   // Embed players (TikTok/Vimeo online) report their position up here: the native watch-state
   // effect below can't see inside an iframe, so this mirrors its 10s heartbeat + unmount flush.
   const embedPos = useRef({ sec: 0, dur: 0, lastSent: 0 })
@@ -1081,8 +1098,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     const it = itemRef.current
     if (!it) return
     const completed = s.dur > 0 && sec / s.dur > 0.9
-    void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).catch(() => {})
-  }, [source, id])
+    void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).then(applyTimeGate).catch(() => {})
+  }, [source, id, applyTimeGate])
   useEffect(() => {
     embedPos.current = { sec: 0, dur: 0, lastSent: 0 }
     return () => {
@@ -1237,7 +1254,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
       if (now - lastSent.current < 10_000) return
       lastSent.current = now
       const completed = video.duration > 0 && video.currentTime / video.duration > 0.9
-      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
+      void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).then(applyTimeGate).catch(() => {})
     }
     video.addEventListener('timeupdate', onTime)
     return () => {
@@ -1247,7 +1264,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
       }
     }
-  }, [source, id, item])
+  }, [source, id, item, applyTimeGate])
 
   const saveMutation = useMutation({
     mutationFn: () => saveVideo(source, id, 'video'),

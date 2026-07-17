@@ -3,6 +3,7 @@ import { and, eq, desc } from 'drizzle-orm'
 import { db } from '@/db'
 import { mediaProgress } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
+import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import type { AppEnv } from '@/types'
 
 // Cross-device playback position for streamed media (#14). Written on a throttled heartbeat
@@ -69,6 +70,13 @@ media.put('/:assetType/:assetId', requireAuth, async (c) => {
       target: [mediaProgress.userId, mediaProgress.assetType, mediaProgress.assetId],
       set: { positionSec, durationSec, completed: body.completed ?? false, updatedAt: now },
     })
+  // Video time budget metering (kids): Plex playback beats through here. Audio asset
+  // types are deliberately not counted toward the video budget.
+  if (assetType !== 'podcast' && assetType !== 'music') {
+    recordWatchBeat(user.id)
+    const timeGate = await checkVideoTime(user.id)
+    return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+  }
   return c.json({ ok: true })
 })
 

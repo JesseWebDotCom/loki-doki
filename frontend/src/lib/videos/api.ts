@@ -288,9 +288,15 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+export interface VideoTimeGate {
+  allowed: boolean
+  reason?: 'budget' | 'hours'
+  remainingSec: number | null
+}
+
 export function putWatchState(
   source: VideoSource, videoId: string, positionSec: number, completed: boolean, snapshot?: WatchStateSnapshot,
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; timeLimit?: VideoTimeGate }> {
   return sendJson('/api/videos/watch-state', 'PUT', { source, videoId, positionSec, completed, ...snapshot })
 }
 

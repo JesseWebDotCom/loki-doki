@@ -36,6 +36,7 @@ import {
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
+import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
@@ -1051,6 +1052,18 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       creator: gate.channelId ? { id: gate.channelId, name: gate.author ?? '' } : null,
     }))) {
       return c.json({ error: 'not available' }, 403)
+    }
+  }
+
+  // Time budget gate: watch start is refused (with a friendly reason) once today's video
+  // minutes are used up or outside the allowed hours. Metering lives on the heartbeats.
+  {
+    const timeGate = await checkVideoTime(user.id)
+    if (!timeGate.allowed) {
+      return c.json({
+        error: timeGate.reason === 'hours' ? 'Videos are paused right now. Try again during allowed hours.' : 'Video time is used up for today.',
+        code: 'time_limit',
+      }, 403)
     }
   }
 
@@ -2198,7 +2211,11 @@ youtubeRoute.post('/watch-state', async (c) => {
     set: { positionSec, completed, origin, updatedAt: now },
   })
 
-  return c.json({ ok: true })
+  // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
+  // response tells the player when the budget runs out so it can wind down mid-video.
+  recordWatchBeat(user.id)
+  const timeGate = await checkVideoTime(user.id)
+  return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
 })
 
 export { youtubeRoute }

@@ -2145,6 +2145,12 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, asset_type, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS video_watch_time (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      seconds REAL NOT NULL DEFAULT 0,
+      UNIQUE(user_id, day)
+    );
     CREATE TABLE IF NOT EXISTS video_allowlist (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

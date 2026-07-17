@@ -683,8 +683,19 @@ export async function getTranscriptText(videoId: string): Promise<string | null>
 
 export interface WatchMeta { title?: string; author?: string | null; channelId?: string | null; durationSec?: number | null; origin?: 'youtube' | 'music' }
 
-export async function saveWatchState(videoId: string, positionSec: number, completed: boolean, meta?: WatchMeta): Promise<void> {
-  await fetch('/api/youtube/watch-state', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId, positionSec, completed, ...meta }) }).catch(() => {})
+export interface WatchTimeGate {
+  allowed: boolean
+  reason?: 'budget' | 'hours'
+  remainingSec: number | null
+}
+
+export async function saveWatchState(videoId: string, positionSec: number, completed: boolean, meta?: WatchMeta): Promise<WatchTimeGate | null> {
+  try {
+    const r = await fetch('/api/youtube/watch-state', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoId, positionSec, completed, ...meta }) })
+    if (!r.ok) return null
+    const data = await r.json() as { timeLimit?: WatchTimeGate }
+    return data.timeLimit ?? null
+  } catch { return null }
 }
 
 export interface HistoryRow {

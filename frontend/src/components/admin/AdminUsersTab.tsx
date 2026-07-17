@@ -838,12 +838,20 @@ const VIDEO_LIMITS: Array<{ key: keyof VideoFlags; label: string; help: string }
   { key: 'noSuggestions', label: 'No suggestions', help: 'Hides Suggested/Recommended/Popular/Trending rails; subscriptions and library only.' },
 ]
 
+interface TimeBudget { dailyMinutes: number | null; startHour: number | null; endHour: number | null }
+
 function UserVideoLimits({ userId }: { userId: string }) {
   const [flags, setFlags] = useState<VideoFlags | null>(null)
+  const [budget, setBudget] = useState<TimeBudget | null>(null)
+  const [budgetLoaded, setBudgetLoaded] = useState(false)
 
   useEffect(() => {
-    void apiFetch<{ flags: VideoFlags }>(`/api/admin/content/users/${userId}/video-flags`)
-      .then((r) => setFlags(r?.flags ?? { noAutoplay: false, noShorts: false, noSuggestions: false }))
+    void apiFetch<{ flags: VideoFlags; timeBudget: TimeBudget | null }>(`/api/admin/content/users/${userId}/video-flags`)
+      .then((r) => {
+        setFlags(r?.flags ?? { noAutoplay: false, noShorts: false, noSuggestions: false })
+        setBudget(r?.timeBudget ?? null)
+        setBudgetLoaded(true)
+      })
   }, [userId])
 
   async function toggle(key: keyof VideoFlags, value: boolean) {
@@ -856,6 +864,18 @@ function UserVideoLimits({ userId }: { userId: string }) {
     if (r?.ok) toast.success('Video limit updated')
     else { setFlags(prev); toast.error('Failed to save') }
   }
+
+  async function saveBudget(next: TimeBudget | null) {
+    const prev = budget
+    setBudget(next)
+    const r = await apiFetch<{ ok: boolean; timeBudget: TimeBudget | null }>(`/api/admin/content/users/${userId}/video-flags`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeBudget: next }),
+    })
+    if (r?.ok) { setBudget(r.timeBudget); toast.success('Time budget updated') }
+    else { setBudget(prev); toast.error('Failed to save') }
+  }
+
+  const hourLabel = (h: number) => `${((h + 11) % 12) + 1} ${h < 12 ? 'AM' : 'PM'}`
 
   return (
     <div className="rounded-card border border-border/50 bg-card/50 p-3 space-y-2">
@@ -875,6 +895,46 @@ function UserVideoLimits({ userId }: { userId: string }) {
           <Switch checked={flags?.[key] === true} disabled={!flags} onCheckedChange={(v) => void toggle(key, v)} />
         </div>
       ))}
+
+      <div className="border-t border-border/40 pt-2 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm leading-tight">Daily time budget</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Minutes of video per day. Players give a 5-minute warning, then pause gently.
+            </p>
+          </div>
+          <Switch checked={budget != null} disabled={!budgetLoaded}
+            onCheckedChange={(v) => void saveBudget(v ? { dailyMinutes: 60, startHour: null, endHour: null } : null)} />
+        </div>
+        {budget != null && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Minutes per day</span>
+              <Input type="number" min={5} max={720} value={budget.dailyMinutes ?? ''}
+                placeholder="No cap"
+                onChange={(e) => setBudget({ ...budget, dailyMinutes: e.target.value ? Number(e.target.value) : null })}
+                onBlur={() => void saveBudget(budget)} className="h-9" />
+            </label>
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Allowed hours</span>
+              <div className="flex items-center gap-2">
+                <select value={budget.startHour ?? ''} className="h-9 flex-1 rounded-control border border-border/60 bg-background px-2 text-sm outline-none focus:border-brand/60"
+                  onChange={(e) => void saveBudget({ ...budget, startHour: e.target.value === '' ? null : Number(e.target.value) })}>
+                  <option value="">Any time</option>
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                </select>
+                <span className="text-xs text-muted-foreground">to</span>
+                <select value={budget.endHour ?? ''} className="h-9 flex-1 rounded-control border border-border/60 bg-background px-2 text-sm outline-none focus:border-brand/60"
+                  onChange={(e) => void saveBudget({ ...budget, endHour: e.target.value === '' ? null : Number(e.target.value) })}>
+                  <option value="">Any time</option>
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

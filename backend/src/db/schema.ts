@@ -2345,6 +2345,17 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Kids time budgets: seconds of video actually watched per user per local day, metered
+// from player position heartbeats (lib/videos/watchTime.ts). Read by the budget gate
+// and the weekly parent report.
+export const videoWatchTime = sqliteTable('video_watch_time', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),                              // 'YYYY-MM-DD', server-local
+  seconds: real('seconds').notNull().default(0),
+}, (t) => ({
+  userDayUnique: uniqueIndex('video_watch_time_user_day').on(t.userId, t.day),
+}))
+
 // Kids allowlist-only mode: when a user's `videos.allowlistOnly` preference is on, the
 // video policy layer keeps ONLY items from these parent-approved creators (or these
 // individually approved videos) — no search discovery, no suggestions, no unvetted

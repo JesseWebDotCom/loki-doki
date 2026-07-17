@@ -15,6 +15,7 @@ import {
   DEFAULT_VIDEO_VIEW_FLAGS, VIDEO_FLAG_PREFS, getVideoViewFlags, invalidateVideoViewFlags,
   type VideoViewFlags,
 } from '@/lib/videos/viewFlags'
+import { TIME_BUDGET_PREF, getTimeBudget, invalidateTimeBudget } from '@/lib/videos/watchTime'
 import type { AppEnv } from '@/types'
 
 const adminContent = new Hono<AppEnv>()
@@ -146,19 +147,35 @@ adminContent.get('/users/:userId/video-flags', requireAdmin, async (c) => {
   const userId = c.req.param('userId')
   const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
   if (!u) return c.json({ error: 'User not found' }, 404)
-  return c.json({ flags: await getVideoViewFlags(userId) })
+  const [flags, timeBudget] = await Promise.all([getVideoViewFlags(userId), getTimeBudget(userId)])
+  return c.json({ flags, timeBudget })
 })
 
 adminContent.put('/users/:userId/video-flags', requireAdmin, async (c) => {
   const userId = c.req.param('userId')
   const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
   if (!u) return c.json({ error: 'User not found' }, 404)
-  const body = await c.req.json().catch(() => ({})) as Partial<VideoViewFlags>
+  const body = await c.req.json().catch(() => ({})) as Partial<VideoViewFlags> & {
+    timeBudget?: { dailyMinutes?: number | null; startHour?: number | null; endHour?: number | null } | null
+  }
   for (const key of Object.keys(DEFAULT_VIDEO_VIEW_FLAGS) as Array<keyof VideoViewFlags>) {
     if (typeof body[key] === 'boolean') await setUserPref(userId, VIDEO_FLAG_PREFS[key], body[key])
   }
+  if ('timeBudget' in body) {
+    const tb = body.timeBudget
+    const clean = tb && (typeof tb.dailyMinutes === 'number' || typeof tb.startHour === 'number')
+      ? {
+          dailyMinutes: typeof tb.dailyMinutes === 'number' && tb.dailyMinutes > 0 ? Math.floor(tb.dailyMinutes) : null,
+          startHour: typeof tb.startHour === 'number' ? Math.min(23, Math.max(0, Math.floor(tb.startHour))) : null,
+          endHour: typeof tb.endHour === 'number' ? Math.min(24, Math.max(0, Math.floor(tb.endHour))) : null,
+        }
+      : null
+    await setUserPref(userId, TIME_BUDGET_PREF, clean)
+    invalidateTimeBudget(userId)
+  }
   invalidateVideoViewFlags(userId)
-  return c.json({ ok: true, flags: await getVideoViewFlags(userId) })
+  const [flags, timeBudget] = await Promise.all([getVideoViewFlags(userId), getTimeBudget(userId)])
+  return c.json({ ok: true, flags, timeBudget })
 })
 
 // Approval candidates: every creator anyone in the household already follows (the natural
