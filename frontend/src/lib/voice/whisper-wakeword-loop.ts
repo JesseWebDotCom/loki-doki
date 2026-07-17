@@ -37,8 +37,10 @@ export class WhisperWakewordLoop {
   // and "hey loki" … pause … "<cmd>").
   private awaitingCommand = false
   /** Delivers the command spoken in the same breath as the wake phrase
-   *  ("hey loki <command>") — the text after the phrase in the final transcript. */
-  onCommand: ((text: string) => void) | null = null
+   *  ("hey loki <command>") — the text after the phrase in the final transcript.
+   *  `whispered`: this utterance's average RMS was below the auto whisper-match
+   *  threshold (design: keen-percolating-swan); see sttSession.ts's caveats. */
+  onCommand: ((text: string, whispered: boolean) => void) | null = null
   /** Live partial of the command portion as the user is still speaking, so the
    *  UI can echo "what you heard" during capture instead of staying blank until
    *  the final transcript arrives. */
@@ -90,12 +92,12 @@ export class WhisperWakewordLoop {
           const cmd = this.commandPortion(text)
           if (cmd) this.onPartial?.(cmd)
         },
-        onFinal: (text) => {
+        onFinal: (text, whispered) => {
           if (this.capture === stt) this.capture = null
           // Close the finished session before opening the next one so STT
           // sockets don't accumulate across utterances.
           stt.close()
-          this.handleFinal(text)
+          this.handleFinal(text, whispered)
           if (this.enabled) this.startSession()
         },
         onNoSpeech: () => {
@@ -176,7 +178,7 @@ export class WhisperWakewordLoop {
 
   /** On a final transcript: fire the wake (if not already) and deliver the
    *  trailing words as the command, so "hey loki <command>" works in one breath. */
-  private handleFinal(text: string): void {
+  private handleFinal(text: string, whispered: boolean): void {
     const norm = normalizePhrase(text)
     const m = this.match(norm)
     // Log EVERY final transcript + whether it matched, so a "didn't register" wake is
@@ -187,7 +189,7 @@ export class WhisperWakewordLoop {
       const command = norm.slice(m.end).trim()
       if (command) {
         this.awaitingCommand = false
-        this.onCommand?.(command)
+        this.onCommand?.(command, whispered)
       } else {
         this.awaitingCommand = true // bare phrase — next utterance is the command
       }
@@ -197,7 +199,7 @@ export class WhisperWakewordLoop {
     if (this.awaitingCommand) {
       this.awaitingCommand = false
       const command = norm.trim()
-      if (command) this.onCommand?.(command)
+      if (command) this.onCommand?.(command, whispered)
     }
   }
 }

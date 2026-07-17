@@ -7,6 +7,7 @@ import { useCompanionStore, isLocked } from '@/lib/companions/useCompanionStore'
 import { getCompanionCategory } from '@/lib/companions/companionCategories'
 import { voiceMeta } from '@/lib/companions/voiceCatalog'
 import { SelectButton, FavoriteButton, PreviewButton, lockReason } from '@/components/companions/store/CompanionActions'
+import { VoiceCustomizeButton } from '@/components/companions/store/VoiceCustomizeSheet'
 
 const DIAL_LABEL: Record<string, string> = { profanity: 'Profanity', sexual: 'Sexual', violence: 'Violence', substances: 'Substances' }
 const DIAL_KEYS = ['profanity', 'sexual', 'violence', 'substances'] as const
@@ -85,6 +86,7 @@ export function CompanionDetailPage() {
               )}
               <PreviewButton c={c} variant="pill" />
               <FavoriteButton c={c} className="size-10" />
+              {!locked && <VoiceCustomizeButton characterId={c.id} characterName={c.name} />}
             </div>
           </div>
         </div>
