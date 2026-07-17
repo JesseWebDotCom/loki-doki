@@ -246,6 +246,7 @@ export async function runBackup(kind: BackupKind, opts?: { includeFiles?: boolea
     await emitNotification({
       type: 'system',
       userId: null,
+      payload: { message: `Backup failed: ${message}` },
       title: 'Backup failed',
       body: `The ${kind === 'pre-update' ? 'pre-update' : kind} backup did not complete: ${message}`,
       url: '/admin/storage/backups',

@@ -83,9 +83,33 @@ interface StoreInput {
   notifyMessage?: string | null
 }
 
+// ── In-process event hook (routines engine) ───────────────────────────────────
+// A minimal pub/sub mirroring homeAssistant/sync's onHAStateChange, so consumers
+// (lib/routines) can react to camera events without polling the table. Listeners
+// must never throw into the ingestion path.
+export interface FrigateEventHook {
+  kind: StoreInput['kind']
+  camera: string | null
+  label: string | null
+  severity: string | null
+}
+
+type FrigateEventFn = (event: FrigateEventHook) => void
+const eventListeners = new Set<FrigateEventFn>()
+
+export function onFrigateEvent(fn: FrigateEventFn): () => void {
+  eventListeners.add(fn)
+  return () => eventListeners.delete(fn)
+}
+
 async function store(input: StoreInput): Promise<string> {
   const id = crypto.randomUUID()
   const now = new Date()
+  for (const listener of eventListeners) {
+    try {
+      listener({ kind: input.kind, camera: input.camera ?? null, label: input.label ?? null, severity: input.severity ?? null })
+    } catch { /* listener bugs must not break ingestion */ }
+  }
   await db.insert(frigateEvents).values({
     id,
     source: input.source,
