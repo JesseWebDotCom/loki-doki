@@ -1751,6 +1751,11 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   imageUrl: text('image_url'),        // episode-level itunes:image
   link: text('link'),
   publishedAt: integer('published_at', { mode: 'timestamp' }),
+  // Podcasting 2.0 <podcast:chapters> JSON document URL from the feed. Fetched lazily on
+  // first chapter request and cached into chaptersJson (chaptersFetchedAt marks the fetch,
+  // including empty/failed results, so a chapterless episode isn't re-fetched every open).
+  chaptersUrl: text('chapters_url'),
+  chaptersFetchedAt: integer('chapters_fetched_at', { mode: 'timestamp' }),
   // Shared media_assets rendition once any household member downloads this episode.
   assetId: text('asset_id'),
   // Episode-level parental advisory from <itunes:explicit>/trackExplicitness: null=unknown,
@@ -3359,4 +3364,63 @@ export const suggestionImpressions = sqliteTable('suggestion_impressions', {
 }, t => ({
   userDomainRefUnique: unique().on(t.userId, t.domain, t.ref),
   userDomainIdx: index('suggestion_impressions_user_domain_idx').on(t.userId, t.domain),
+}))
+
+// ── Podcast player: per-show playback settings, Up Next queue, bookmarks, filters ──
+
+// Per-user playback preferences for one show (real RSS subscription or generated show).
+// Null speed = app default (1x); null trimSilence/voiceBoost = follow the user's global
+// toggle; 0/1 override it for this show only. Applied automatically when an episode of
+// the show starts playing.
+export const podcastShowSettings = sqliteTable('podcast_show_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
+  speed: real('speed'),
+  skipIntroSec: integer('skip_intro_sec').notNull().default(0),
+  skipOutroSec: integer('skip_outro_sec').notNull().default(0),
+  trimSilence: integer('trim_silence'),   // null = inherit global; 0/1 per-show override
+  voiceBoost: integer('voice_boost'),     // null = inherit global; 0/1 per-show override
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userShowUnique: unique().on(t.userId, t.showId),
+}))
+
+// Server-persisted per-user "Up Next" episode queue (ordered by position ascending).
+// The player drains it on auto-advance; it survives reloads and syncs across devices.
+export const podcastQueue = sqliteTable('podcast_queue', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull().default(0),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userEpUnique: unique().on(t.userId, t.episodeId),
+  userPosIdx: index('podcast_queue_user_pos_idx').on(t.userId, t.position),
+}))
+
+// Timestamped per-user bookmarks inside episodes (position + optional note).
+export const podcastBookmarks = sqliteTable('podcast_bookmarks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  positionSec: real('position_sec').notNull().default(0),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_bookmarks_user_idx').on(t.userId),
+  episodeIdx: index('podcast_bookmarks_episode_idx').on(t.episodeId),
+}))
+
+// Saved smart episode filters (the music smartRules pattern): rulesJson holds a
+// { match, rules } document evaluated over the user's visible episodes on every read.
+export const podcastEpisodeFilters = sqliteTable('podcast_episode_filters', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  rulesJson: text('rules_json').notNull().default('{}'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_episode_filters_user_idx').on(t.userId),
 }))

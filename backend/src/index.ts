@@ -115,6 +115,7 @@ import { videoStreamRoute } from '@/routes/videoStream'
 import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
+import { podcastPlayerRoute } from '@/routes/podcastPlayer'
 import { music } from '@/routes/music'
 import { musicStudio } from '@/routes/musicStudio'
 import { musicInfo } from '@/routes/musicInfo'
@@ -659,6 +660,7 @@ app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
+app.route('/api/podcasts', podcastPlayerRoute)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
