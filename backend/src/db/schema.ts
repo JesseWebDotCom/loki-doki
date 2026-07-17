@@ -3344,6 +3344,22 @@ export const remoteSnippets = sqliteTable('remote_snippets', {
 // at the next profile build). creator/title are denormalized off the served card so the
 // penalty works without re-resolving the item. Swept daily (lib/interests/impressions.ts):
 // rotation state is forgotten after idle periods, dismissals are kept forever.
+// Cached LLM lyric translations, one row per (track, language). trackKey is the
+// normalized "artist|title"; sourceHash fingerprints the exact source lines (aligned
+// vs raw LRCLIB text can differ) so a stale cache regenerates instead of mis-pairing.
+// lines is a JSON array of { t: translation, r: romanized pronunciation | null } in
+// source-line order. Generated once, shared household-wide (lyrics are not per-user).
+export const lyricTranslations = sqliteTable('lyric_translations', {
+  id: text('id').primaryKey(),
+  trackKey: text('track_key').notNull(),
+  lang: text('lang').notNull(),
+  sourceHash: text('source_hash').notNull(),
+  lines: text('lines').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  trackLangUnique: unique().on(t.trackKey, t.lang),
+}))
+
 export const suggestionImpressions = sqliteTable('suggestion_impressions', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

@@ -3444,4 +3444,18 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS suggestion_impressions_user_domain_idx ON suggestion_impressions(user_id, domain);
   `)
+
+  // Lyric translations: cached LLM output per (track, language) so a song is translated
+  // once for the whole household (see schema.ts lyricTranslations).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS lyric_translations (
+      id TEXT NOT NULL PRIMARY KEY,
+      track_key TEXT NOT NULL,
+      lang TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      lines TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(track_key, lang)
+    );
+  `)
 }
