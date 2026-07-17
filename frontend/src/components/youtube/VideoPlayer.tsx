@@ -161,7 +161,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   // be (hence setRateState, not setRate, in the gesture path below).
   const setRate = (r: number) => { setRateState(r); setChannelSpeed(channelKey, r) }
   // Settings popover: which sub-menu is open (null = closed).
-  const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality' | 'sleep'>(null)
+  const [menu, setMenu] = useState<null | 'main' | 'speed' | 'quality' | 'sleep' | 'subtitles'>(null)
   // Captions: OUR toggle, persisted per device, default OFF. The YouTube embed otherwise
   // honors Google's sticky caption preference with no way to turn it off from our chrome
   // (controls: 0) - "it always shows subtitles". The embed is forced to match on ready;
@@ -209,6 +209,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     applyCcToPlayers(next)
     return next
   })
+  // Subtitle language: '' = the video's own captions, otherwise a translated track built
+  // on the fly from the same cues (timing untouched, so it stays in sync). Per device.
+  const [subLang, setSubLangState] = useState(() => { try { return localStorage.getItem('videos.subLang') ?? '' } catch { return '' } })
+  const setSubLang = (code: string) => {
+    setSubLangState(code)
+    try { localStorage.setItem('videos.subLang', code) } catch { /* quota */ }
+    // Picking a language is also a request to see subtitles.
+    if (code && !ccOnRef.current) toggleCc()
+  }
+  const { data: subLangs = [] } = useQuery({
+    queryKey: ['yt-translate-languages'],
+    queryFn: async () => {
+      const r = await fetch('/api/youtube/translate-languages', { credentials: 'include' })
+      if (!r.ok) return [] as Array<{ code: string; label: string }>
+      return (await r.json() as { languages: Array<{ code: string; label: string }> }).languages
+    },
+    staleTime: Infinity,
+    enabled: menu === 'subtitles',
+  })
+  const transcriptTrackSrc = `/api/youtube/transcript/${videoId}${subLang ? `?lang=${subLang}` : ''}`
+
   const [boostOpen, setBoostOpen] = useState(false)
   // Privacy-proxy quality (re-requests the stream); embed quality is a best-effort hint.
   // Persisted per device; defaults to the 1080p remux tier - full quality is the whole
@@ -839,7 +860,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
             }}>
             {/* Subtitles for the native paths (private stream / offline): the transcript VTT
                 as a real track, shown only when our CC toggle is on. */}
-            <track kind="subtitles" srcLang="en" label="Subtitles" src={`/api/youtube/transcript/${videoId}`} default={ccOn} />
+            {/* Keyed on the language so switching swaps the cues rather than leaving the
+                first-loaded track in place. */}
+            <track key={subLang} kind="subtitles" srcLang={subLang || 'en'}
+              label={subLang ? 'Translated' : 'Subtitles'} src={transcriptTrackSrc} default={ccOn} />
           </video>
         ) : nativeAudioSrc ? (
           <div className="relative flex size-full items-center justify-center bg-black">
@@ -987,6 +1011,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                     <MenuRow label="Sleep timer"
                       value={sleepLeftSec != null ? fmtClock(sleepLeftSec) : sleepEndOfVideo ? 'End of video' : 'Off'}
                       onClick={() => setMenu('sleep')} />
+                    {/* Translated subtitles only exist on the native paths: the embed
+                        renders Google's own captions and won't take our track. */}
+                    {!useIframe && (
+                      <MenuRow label="Subtitle language"
+                        value={subLang ? (subLangs.find((l) => l.code === subLang)?.label ?? subLang) : 'Original'}
+                        onClick={() => setMenu('subtitles')} />
+                    )}
                     {/* Stable volume + screen lock need a real element / touch surface:
                         Web Audio can't reach the cross-origin embed, same as boost. */}
                     {!useIframe && (
@@ -1011,6 +1042,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
                     {SPEEDS.map(s => (
                       <OptionRow key={s} label={s === 1 ? 'Normal' : `${s}×`} active={rate === s}
                         onClick={() => { setRate(s); setMenu(null) }} />
+                    ))}
+                  </Submenu>
+                )}
+                {menu === 'subtitles' && (
+                  <Submenu title="Subtitle language" onBack={() => setMenu('main')}>
+                    <OptionRow label="Original" active={!subLang} onClick={() => { setSubLang(''); setMenu(null) }} />
+                    {subLangs.map((l) => (
+                      <OptionRow key={l.code} label={l.label} active={subLang === l.code}
+                        onClick={() => { setSubLang(l.code); setMenu(null) }} />
                     ))}
                   </Submenu>
                 )}

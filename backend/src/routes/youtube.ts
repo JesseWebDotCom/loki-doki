@@ -38,6 +38,7 @@ import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import { ensureVideoIndexed } from '@/lib/videos/semanticIndex'
+import { TRANSLATE_LANGUAGES, languageLabel, translateVtt } from '@/lib/videos/translate'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { logger } from '@/lib/logger'
 import {
@@ -1005,7 +1006,20 @@ youtubeRoute.get('/transcript/:videoId', async (c) => {
   if (!absPath || !existsSync(absPath)) return c.json({ error: 'No transcript' }, 404)
 
   const vtt = await readFile(absPath, 'utf-8')
+  // ?lang=<code> serves the same cues translated, so the family can watch anything in
+  // their language. Timing is untouched, so it stays in sync with no alignment work.
+  // A translation failure falls back to the original rather than an empty track.
+  const lang = c.req.query('lang')
+  if (lang && languageLabel(lang)) {
+    const translated = await translateVtt(vtt, lang, videoId)
+    if (translated) return c.text(translated, 200, { 'Content-Type': 'text/vtt' })
+  }
   return c.text(vtt, 200, { 'Content-Type': 'text/vtt' })
+})
+
+// The languages we can translate captions into (the picker's source of truth).
+youtubeRoute.get('/translate-languages', (c) => {
+  return c.json({ languages: TRANSLATE_LANGUAGES })
 })
 
 // Cleaned, plain-text transcript for the "Read transcript" modal. Fetches captions
