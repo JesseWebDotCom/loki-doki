@@ -1,6 +1,6 @@
 // Episode transcripts, end to end: normalize Podcasting 2.0 transcript documents
 // (SRT / VTT / JSON) into ONE canonical timestamped-segments shape, cache them per
-// episode in podcast_transcripts, and mirror merged text windows into the
+// episode in podcast_transcripts, and mirror each segment into the
 // podcast_transcript_fts FTS5 index that powers library-wide search, ask-the-episode
 // retrieval, and snips.
 
@@ -32,8 +32,6 @@ const MAX_DOC_BYTES = 8 * 1024 * 1024
 const MERGE_MAX_CHARS = 220
 const MERGE_MAX_SECONDS = 30
 const MERGE_MAX_GAP_SECONDS = 2.5
-// FTS windows are coarser than panel lines: better snippets, fewer rows.
-const FTS_WINDOW_CHARS = 400
 
 // ── Format normalizers ─────────────────────────────────────────────────────────────
 
@@ -151,19 +149,26 @@ export function mergeSegments(raw: TranscriptSegment[]): TranscriptSegment[] {
   }))
 }
 
-/** Normalize a transcript document of a declared MIME/extension into canonical segments. */
+/** Normalize a transcript document of a declared MIME/extension into canonical segments.
+ *  The declared MIME is only a hint (publishers mislabel constantly), so every parser is
+ *  tried in hint-first order and the first one that actually yields cues wins. The
+ *  "did this parse" test runs on the RAW cues, never the merged output: merging happily
+ *  collapses a real transcript down to a couple of segments, so thresholding after it
+ *  would throw away perfectly good short episodes. */
 export function normalizeTranscriptDoc(doc: string, typeHint: string | null, urlHint?: string | null): { format: string; segments: TranscriptSegment[] } | null {
   const hint = `${typeHint ?? ''} ${urlHint ?? ''}`.toLowerCase()
   const attempts: Array<{ format: string; parse: (d: string) => TranscriptSegment[] }> = []
   if (hint.includes('json')) attempts.push({ format: 'json', parse: parseJsonDoc })
   if (hint.includes('vtt')) attempts.push({ format: 'vtt', parse: parseCueDoc })
   if (hint.includes('srt') || hint.includes('subrip')) attempts.push({ format: 'srt', parse: parseCueDoc })
-  // Unknown/wrong MIME: sniff, then try everything.
+  // Unknown/wrong MIME: sniff the body, then fall back to trying everything.
   if (doc.trimStart().startsWith('{') || doc.trimStart().startsWith('[')) attempts.push({ format: 'json', parse: parseJsonDoc })
   attempts.push({ format: doc.trimStart().startsWith('WEBVTT') ? 'vtt' : 'srt', parse: parseCueDoc })
+  attempts.push({ format: 'json', parse: parseJsonDoc })
   for (const a of attempts) {
-    const segments = mergeSegments(a.parse(doc))
-    if (segments.length >= 3) return { format: a.format, segments }
+    const raw = a.parse(doc)
+    if (!raw.length) continue
+    return { format: a.format, segments: mergeSegments(raw) }
   }
   return null
 }
@@ -185,34 +190,22 @@ function rowToTranscript(row: typeof podcastTranscripts.$inferSelect): EpisodeTr
   }
 }
 
-/** Merge fine-grained segments into coarser windows for the FTS index (better
- *  snippets, an order of magnitude fewer rows than raw cues). */
-function ftsWindows(segments: TranscriptSegment[]): TranscriptSegment[] {
-  const out: TranscriptSegment[] = []
-  let cur: TranscriptSegment | null = null
-  for (const s of segments) {
-    if (cur && cur.text.length + s.text.length + 1 <= FTS_WINDOW_CHARS) {
-      cur.text = `${cur.text} ${s.text}`
-      cur.endSec = s.endSec
-    } else {
-      if (cur) out.push(cur)
-      cur = { startSec: s.startSec, endSec: s.endSec, text: s.text }
-    }
-  }
-  if (cur) out.push(cur)
-  return out
-}
-
-/** (Re)build this episode's rows in podcast_transcript_fts. */
+/** (Re)build this episode's rows in podcast_transcript_fts.
+ *
+ *  One row per canonical segment, deliberately: a hit's start_sec is what "play from
+ *  this moment" seeks to, so the indexed unit has to be the unit we can seek to. Coarser
+ *  windows (merging segments into bigger blocks for fatter snippets) make every hit
+ *  inside a block report the BLOCK's start, which silently sends the listener to the top
+ *  of the block instead of the line they searched for. mergeSegments already caps a
+ *  segment at ~220 chars / 30s, which is a perfectly good snippet unit anyway. */
 export function indexTranscriptFts(episodeId: string, showId: string, segments: TranscriptSegment[]): void {
   const del = sqlite.query('DELETE FROM podcast_transcript_fts WHERE episode_id = ?')
   del.run(episodeId)
   const ins = sqlite.query(
     'INSERT INTO podcast_transcript_fts (text, episode_id, show_id, start_sec, end_sec) VALUES (?, ?, ?, ?, ?)',
   )
-  const windows = ftsWindows(segments)
   const insertAll = sqlite.transaction(() => {
-    for (const w of windows) ins.run(w.text, episodeId, showId, w.startSec, w.endSec)
+    for (const s of segments) ins.run(s.text, episodeId, showId, s.startSec, s.endSec)
   })
   insertAll()
 }
