@@ -227,6 +227,8 @@ if (firstBoot) {
   import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
   startDropSweep()
   startMediaAlertsSweep()
+  // Weekly parent watch reports (Sunday evenings): see lib/videos/watchReport.ts.
+  import('@/lib/videos/watchReport').then((m) => m.startWeeklyWatchReports()).catch(() => {})
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})

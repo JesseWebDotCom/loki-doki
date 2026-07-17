@@ -16,6 +16,7 @@ import {
   type VideoViewFlags,
 } from '@/lib/videos/viewFlags'
 import { TIME_BUDGET_PREF, getTimeBudget, invalidateTimeBudget } from '@/lib/videos/watchTime'
+import { buildWatchReport } from '@/lib/videos/watchReport'
 import type { AppEnv } from '@/types'
 
 const adminContent = new Hono<AppEnv>()
@@ -176,6 +177,17 @@ adminContent.put('/users/:userId/video-flags', requireAdmin, async (c) => {
   invalidateVideoViewFlags(userId)
   const [flags, timeBudget] = await Promise.all([getVideoViewFlags(userId), getTimeBudget(userId)])
   return c.json({ ok: true, flags, timeBudget })
+})
+
+// ── Watch report (what a user actually watched, for parents) ──────────────────────
+
+adminContent.get('/users/:userId/watch-report', requireAdmin, async (c) => {
+  const userId = c.req.param('userId')
+  const days = Math.min(31, Math.max(1, Number(c.req.query('days')) || 7))
+  const withNote = c.req.query('note') !== '0'
+  const report = await buildWatchReport(userId, days, withNote)
+  if (!report) return c.json({ error: 'User not found' }, 404)
+  return c.json({ report })
 })
 
 // Approval candidates: every creator anyone in the household already follows (the natural

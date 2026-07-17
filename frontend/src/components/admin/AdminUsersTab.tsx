@@ -939,6 +939,99 @@ function UserVideoLimits({ userId }: { userId: string }) {
   )
 }
 
+// ── Watch report (what this person actually watched this week) ────────────────
+
+interface WatchReportData {
+  name: string
+  days: number
+  totalMinutes: number
+  perDay: Array<{ day: string; minutes: number }>
+  videoCount: number
+  topCreators: Array<{ name: string; count: number }>
+  recent: Array<{ title: string; creatorName: string | null; source: string; watchedAt: number; completed: boolean }>
+  companionNote: string | null
+}
+
+function fmtMinutes(min: number): string {
+  const h = Math.floor(min / 60)
+  return h > 0 ? `${h}h ${min % 60}m` : `${min}m`
+}
+
+function UserWatchReport({ userId }: { userId: string }) {
+  const [report, setReport] = useState<WatchReportData | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    const r = await apiFetch<{ report: WatchReportData }>(`/api/admin/content/users/${userId}/watch-report`)
+    setReport(r?.report ?? null)
+    setLoading(false)
+    if (!r?.report) toast.error('Could not load the watch report')
+  }
+
+  const maxDay = report ? Math.max(1, ...report.perDay.map((d) => d.minutes)) : 1
+
+  return (
+    <div className="rounded-card border border-border/50 bg-card/50 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium leading-tight">Watch report</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            What this person watched over the last 7 days. A digest also lands in
+            notifications every Sunday evening.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading} className="shrink-0">
+          {loading ? <Spinner className="size-3.5" /> : report ? 'Refresh' : 'View'}
+        </Button>
+      </div>
+
+      {report && (
+        <div className="space-y-3">
+          {report.companionNote && (
+            <p className="rounded-control bg-muted/40 px-3 py-2 text-xs leading-relaxed">{report.companionNote}</p>
+          )}
+          <div className="flex items-baseline gap-4">
+            <p className="text-lg font-bold tabular-nums">{fmtMinutes(report.totalMinutes)}</p>
+            <p className="text-xs text-muted-foreground">{report.videoCount} videos this week</p>
+          </div>
+          {report.perDay.length > 0 && (
+            <div className="flex items-end gap-1" aria-label="Minutes per day">
+              {report.perDay.map((d) => (
+                <div key={d.day} className="flex flex-col items-center gap-0.5" title={`${d.day}: ${fmtMinutes(d.minutes)}`}>
+                  <div className="w-6 rounded-t bg-brand/70" style={{ height: `${Math.max(3, (d.minutes / maxDay) * 48)}px` }} />
+                  <span className="text-[9px] text-muted-foreground">{d.day.slice(8)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {report.topCreators.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {report.topCreators.map((cr) => (
+                <span key={cr.name} className="rounded-full bg-muted/60 px-2.5 py-1 text-xs">
+                  {cr.name} <span className="text-muted-foreground">×{cr.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {report.recent.length > 0 && (
+            <div className="max-h-44 space-y-1 overflow-y-auto">
+              {report.recent.map((w, i) => (
+                <div key={`${w.title}-${i}`} className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate">{w.title}</span>
+                  {w.creatorName && <span className="shrink-0 truncate max-w-32 text-muted-foreground">{w.creatorName}</span>}
+                  <span className="shrink-0 rounded bg-muted/60 px-1 text-[9px] uppercase text-muted-foreground">{w.source}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {report.videoCount === 0 && <p className="text-xs text-muted-foreground">Nothing watched this week.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Protections tab ───────────────────────────────────────────────────────────
 
 function UserProtectionsTab({ userId }: { userId: string }) {
@@ -999,6 +1092,7 @@ function UserProtectionsTab({ userId }: { userId: string }) {
       <UserContentCeiling userId={userId} />
       <UserVideoAllowlist userId={userId} />
       <UserVideoLimits userId={userId} />
+      <UserWatchReport userId={userId} />
 
       {protectionItems.map(({ key, label, description }) => (
         <div key={key} className="flex items-start justify-between gap-4">
