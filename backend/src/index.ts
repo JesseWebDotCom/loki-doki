@@ -127,6 +127,7 @@ import { musicLibrary } from '@/routes/musicLibrary'
 import { musicCollection } from '@/routes/musicCollection'
 import { musicMeta } from '@/routes/musicMeta'
 import { musicRails } from '@/routes/musicRails'
+import { musicIntel } from '@/routes/musicIntel'
 import { adminMusicSources } from '@/routes/adminMusicSources'
 import { logoRoute } from '@/routes/logo'
 import { speedtest } from '@/routes/speedtest'
@@ -422,6 +423,10 @@ if (firstBoot) {
 
   // Karaoke stem cache: delete prepared karaoke tracks unused for 30 days (boot + daily).
   import('@/lib/stems/karaokeCache').then((m) => m.startKaraokeCacheSweep()).catch(() => {})
+
+  // Music intelligence: daily Mixes For You + Family Blend refresh and the offline
+  // auto-cache pass (lib/music/intelJobs). Delayed past boot; per-user failures isolated.
+  import('@/lib/music/intelJobs').then((m) => m.startMusicIntelJobs()).catch(() => {})
   
   // Bookmarks capture engine + auto-update pollers all drive server-side headless Chromium
   // against third-party sites, so they only start when the Server Browser Automation feature
@@ -673,6 +678,7 @@ app.route('/api/music/library', musicLibrary)
 app.route('/api/music/collection', musicCollection)
 app.route('/api/music/meta', musicMeta)
 app.route('/api/music/rails', musicRails)
+app.route('/api/music/intel', musicIntel)
 app.route('/api/admin/music', adminMusicSources)
 app.route('/api/logo', logoRoute)
 app.route('/api/speedtest', speedtest)
