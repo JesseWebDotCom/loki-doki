@@ -29,7 +29,9 @@ musicStats.get('/overview', (c) => {
   const [totals] = sqlite.prepare(`
     SELECT COUNT(*) AS plays, ${LISTENED_SQL} AS listened,
            COUNT(DISTINCT video_id) AS tracks,
-           COUNT(DISTINCT LOWER(COALESCE(artist, ''))) AS artists,
+           -- COUNT(DISTINCT) skips NULLs, so the CASE drops untagged rows without the
+           -- off-by-one an "empty bucket" subtraction would cause when none exist.
+           COUNT(DISTINCT CASE WHEN artist IS NOT NULL AND artist != '' THEN LOWER(artist) END) AS artists,
            MIN(played_at) AS firstAt
     FROM music_history WHERE user_id = ?
   `).all(userId) as Array<{ plays: number; listened: number | null; tracks: number; artists: number; firstAt: number | null }>
@@ -58,7 +60,7 @@ musicStats.get('/overview', (c) => {
       plays: totals?.plays ?? 0,
       minutes: Math.round((totals?.listened ?? 0) / 60),
       distinctTracks: totals?.tracks ?? 0,
-      distinctArtists: Math.max(0, (totals?.artists ?? 0) - 1),  // the '' bucket
+      distinctArtists: totals?.artists ?? 0,
       firstPlayAtMs: totals?.firstAt ? totals.firstAt * 1000 : null,
     },
     years: years.map(y => ({ year: y.year, plays: y.plays, minutes: Math.round((y.listened ?? 0) / 60) })),
