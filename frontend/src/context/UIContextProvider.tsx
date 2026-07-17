@@ -13,6 +13,11 @@ export interface UIContextEntry {
   description: string             // LLM-friendly summary of what the user is looking at
   label?: string                  // brief label for the UI indicator chip (e.g. "Popeyes")
   data?: Record<string, unknown>  // structured data (available to tools)
+  /** Evaluated at SEND time instead of `description` — for context that moves between
+   *  publishes (e.g. media playback position + the lyric/transcript lines just heard)
+   *  without re-publishing (and re-rendering every consumer) on each tick. Return '' to
+   *  contribute nothing this turn. */
+  getDescription?: () => string
 }
 
 interface UIContextValue {
@@ -43,7 +48,8 @@ export function UIContextProvider({ children }: { children: ReactNode }) {
   const getContextBlock = useCallback((): string | null => {
     const entries = [...mapRef.current.values()]
     if (entries.length === 0) return null
-    const lines = entries.map((e) => e.description.trim()).filter(Boolean)
+    const lines = entries.map((e) => (e.getDescription?.() ?? e.description).trim()).filter(Boolean)
+    if (lines.length === 0) return null
     return `[App Context — what the user is currently viewing]\n${lines.join('\n')}\nUse this to interpret pronouns and implicit references in the user's message (e.g. "this", "it", "here", "the article"). Answer as if you can see what they're looking at.`
   }, [])
 
@@ -79,8 +85,17 @@ export function usePublishUIContext(entry: UIContextEntry) {
   const { publish, unpublish } = useUIContext()
   const id = useId()
 
+  // Latest entry, so a getDescription closure never goes stale between publishes
+  // (the published wrapper below always delegates to the freshest one).
+  const entryRef = useRef(entry)
+  entryRef.current = entry
+
   useEffect(() => {
-    publish(id, entry)
+    const e = entryRef.current
+    publish(id, {
+      ...e,
+      ...(e.getDescription ? { getDescription: () => entryRef.current.getDescription?.() ?? entryRef.current.description } : {}),
+    })
     return () => unpublish(id)
     // Re-publish when description changes (e.g. user selects a different POI)
     // eslint-disable-next-line react-hooks/exhaustive-deps

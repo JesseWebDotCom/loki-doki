@@ -43,6 +43,8 @@ import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
+import { usePublishUIContext } from '@/context/UIContextProvider'
+import { truncate, videoCompanionBlock } from '@/lib/companionMedia'
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 import { useShareLink } from '@/hooks/use-share-link'
 import {
@@ -350,6 +352,28 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
     const iv = setInterval(report, 4000)
     return () => clearInterval(iv)
   }, [videoId, title, author, meta?.durationSec])
+
+  // Companion watch-along: publish this video, the live playhead, and the caption lines
+  // just spoken into the companion's UI context. Docked/mini playback is covered by
+  // NowPlayingCompanionBridge (same query key) — the dock is cleared while this page owns
+  // the video, so exactly one of the two entries is ever active.
+  const { data: companionLines } = useQuery({
+    queryKey: ['companion-yt-transcript', videoId],
+    queryFn: async () => {
+      const vtt = await fetch(`/api/youtube/transcript/${videoId}`, { credentials: 'include' })
+        .then(r => (r.ok ? r.text() : '')).catch(() => '')
+      return parseVtt(vtt)
+    },
+    enabled: online && !!videoId, staleTime: Infinity,
+  })
+  usePublishUIContext({
+    label: truncate(title, 24),
+    description: `Watching the video "${title}"${author ? ` by ${author}` : ''}`,
+    getDescription: () => videoCompanionBlock({
+      title, author, positionSec: secRef.current, durationSec: meta?.durationSec,
+      playing: playingRef.current, lines: companionLines ?? [],
+    }),
+  })
 
   // Register transport controls so a remote (Tab5 player bar → server → dispatchTransport)
   // drives THIS full player; the mini-bar's registration is stale here (it's undocked).

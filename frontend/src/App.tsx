@@ -24,6 +24,7 @@ import { FamilyAudioGuard } from '@/components/shared/FamilyAudioGuard'
 import { TogetherPresence } from '@/components/shared/TogetherPresence'
 import { TogetherRemoteReceiver } from '@/components/shared/TogetherRemoteReceiver'
 import { TogetherJamHost } from '@/components/shared/TogetherJamHost'
+import { NowPlayingCompanionBridge } from '@/components/shell/NowPlayingCompanionBridge'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -388,6 +389,9 @@ export default function App() {
           <TogetherRemoteReceiver />
           {/* Family Jam: when this session hosts, feed its player from the shared queue. */}
           <TogetherJamHost />
+          {/* Companion listen/watch-along: whatever is playing (music, podcasts, docked
+              videos, live radio) becomes part of the companion's UI context. */}
+          <NowPlayingCompanionBridge />
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
