@@ -165,6 +165,8 @@ const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then(
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
 const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
 const MusicReplayPage = lazy(() => import('@/pages/music/MusicReplayPage').then((m) => ({ default: m.MusicReplayPage })))
+const MusicStatsPage = lazy(() => import('@/pages/music/MusicStatsPage').then((m) => ({ default: m.MusicStatsPage })))
+const MusicImportPage = lazy(() => import('@/pages/music/MusicImportPage').then((m) => ({ default: m.MusicImportPage })))
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
@@ -407,6 +409,8 @@ export default function App() {
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="replay" element={<MusicReplayPage />} />
+                  <Route path="stats" element={<MusicStatsPage />} />
+                  <Route path="import" element={<MusicImportPage />} />
                   <Route path="studio" element={<MusicStudioPage />} />
                   <Route path="studio/:id" element={<MusicStudioLayout />}>
                     <Route index element={<MusicStudioDetailPage />} />

@@ -1,5 +1,5 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
-import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, CalendarRange, Mic2, type LucideIcon } from 'lucide-react'
+import { Home, Radio, RadioTower, Search, Disc3, Sparkles, Shuffle, SlidersHorizontal, Heart, ListMusic, History, Download, CalendarRange, Mic2, ChartColumn, FileInput, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
 import { usePlayerOverlay } from '@/context/PlayerOverlayContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
@@ -76,8 +76,11 @@ export function MusicRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'draw
       <LibTab tab="playlists" icon={ListMusic} label="Playlists" />
       <LibTab tab="history" icon={History} label="History" />
       <RailLink to="/music/replay" icon={CalendarRange} label="Replay" />
+      <RailLink to="/music/stats" icon={ChartColumn} label="Stats" />
       <LibTab tab="radio" icon={RadioTower} label="Radio" />
       <LibTab tab="offline" icon={Download} label="Offline" />
+      {/* Import resolves each track against the catalog, so it needs the internet. */}
+      {!offline && <RailLink to="/music/import" icon={FileInput} label="Import" />}
     </nav>
   )
 }
