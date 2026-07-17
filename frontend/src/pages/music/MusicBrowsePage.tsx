@@ -14,7 +14,7 @@ import { AlbumFilterButton, albumPassesFilters, defaultAlbumFilters, type AlbumF
 import { useRadio } from '@/context/RadioContext'
 import { useMusicMode } from '@/components/music/MusicLayout'
 import { SongTile } from '@/components/music/SongTile'
-import { SongArt } from '@/components/music/SongArt'
+import { SongArt, useSongArt } from '@/components/music/SongArt'
 import { stationGradient } from '@/lib/music/stationColors'
 import { proxyImg } from '@/lib/img'
 import { toast } from 'sonner'
@@ -219,15 +219,47 @@ function AlbumRedirect({ title, artist }: { title: string; artist: string }) {
   )
 }
 
-// Genre → gradient accent, mirroring the station-art palette so Browse feels native.
-const GENRE_TILES: Array<{ name: string; accent: string }> = [
-  { name: 'Pop', accent: 'fuchsia' }, { name: 'Rock', accent: 'rose' },
-  { name: 'Hip-Hop', accent: 'violet' }, { name: 'Jazz', accent: 'amber' },
-  { name: 'Electronic', accent: 'cyan' }, { name: 'Country', accent: 'amber' },
-  { name: 'R&B', accent: 'rose' }, { name: 'Metal', accent: 'slate' },
-  { name: 'Classical', accent: 'blue' }, { name: 'Indie', accent: 'emerald' },
-  { name: 'Reggae', accent: 'emerald' }, { name: 'Soul', accent: 'violet' },
+// Genre → an iconic album cover (art resolved by artist+title via useSongArt), with the
+// station-art gradient behind as the fallback so Browse feels native and a miss is still a
+// tasteful tile. Songs are the same ones validated to resolve on iTunes for the built-in
+// stations, so every tile gets real art.
+const GENRE_TILES: Array<{ name: string; accent: string; cover: readonly [string, string] }> = [
+  { name: 'Pop', accent: 'fuchsia', cover: ['Harry Styles', 'As It Was'] },
+  { name: 'Rock', accent: 'rose', cover: ['AC/DC', 'Back In Black'] },
+  { name: 'Hip-Hop', accent: 'violet', cover: ['Kendrick Lamar', 'HUMBLE.'] },
+  { name: 'Jazz', accent: 'amber', cover: ['The Dave Brubeck Quartet', 'Take Five'] },
+  { name: 'Electronic', accent: 'cyan', cover: ['Daft Punk', 'One More Time'] },
+  { name: 'Country', accent: 'amber', cover: ['John Denver', 'Take Me Home, Country Roads'] },
+  { name: 'R&B', accent: 'rose', cover: ['TLC', 'No Scrubs'] },
+  { name: 'Metal', accent: 'slate', cover: ['Metallica', 'Enter Sandman'] },
+  { name: 'Classical', accent: 'blue', cover: ['Claude Debussy', 'Clair de Lune'] },
+  { name: 'Indie', accent: 'emerald', cover: ['Franz Ferdinand', 'Take Me Out'] },
+  { name: 'Reggae', accent: 'emerald', cover: ['Bob Marley & The Wailers', 'Three Little Birds'] },
+  { name: 'Soul', accent: 'violet', cover: ['Marvin Gaye', "Let's Get It On"] },
 ]
+
+// One "Browse by genre" tile: the cover fills the tile (like a station card) with the
+// gradient + music-note as the fallback until/if art resolves.
+function GenreTile({ genre, onGenre }: { genre: (typeof GENRE_TILES)[number]; onGenre: (g: string) => void }) {
+  const art = useSongArt(null, genre.cover[1], genre.cover[0])
+  return (
+    // design-ok(hand-styled-button): artwork-forward genre tile, not a chrome control
+    <button onClick={() => onGenre(genre.name)}
+      className="group relative aspect-[16/9] overflow-hidden rounded-card text-left shadow-md transition duration-200 hover:scale-[1.03] hover:shadow-xl"
+      style={{ background: stationGradient(genre.accent) }}>
+      {art && (
+        <img src={art} alt="" loading="lazy"
+          className="absolute inset-0 size-full object-cover transition duration-200 group-hover:scale-[1.05]"
+          onError={e => { e.currentTarget.style.display = 'none' }} />
+      )}
+      {!art && <Music2 aria-hidden className="pointer-events-none absolute -bottom-3 -right-2 size-16 rotate-12 text-white/15" />}
+      {/* Bottom scrim keeps the wordmark legible over any cover. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+      {/* design-ok(font-black): genre tile wordmark, part of the tile art itself */}
+      <span className="absolute bottom-2.5 left-3 text-lg font-black tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.35)]">{genre.name}</span>
+    </button>
+  )
+}
 
 // A genre-chart artist chip: Deezer CDN photo (instant, near-complete coverage) with the
 // ArtistAvatar lookup as fallback. Clicking routes through Browse's ?artist= resolver -
@@ -334,13 +366,7 @@ function BrowseIdle({ onGenre }: { onGenre: (g: string) => void }) {
       <SectionHeader title="Browse by genre" />
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {GENRE_TILES.map(g => (
-          <button key={g.name} onClick={() => onGenre(g.name)}
-            className="group relative aspect-[16/9] overflow-hidden rounded-card text-left shadow-md transition duration-200 hover:scale-[1.03] hover:shadow-xl"
-            style={{ background: stationGradient(g.accent) }}>
-            <Music2 aria-hidden className="pointer-events-none absolute -bottom-3 -right-2 size-16 rotate-12 text-white/15" />
-            {/* design-ok(font-black): genre tile wordmark, part of the tile art itself */}
-            <span className="absolute bottom-2.5 left-3 text-lg font-black tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.35)]">{g.name}</span>
-          </button>
+          <GenreTile key={g.name} genre={g} onGenre={onGenre} />
         ))}
       </div>
 
