@@ -64,6 +64,7 @@ import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
+import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -77,7 +78,7 @@ const watchSnapshot = (it: HubVideoItem) => ({
   creatorName: it.creator?.name ?? null, durationSec: it.durationSec, isAdult: it.isAdult,
 })
 
-type SideTab = 'upnext' | 'transcript' | 'comments'
+type SideTab = 'upnext' | 'transcript' | 'ask' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -494,6 +495,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           tabs={[
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
             { key: 'transcript' as SideTab, label: 'Transcript' },
+            { key: 'ask' as SideTab, label: 'Ask' },
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
           active={tab} onChange={setTab}
@@ -519,6 +521,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
+          {tab === 'ask' && <AskVideoPanel source="youtube" videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} />}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
         </SidePanelShell>
       </aside>
@@ -1333,6 +1336,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   ]
   if (capabilities?.transcript !== false) {
     tabs.push({ key: 'transcript', label: 'Transcript' })
+    tabs.push({ key: 'ask', label: 'Ask' })
   }
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
@@ -1573,6 +1577,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
             )
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
+          {tab === 'ask' && <AskVideoPanel source={source} videoId={id} onSeek={seekTo} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
       </aside>
