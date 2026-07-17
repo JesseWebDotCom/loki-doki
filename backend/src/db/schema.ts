@@ -2345,6 +2345,23 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Kids allowlist-only mode: when a user's `videos.allowlistOnly` preference is on, the
+// video policy layer keeps ONLY items from these parent-approved creators (or these
+// individually approved videos) — no search discovery, no suggestions, no unvetted
+// up-next. Entries are per-child and admin-managed (Admin > Accounts).
+export const videoAllowlist = sqliteTable('video_allowlist', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),                       // 'youtube' | hub VideoSource
+  kind: text('kind', { enum: ['creator', 'video'] }).notNull(),
+  externalId: text('external_id').notNull(),              // channelId / creator id / video id
+  title: text('title'),
+  thumbnailUrl: text('thumbnail_url'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  userEntryUnique: uniqueIndex('video_allowlist_user_entry').on(t.userId, t.source, t.kind, t.externalId),
+}))
+
 export const bookProgress = sqliteTable('book_progress', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

@@ -12,6 +12,7 @@ import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytS
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
+import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -67,7 +68,10 @@ videosRoute.get('/sources', async (c) => {
     status: p.status ? await p.status() : { configured: true },
     enabled: enabled.includes(p.source),
   })))
-  return c.json({ sources })
+  // Approved-only mode (kids): the UI hides discovery affordances (search, browse,
+  // suggestions) when on; the server filters regardless (lib/videos/allowlist.ts).
+  const allowlistOnly = await allowlistOnlyEnabled(c.get('user').id)
+  return c.json({ sources, allowlistOnly })
 })
 
 // Admin: which sources show up on discovery surfaces (rail, home feed, browse pages).

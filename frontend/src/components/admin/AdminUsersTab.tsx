@@ -724,6 +724,110 @@ function UserContentCeiling({ userId }: { userId: string }) {
   )
 }
 
+// ── Per-user video allowlist (approved-only mode) ─────────────────────────────
+
+interface AllowlistEntry { id: string; source: string; kind: 'creator' | 'video'; externalId: string; title: string | null; thumbnailUrl: string | null }
+interface AllowlistCandidate { source: string; externalId: string; title: string; thumbnailUrl: string | null }
+
+function UserVideoAllowlist({ userId }: { userId: string }) {
+  const [enabled, setEnabled] = useState(false)
+  const [entries, setEntries] = useState<AllowlistEntry[]>([])
+  const [candidates, setCandidates] = useState<AllowlistCandidate[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    void Promise.all([
+      apiFetch<{ enabled: boolean; entries: AllowlistEntry[] }>(`/api/admin/content/users/${userId}/video-allowlist`),
+      apiFetch<{ candidates: AllowlistCandidate[] }>(`/api/admin/content/video-allowlist/candidates`),
+    ]).then(([a, c]) => {
+      setEnabled(a?.enabled === true)
+      setEntries(a?.entries ?? [])
+      setCandidates(c?.candidates ?? [])
+    }).finally(() => setLoading(false))
+  }, [userId])
+
+  async function toggle(on: boolean) {
+    const prev = enabled
+    setEnabled(on)
+    const r = await apiFetch<{ ok: boolean }>(`/api/admin/content/users/${userId}/video-allowlist`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on }),
+    })
+    if (r?.ok) toast.success(on ? 'Approved-only videos on' : 'Approved-only videos off')
+    else { setEnabled(prev); toast.error('Failed to save') }
+  }
+
+  async function approve(cand: AllowlistCandidate) {
+    const r = await apiFetch<{ ok: boolean; entries: AllowlistEntry[] }>(`/api/admin/content/users/${userId}/video-allowlist/entries`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: cand.source, kind: 'creator', externalId: cand.externalId, title: cand.title, thumbnailUrl: cand.thumbnailUrl }),
+    })
+    if (r?.ok) setEntries(r.entries)
+    else toast.error('Failed to approve')
+  }
+
+  async function remove(entryId: string) {
+    const prev = entries
+    setEntries(entries.filter((e) => e.id !== entryId))
+    const r = await apiFetch<{ ok: boolean }>(`/api/admin/content/users/${userId}/video-allowlist/entries/${entryId}`, { method: 'DELETE' })
+    if (!r?.ok) { setEntries(prev); toast.error('Failed to remove') }
+  }
+
+  const approvedKeys = new Set(entries.map((e) => `${e.source}:${e.externalId.toLowerCase()}`))
+  const remaining = candidates.filter((c) => !approvedKeys.has(`${c.source}:${c.externalId.toLowerCase()}`))
+
+  return (
+    <div className="rounded-card border border-border/50 bg-card/50 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium leading-tight">Approved videos only</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            The strictest video setting: this person sees only creators you approve below.
+            No search, no suggestions, no browsing beyond the approved list.
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={(v) => void toggle(v)} disabled={loading} />
+      </div>
+
+      {enabled && (
+        <>
+          {entries.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {entries.map((e) => (
+                <span key={e.id} className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 py-1 pl-2.5 pr-1 text-xs">
+                  <span className="max-w-40 truncate">{e.title || e.externalId}</span>
+                  <span className="text-[10px] uppercase text-muted-foreground">{e.source}</span>
+                  <button onClick={() => void remove(e.id)} aria-label={`Remove ${e.title || e.externalId}`}
+                    className="grid size-4 place-items-center rounded-full hover:bg-foreground/10">
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-warning">Nothing approved yet: they will see an empty Videos app until you approve creators below.</p>
+          )}
+          <select
+            value=""
+            onChange={(e) => {
+              const cand = remaining.find((r) => `${r.source}:${r.externalId}` === e.target.value)
+              if (cand) void approve(cand)
+            }}
+            className="w-full rounded-control border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60"
+          >
+            <option value="" disabled>Approve a creator the household follows…</option>
+            {remaining.map((r) => (
+              <option key={`${r.source}:${r.externalId}`} value={`${r.source}:${r.externalId}`}>
+                {r.title} ({r.source})
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Protections tab ───────────────────────────────────────────────────────────
 
 function UserProtectionsTab({ userId }: { userId: string }) {
@@ -782,6 +886,7 @@ function UserProtectionsTab({ userId }: { userId: string }) {
       {saved && <p className="text-xs text-success">Saved</p>}
 
       <UserContentCeiling userId={userId} />
+      <UserVideoAllowlist userId={userId} />
 
       {protectionItems.map(({ key, label, description }) => (
         <div key={key} className="flex items-start justify-between gap-4">
