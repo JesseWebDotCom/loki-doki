@@ -5,10 +5,10 @@
 
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  downloadJobs, podcastAdReports, podcastEpisodes, podcastShows, podcastSubscriptions, podcastTranscripts,
+  downloadJobs, podcastAdReports, podcastEpisodes, podcastMoments, podcastShows, podcastSubscriptions, podcastTranscripts, users,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { ollamaChatStream } from '@/llm/ollama'
@@ -245,6 +245,62 @@ podcastAiRoute.delete('/snips/:id', async (c) => {
   const user = c.get('user')
   const ok = await deleteSnip(user.id, c.req.param('id'))
   if (!ok) return c.json({ error: 'Not found' }, 404)
+  return c.json({ ok: true })
+})
+
+// ── Moments ──────────────────────────────────────────────────────────────────────
+// The household social layer for an episode (bookmark + emoji reaction at a timestamp)
+// — mirrors video_moments/music_moments' three-route shape. Distinct from Snips: a
+// Moment is a raw, freeform household reaction (no AI title/summary), same as Video's.
+podcastAiRoute.get('/episodes/:id/moments', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const episode = await visibleEpisode(episodeId, user)
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const rows = await db.select({
+    id: podcastMoments.id, userId: podcastMoments.userId, atSec: podcastMoments.atSec,
+    emoji: podcastMoments.emoji, note: podcastMoments.note, createdAt: podcastMoments.createdAt,
+    name: users.nickname, firstName: users.firstName,
+  })
+    .from(podcastMoments)
+    .leftJoin(users, eq(users.id, podcastMoments.userId))
+    .where(eq(podcastMoments.episodeId, episodeId))
+    .orderBy(asc(podcastMoments.atSec))
+  return c.json({
+    moments: rows.map((r) => ({
+      id: r.id, userId: r.userId, atSec: r.atSec, emoji: r.emoji, note: r.note,
+      by: r.name || r.firstName || 'Someone',
+      mine: r.userId === user.id,
+      createdAt: r.createdAt?.getTime() ?? 0,
+    })),
+  })
+})
+
+podcastAiRoute.post('/episodes/:id/moments', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const episode = await visibleEpisode(episodeId, user)
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const body = await c.req.json().catch(() => ({})) as { atSec?: number; emoji?: string; note?: string }
+  if (!Number.isFinite(body.atSec)) return c.json({ error: 'atSec required' }, 400)
+  const emoji = body.emoji?.trim().slice(0, 8) || null
+  const note = body.note?.trim().slice(0, 300) || null
+  if (!emoji && !note) return c.json({ error: 'emoji or note required' }, 400)
+  const id = crypto.randomUUID()
+  await db.insert(podcastMoments).values({
+    id, userId: user.id, episodeId,
+    atSec: Math.max(0, Math.floor(body.atSec as number)), emoji, note, createdAt: new Date(),
+  })
+  return c.json({ id })
+})
+
+// Only the author may remove their own reaction.
+podcastAiRoute.delete('/moments/:momentId', async (c) => {
+  const user = c.get('user')
+  await db.delete(podcastMoments).where(and(
+    eq(podcastMoments.id, c.req.param('momentId')),
+    eq(podcastMoments.userId, user.id),
+  ))
   return c.json({ ok: true })
 })
 

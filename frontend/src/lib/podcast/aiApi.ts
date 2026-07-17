@@ -151,6 +151,27 @@ export async function deleteSnip(id: string): Promise<void> {
   await jsonOrError(r, 'Could not delete the snip.')
 }
 
+// ── Moments ──────────────────────────────────────────────────────────────────────
+// The household social layer for an episode — same shape as Video's/Music's Moments.
+export interface EpisodeMoment {
+  id: string; userId: string; atSec: number; emoji: string | null; note: string | null
+  by: string; mine: boolean; createdAt: number
+}
+export async function listEpisodeMoments(episodeId: string): Promise<{ moments: EpisodeMoment[] }> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/moments`, opts)
+  return jsonOrError(r, 'Could not load moments.')
+}
+export async function addEpisodeMoment(episodeId: string, atSec: number, body: { emoji?: string; note?: string }): Promise<{ id: string }> {
+  const r = await fetch(`/api/podcasts/episodes/${episodeId}/moments`, {
+    ...opts, method: 'POST', headers: J, body: JSON.stringify({ atSec, ...body }),
+  })
+  return jsonOrError(r, 'Could not save that moment.')
+}
+export async function removeEpisodeMoment(momentId: string): Promise<{ ok: true }> {
+  const r = await fetch(`/api/podcasts/moments/${momentId}`, { ...opts, method: 'DELETE' })
+  return jsonOrError(r, 'Could not remove that moment.')
+}
+
 // ── Library-wide transcript search ─────────────────────────────────────────────────
 
 export interface TranscriptSearchResult {

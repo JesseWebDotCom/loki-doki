@@ -3987,3 +3987,19 @@ export const podcastAdReports = sqliteTable('podcast_ad_reports', {
 }, t => ({
   episodeIdx: index('podcast_ad_reports_episode_idx').on(t.episodeId),
 }))
+
+// The household social layer for an episode — mirrors video_moments/music_moments (see
+// there), keyed by episodeId instead of source+videoId/track ref. Distinct from Snips
+// (AI-titled clips): a raw, freeform household bookmark/reaction. Household-visible by
+// design, same as the other two — no per-user scoping on read.
+export const podcastMoments = sqliteTable('podcast_moments', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  atSec: integer('at_sec').notNull(),
+  emoji: text('emoji'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeIdx: index('podcast_moments_episode_idx').on(t.episodeId),
+}))

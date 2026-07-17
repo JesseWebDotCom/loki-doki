@@ -28,7 +28,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList, TuningLyrics, useSourceBackLink, useNowPlayingPrefetch } from './nowPlayingParts'
 import { EqPanel } from './EqPanel'
 import { addFavorite, saveOffline, listTrackMoments, addTrackMoment, removeTrackMoment } from '@/lib/music/catalogApi'
-import { MomentsPanel } from '@/components/videos/MomentsPanel'
+import { MomentsPanel } from '@/components/shared/MomentsPanel'
 import { AskTrackPanel } from '@/components/music/AskTrackPanel'
 import { startTrackRadio } from '@/components/music/TrackRadioButton'
 import { isYouTubeRef } from '@/lib/music/trackRef'

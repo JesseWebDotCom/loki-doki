@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, FileText, ListTree, MessagesSquare, Pause, Play, Scissors } from 'lucide-react'
+import { Bookmark, ChevronRight, FileText, ListTree, MessagesSquare, Pause, Play, Scissors } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { AppTabBar } from '@/components/shared/AppTabBar'
@@ -12,13 +12,14 @@ import { TranscriptPanel } from '@/components/podcast/TranscriptPanel'
 import { EpisodeSummaryCard } from '@/components/podcast/EpisodeSummaryCard'
 import { AskEpisodePanel } from '@/components/podcast/AskEpisodePanel'
 import { SnipRow } from '@/components/podcast/SnipRow'
+import { MomentsPanel } from '@/components/shared/MomentsPanel'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { getEpisodeDetail, getShows, toTrack } from '@/lib/podcast/api'
 import { getChapters } from '@/lib/podcast/playerApi'
-import { getEpisodeTranscript, getSnips } from '@/lib/podcast/aiApi'
+import { getEpisodeTranscript, getSnips, listEpisodeMoments, addEpisodeMoment, removeEpisodeMoment } from '@/lib/podcast/aiApi'
 import { fmtDate, fmtDuration, fmtTime } from '@/lib/podcast/format'
 
-type Tab = 'transcript' | 'ask' | 'chapters' | 'snips'
+type Tab = 'transcript' | 'ask' | 'moments' | 'chapters' | 'snips'
 
 /**
  * The AI-native episode page: summary card, transcript that follows playback, an
@@ -103,6 +104,7 @@ export function EpisodePage() {
   const tabs = [
     { id: 'transcript' as const, label: 'Transcript', icon: FileText },
     { id: 'ask' as const, label: 'Ask this episode', icon: MessagesSquare },
+    { id: 'moments' as const, label: 'Moments', icon: Bookmark },
     { id: 'chapters' as const, label: 'Chapters', icon: ListTree },
     { id: 'snips' as const, label: 'Snips', icon: Scissors },
   ]
@@ -158,6 +160,17 @@ export function EpisodePage() {
 
         {tab === 'ask' && (
           <AskEpisodePanel episodeId={id} transcriptReady={!!transcriptReady} onSeek={seekTo} className="max-h-[60vh]" />
+        )}
+
+        {tab === 'moments' && (
+          <MomentsPanel
+            queryKey={['podcast-moments', id]}
+            currentSec={panelPosition} onSeek={seekTo}
+            listMoments={() => listEpisodeMoments(id)}
+            addMoment={(atSec, opts) => addEpisodeMoment(id, atSec, opts)}
+            removeMoment={removeEpisodeMoment}
+            emptyHint="Save a moment for your family: a reaction, or a note about the bit worth replaying. It stays on your home server."
+          />
         )}
 
         {tab === 'chapters' && (

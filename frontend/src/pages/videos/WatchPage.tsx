@@ -72,7 +72,7 @@ import { CastButton } from '@/components/videos/CastButton'
 import { StudyNotesButton } from '@/components/videos/StudyNotesButton'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
-import { MomentsPanel } from '@/components/videos/MomentsPanel'
+import { MomentsPanel } from '@/components/shared/MomentsPanel'
 import { CatchMeUpCard } from '@/components/videos/CatchMeUpCard'
 import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
