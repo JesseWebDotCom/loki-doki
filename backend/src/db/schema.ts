@@ -3053,6 +3053,37 @@ export const plexPathMappings = sqliteTable('plex_path_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Routines ────────────────────────────────────────────────────────────────
+// User-defined trigger/condition/action automations. Authored in the Routines app
+// or conversationally by the companion (with a staged confirm), executed
+// DETERMINISTICALLY by lib/routines/engine.ts: no LLM in the run loop unless the
+// routine explicitly contains an ask-companion action. trigger and actions are
+// JSON (see lib/routines/types.ts) so new trigger/action kinds don't need
+// migrations.
+export const routines = sqliteTable('routines', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  trigger: text('trigger').notNull(), // JSON RoutineTrigger
+  actions: text('actions').notNull(), // JSON RoutineAction[]
+  createdVia: text('created_via').notNull().default('app'), // 'app' | 'companion'
+  lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
+  lastResult: text('last_result'), // 'ok' | 'error'
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const routineRuns = sqliteTable('routine_runs', {
+  id: text('id').primaryKey(),
+  routineId: text('routine_id').notNull().references(() => routines.id, { onDelete: 'cascade' }),
+  firedBy: text('fired_by').notNull(), // 'time' | 'ha-state' | 'frigate' | 'service' | 'webhook' | 'manual'
+  status: text('status').notNull(), // 'ok' | 'error'
+  detail: text('detail'), // per-action outcome summary or error text
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+})
+
 // ─── Backups ───────────────────────────────────────────────────────────────────
 // One row per backup run (scheduled, manual, or the automatic pre-update snapshot).
 // The DB snapshot itself is a VACUUM INTO copy at <destinationPath>/db/<dbFileName>;

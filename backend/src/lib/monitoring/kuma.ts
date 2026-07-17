@@ -90,6 +90,15 @@ function markCooldown(name: string, event: string): void {
  * Core state-transition handler. `newStatus` is Kuma's code (0 down / 1 up).
  * Fires a notification only on an actual change, subject to the admin's prefs.
  */
+// ── In-process transition hook (routines engine) ─────────────────────────────
+type ServiceTransitionFn = (monitor: string, event: 'down' | 'up') => void
+const transitionListeners = new Set<ServiceTransitionFn>()
+
+export function onServiceTransition(fn: ServiceTransitionFn): () => void {
+  transitionListeners.add(fn)
+  return () => transitionListeners.delete(fn)
+}
+
 async function processTransition(name: string, newStatus: number, message: string | null): Promise<void> {
   if (newStatus !== STATUS_DOWN && newStatus !== STATUS_UP) return  // ignore pending/maintenance
   const prev = lastStatus.get(name)
@@ -97,6 +106,13 @@ async function processTransition(name: string, newStatus: number, message: strin
 
   if (prev === newStatus) return                          // no change (dup webhook / steady poll)
   if (prev === undefined && newStatus === STATUS_UP) return  // first sight of a healthy monitor — not an event
+
+  // Fire routine listeners on every REAL transition, before the notify config
+  // gates below: a routine watching a service is independent of whether the
+  // admin's own alerting for it is enabled.
+  for (const listener of transitionListeners) {
+    try { listener(name, newStatus === STATUS_DOWN ? 'down' : 'up') } catch { /* never break ingestion */ }
+  }
 
   const cfg = await getMonitoringConfig()
   if (!cfg.enabled) return

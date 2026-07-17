@@ -2998,6 +2998,33 @@ export function runMigrations() {
     DROP TABLE IF EXISTS coding_projects;
   `)
 
+  // Routines (see schema.ts routines/routineRuns; lib/routines/engine.ts)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS routines (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      trigger TEXT NOT NULL,
+      actions TEXT NOT NULL,
+      created_via TEXT NOT NULL DEFAULT 'app',
+      last_run_at INTEGER,
+      last_result TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS routine_runs (
+      id TEXT NOT NULL PRIMARY KEY,
+      routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+      fired_by TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS routine_runs_routine_idx ON routine_runs(routine_id, started_at);
+  `)
+
   // Backups (see schema.ts backups; Admin → Storage → Backups)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS backups (

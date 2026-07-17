@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Film, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
-  Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, TerminalSquare, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
+  Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, TerminalSquare, Trophy, Tv, UtensilsCrossed, Users, Zap, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -127,6 +127,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "notes",          to: "/notes",          label: "Notes",          description: "Household knowledge base & personal notes", gradient: "linear-gradient(135deg,#713f12,#ca8a04)", color: "#ca8a04", icon: StickyNote, feature: "notes" },
       { id: "cameras",        to: "/cameras",        label: "Cameras",        description: "Recent camera activity & clips", gradient: "linear-gradient(135deg,#1c1917,#3f3f46)", color: "#a1a1aa", icon: Camera },
       { id: "drop",           to: "/drop",           label: "Drop",           description: "Send files & links between your devices", gradient: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "#3b82f6", icon: Share2 },
+      { id: "routines",       to: "/routines",       label: "Routines",       description: "When this happens, do that",     gradient: "linear-gradient(135deg,#312e81,#6d28d9)", color: "#8b5cf6", icon: Zap },
     ],
   },
   {
