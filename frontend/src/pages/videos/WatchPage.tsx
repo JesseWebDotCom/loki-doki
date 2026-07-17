@@ -63,6 +63,7 @@ import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
 import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogether'
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
+import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -218,6 +219,8 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   // ppos=) — autoplay then advances through the playlist's own order instead of algorithmic
   // "related" videos, and the sidebar shows the playlist queue instead of Up Next.
   const pq = usePlaylistQueue()
+  // Per-user limits (kids): noAutoplay suppresses the countdown + hides the toggle.
+  const viewFlags = useVideoViewFlags()
   // "Playing next in Ns" overlay shown instead of navigating immediately on end, so the
   // viewer gets a beat to cancel. Cleared on scrub-back/replay (see onTime/onPlaying below).
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
@@ -380,7 +383,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   }), [meta?.title, meta?.channelId, meta?.durationSec, author, feedItem?.title, navState.title])
 
   function onEnded() {
-    if (!autoplay) return
+    if (!autoplay || viewFlags.noAutoplay) return
     if (pq.active) { if (pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC }); return }
     if (upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
@@ -491,7 +494,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
           active={tab} onChange={setTab}
-          action={tab === 'upnext' ? (
+          action={tab === 'upnext' && !viewFlags.noAutoplay ? (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
               Autoplay
               <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}
@@ -1016,6 +1019,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // autoplay fallback for hub sources (matches today's no-queue behavior outside a playlist).
   const pq = usePlaylistQueue()
   const [autoplay, setAutoplay] = useState(true)
+  // Per-user limits (kids): noAutoplay suppresses the countdown + hides the toggle.
+  const viewFlags = useVideoViewFlags()
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
   // TikTok/Vimeo play through a cross-origin embed <iframe>, which the browser won't let us
   // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
@@ -1211,7 +1216,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     }
   }
   function onVideoEnded() {
-    if (autoplay && pq.active && pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
+    if (autoplay && !viewFlags.noAutoplay && pq.active && pq.next) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
   useEffect(() => {
     if (!countdown) return
@@ -1522,7 +1527,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           (default) tab, not modules stacked under the panel. */}
       <aside className="min-w-0 xl:sticky xl:top-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col xl:self-start">
         <SidePanelShell tabs={tabs} active={tab} onChange={setExplicitTab}
-          action={tab === 'upnext' && pq.active && pq.playlistId ? (
+          action={tab === 'upnext' && pq.active && pq.playlistId && !viewFlags.noAutoplay ? (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 pr-1 text-xs font-medium text-muted-foreground">
               Autoplay
               <button onClick={() => setAutoplay(a => !a)} role="switch" aria-checked={autoplay}

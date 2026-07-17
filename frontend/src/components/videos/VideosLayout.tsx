@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Outlet, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { youtubeSuggestSource } from '@/lib/youtube/api'
-import { routeVideoUrl, type VideoSource } from '@/lib/videos/api'
+import { getVideoSources, routeVideoUrl, type VideoSource } from '@/lib/videos/api'
 import { VideosRail } from '@/components/videos/VideosRail'
 import { DownloadDialog, SaveDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
@@ -116,13 +116,21 @@ export function VideosLayout() {
     if (SEARCH_HOME_PATHS.has(pathname)) setQuery(urlQ)
   }, [pathname, urlQ])
 
+  // Approved-only mode (kids): no search box, no URL opening; discovery affordances hide
+  // app-wide. The server filters every list regardless; this only removes dead-end UI.
+  const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
+  const allowlistOnly = sourcesData?.allowlistOnly === true
+
   // Publish the breadcrumb search + the Online/Offline toggle (upper-right).
   const rightSlot = useMemo(() => <ModeToggle mode={mode} onChange={setMode} />, [mode])
   const rail = useMemo(() => <VideosRail variant="drawer" />, [])
   useAppHeader({
     query,
     setQuery,
+    // Approved-only mode hides the search input entirely (searchable: false below).
+    searchable: !allowlistOnly,
     onSubmit: (submitted?: string) => {
+      if (allowlistOnly) return
       // Use the submitted text (a picked suggestion or the Enter value) so we never search
       // stale query state; fall back to the live box value.
       const t = (submitted ?? query).trim()
@@ -139,7 +147,7 @@ export function VideosLayout() {
     },
     placeholder: mode === 'online' ? 'Search videos, channels, episodes…' : 'Search your offline library…',
     settingsHref: '/videos/settings',
-    suggest: mode === 'online' ? youtubeSuggestSource : undefined,
+    suggest: mode === 'online' && !allowlistOnly ? youtubeSuggestSource : undefined,
     rightSlot,
     rail,
   })

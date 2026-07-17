@@ -2145,6 +2145,17 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, asset_type, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS video_allowlist (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      title TEXT,
+      thumbnail_url TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, source, kind, external_id)
+    );
     CREATE TABLE IF NOT EXISTS book_indexers (
       id TEXT NOT NULL PRIMARY KEY,
       label TEXT NOT NULL,

@@ -10,11 +10,33 @@ import { useYtFeed } from '@/lib/youtube/useData'
 import { getVideoMeta } from '@/lib/youtube/api'
 import { isShort } from '@/lib/youtube/types'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
+import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 
 const AUTOPLAY_KEY = 'yt.shorts.autoplay'
 
 /** Vertical, swipe-through Shorts feed: scroll / arrows / swipe to move between shorts. */
 export function YoutubeShortsPage() {
+  // Per-user limit (kids): the Shorts feed can be switched off entirely.
+  const { noShorts } = useVideoViewFlags()
+  if (noShorts) return <ShortsOffNotice />
+  return <ShortsFeed />
+}
+
+function ShortsOffNotice() {
+  return (
+    <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-sm font-semibold">Shorts is turned off</p>
+      <p className="max-w-sm text-xs text-muted-foreground">
+        Short-video feeds are switched off for this profile. Videos and subscriptions are still available.
+      </p>
+      <Button asChild variant="secondary" size="sm" className="mt-2">
+        <Link to="/videos/youtube">Back to Videos</Link>
+      </Button>
+    </div>
+  )
+}
+
+function ShortsFeed() {
   const { videoId = '' } = useParams()
   const navigate = useNavigate()
   const navState = (useLocation().state ?? {}) as { title?: string | null; author?: string | null; channelThumb?: string | null; dir?: 1 | -1 }
