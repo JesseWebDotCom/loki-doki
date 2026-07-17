@@ -128,6 +128,7 @@ const PodcastLibraryPage = lazy(() => import('@/pages/podcast/PodcastLibraryPage
 const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage').then((m) => ({ default: m.PodcastOfflinePage })))
 const PodcastFiltersPage = lazy(() => import('@/pages/podcast/PodcastFiltersPage').then((m) => ({ default: m.PodcastFiltersPage })))
 const PodcastBookmarksPage = lazy(() => import('@/pages/podcast/PodcastBookmarksPage').then((m) => ({ default: m.PodcastBookmarksPage })))
+const PodcastReplayPage = lazy(() => import('@/pages/podcast/PodcastReplayPage').then((m) => ({ default: m.PodcastReplayPage })))
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
@@ -522,6 +523,7 @@ export default function App() {
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="filters" element={<PodcastFiltersPage />} />
                   <Route path="bookmarks" element={<PodcastBookmarksPage />} />
+                  <Route path="replay" element={<PodcastReplayPage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="settings" element={<PodcastSettingsPage />} />

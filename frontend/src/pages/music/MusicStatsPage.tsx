@@ -127,7 +127,8 @@ function MusicStats() {
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
         <section>
-          <SectionHeader title="By year" lead="Tap a year to filter everything below." />
+          <SectionHeader title="By year" />
+          <p className="mt-0.5 text-xs text-muted-foreground">Tap a year to filter everything below.</p>
           <div className="mt-3 grid gap-0.5">
             <BarRow label="All" value={maxYear} max={maxYear} caption={fmtHours(overview.totals.minutes)}
               onClick={() => setYear(null)} active={year === null} />
