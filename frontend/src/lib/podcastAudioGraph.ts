@@ -26,6 +26,7 @@ interface PodcastGraph {
   dryGain: GainNode
   wetGain: GainNode
   mix: GainNode
+  duckGain: GainNode
   outGain: GainNode
   analyser: AnalyserNode
 }
@@ -98,6 +99,9 @@ export function ensurePodcastGraph(el: HTMLMediaElement): PodcastGraph | null {
     wetGain.gain.value = 0
 
     const mix = ctx.createGain()
+    // Announcement ducking rides its own node so it never fights the sleep-timer
+    // fade, which owns outGain (a shared node would leave one of them stranded).
+    const duckGain = ctx.createGain()
     const outGain = ctx.createGain()
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 2048
@@ -110,11 +114,12 @@ export function ensurePodcastGraph(el: HTMLMediaElement): PodcastGraph | null {
     comp.connect(makeup)
     makeup.connect(wetGain)
     wetGain.connect(mix)
-    mix.connect(outGain)
+    mix.connect(duckGain)
+    duckGain.connect(outGain)
     outGain.connect(ctx.destination)
     mix.connect(analyser)   // pre-outGain tap so sleep fades don't read as silence
 
-    const graph: PodcastGraph = { ctx, dryGain, wetGain, mix, outGain, analyser }
+    const graph: PodcastGraph = { ctx, dryGain, wetGain, mix, duckGain, outGain, analyser }
     graphs.set(el, graph)
     applyToGraph(graph)
     startEngine(el, graph)
@@ -161,7 +166,44 @@ export function resetPodcastVolume(el: HTMLMediaElement): void {
       g.outGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.05)
     } catch { g.outGain.gain.value = 1 }
   }
-  el.volume = 1
+  // The element's own volume is the ducking fallback when no graph attached, so
+  // restore it to whatever ducking currently wants rather than blindly to 1.
+  el.volume = duckActive ? DUCK_LEVEL : 1
+}
+
+// ── Announcement ducking ────────────────────────────────────────────────────────
+// Duck the podcast while companion speech plays on this device (lib/speechDucking.ts).
+// Applies to whichever element the graph engine currently owns; with no graph
+// (Web Audio unavailable / element already sourced elsewhere) it falls back to
+// element volume, which the sleep fade also uses.
+
+const DUCK_LEVEL = 0.2
+let duckActive = false
+
+export function duckPodcastForSpeech(): void {
+  duckActive = true
+  const el = engineEl
+  if (!el) return
+  const g = graphs.get(el)
+  if (g) {
+    try { g.duckGain.gain.setTargetAtTime(DUCK_LEVEL, g.ctx.currentTime, 0.05) } catch { g.duckGain.gain.value = DUCK_LEVEL }
+  } else {
+    el.volume = Math.min(el.volume, DUCK_LEVEL)
+  }
+}
+
+export function unduckPodcastAfterSpeech(): void {
+  duckActive = false
+  const el = engineEl
+  if (!el) return
+  const g = graphs.get(el)
+  if (g) {
+    // ~0.5s restore: setTargetAtTime is exponential, so a 0.17 time constant lands
+    // within about a percent of target by 500ms.
+    try { g.duckGain.gain.setTargetAtTime(1, g.ctx.currentTime, 0.17) } catch { g.duckGain.gain.value = 1 }
+  } else {
+    el.volume = 1
+  }
 }
 
 // ── Trim-silence engine ────────────────────────────────────────────────────────────

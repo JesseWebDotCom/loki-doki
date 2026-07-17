@@ -12,9 +12,10 @@ import {
   type ShowPlaybackSettings,
 } from '@/lib/podcast/playerApi'
 import {
-  applyPodcastDsp, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
-  setPodcastBaseRate, takeSavedSeconds,
+  applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
+  setPodcastBaseRate, takeSavedSeconds, unduckPodcastAfterSpeech,
 } from '@/lib/podcastAudioGraph'
+import { registerDuckable } from '@/lib/speechDucking'
 
 export interface PodcastChapter { title: string; startSec: number }
 export interface TranscriptTurn { speaker: string; text: string }
@@ -548,7 +549,12 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       stop: () => ctrlRef.current.close(),
     })
     const unS = registerMediaStop('podcast', () => ctrlRef.current.close())
-    return () => { unT(); unS() }
+    // Duck the episode under companion speech on this device (lib/speechDucking.ts).
+    const unD = registerDuckable('podcast', {
+      duck: () => duckPodcastForSpeech(),
+      restore: () => unduckPodcastAfterSpeech(),
+    })
+    return () => { unT(); unS(); unD() }
   }, [])
 
   // Report now-playing to the shared snapshot so device player bars reflect the podcast.

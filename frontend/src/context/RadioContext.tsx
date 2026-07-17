@@ -4,6 +4,7 @@ import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack, type
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { registerDuckable } from '@/lib/speechDucking'
 import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
 
@@ -127,7 +128,12 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       toggle: () => e?.togglePause(), next: () => e?.skip(),
       prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
     })
-    return () => { unregister(); unTransport(); engineRef.current?.destroy() }
+    // Duck the station under companion speech on this device (lib/speechDucking.ts).
+    const unDuck = registerDuckable('radio', {
+      duck: () => engineRef.current?.duckForSpeech(),
+      restore: () => engineRef.current?.unduckAfterSpeech(),
+    })
+    return () => { unregister(); unTransport(); unDuck(); engineRef.current?.destroy() }
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).

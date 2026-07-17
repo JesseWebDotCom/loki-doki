@@ -10,6 +10,7 @@
 import { TTSPlaybackScheduler, type SentencePayload } from "@/lib/voice/tts-playback-scheduler";
 import { attachCharacterBridge, getCharacterBridge } from "@/lib/voice/tts-character-bridge";
 import { splitSentences } from "@/lib/voice/sentence-chunker";
+import { setSpeechActive } from "@/lib/speechDucking";
 
 export interface VoicePlaybackOptions {
   text: string;
@@ -266,6 +267,10 @@ export class VoicePlayback {
   private notify(playing: boolean): void {
     if (this.playing === playing) return;
     this.playing = playing;
+    // Announcement ducking: this is the single funnel for REAL speech audio
+    // start/end (scheduler-driven, not fetch-driven), so it is the right place to
+    // duck/restore any media playing on this same device. See lib/speechDucking.ts.
+    setSpeechActive(playing);
     this.listeners.forEach((l) => l(playing));
   }
 
