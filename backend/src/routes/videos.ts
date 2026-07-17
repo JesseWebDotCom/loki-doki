@@ -19,6 +19,7 @@ import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { askVideo } from '@/lib/videos/askVideo'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { buildRecap } from '@/lib/videos/recap'
+import { autoChapters, catchMeUp, suggestClips } from '@/lib/videos/aiExtras'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -750,6 +751,71 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── AI extras: auto-chapters, catch-me-up, clip suggestions ─────────────────────
+// All three read the same transcript stack (see lib/videos/aiExtras.ts). Each resolves
+// the item first, which also applies the ceiling/allowlist gates.
+
+/** Item identity + the content gate, shared by the AI extras below. */
+async function gateForAi(c: { req: { param: (k: string) => string }; get: (k: 'user') => { id: string; firstName: string } }):
+  Promise<{ title: string | null; url: string | null } | null> {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+  if (source === 'youtube') {
+    const [v] = await db.select({ title: ytVideosTable.title, author: ytVideosTable.author, channelId: ytVideosTable.channelId })
+      .from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
+    if (v?.title && !(await videoAllowedForUser(user.id, {
+      source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
+      title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
+    }))) return null
+    return { title: v?.title ?? null, url: null }
+  }
+  const provider = getProvider(source)
+  if (!provider) return null
+  const item = await provider.getItem(id, user.id).catch(() => null)
+  if (!item || !(await videoAllowedForUser(user.id, item))) return null
+  return { title: item.title, url: item.url }
+}
+
+// Auto-chapters for videos whose creator never added any. The client asks only when the
+// real chapter list came back empty.
+videosRoute.get('/:source/auto-chapters/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const chapters = await autoChapters({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ chapters })
+})
+
+// Catch me up: a recap of everything before `upto`, and nothing after it.
+videosRoute.get('/:source/catch-up/:id', async (c) => {
+  const user = c.get('user')
+  const uptoSec = Math.floor(Number(c.req.query('upto')) || 0)
+  if (uptoSec < 30) return c.json({ recap: null })
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const recap = await catchMeUp({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, uptoSec, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ recap })
+})
+
+// Clippable moments, for the Clipper and the Studio.
+videosRoute.get('/:source/clip-suggestions/:id', async (c) => {
+  const user = c.get('user')
+  const gate = await gateForAi(c)
+  if (!gate) return c.json({ error: 'not available' }, 403)
+  const suggestions = await suggestClips({
+    source: c.req.param('source'), videoId: c.req.param('id'),
+    title: gate.title, url: gate.url, userId: user.id, userFirstName: user.firstName,
+  })
+  return c.json({ suggestions })
 })
 
 // ── Year in Review: the private Wrapped (see lib/videos/recap.ts) ────────────────

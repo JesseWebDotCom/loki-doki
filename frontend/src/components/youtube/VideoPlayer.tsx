@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions, Lock } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions, Lock, FastForward } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
@@ -762,6 +762,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     return i >= 0 ? chapters[i]!.title : null
   }, [chapters, position])
 
+  // Jump ahead: the next most-replayed peak after the playhead. YouTube gates this behind
+  // Premium; the heat data it needs is the same curve already drawn below. Only offered
+  // when the peak is meaningfully ahead and meaningfully hotter than here, so it never
+  // becomes a "skip 3 seconds" button.
+  const jumpAheadSec = useMemo(() => {
+    if (!heatMarkers?.length || !duration) return null
+    const max = Math.max(...heatMarkers.map(m => m.intensity))
+    if (max <= 0) return null
+    const hereMs = position * 1000
+    const ahead = heatMarkers.filter(m => m.startMs > hereMs + 20_000 && m.intensity >= max * 0.85)
+    const here = heatMarkers.find(m => m.startMs <= hereMs && hereMs < m.startMs + (m.durationMs || 1))
+    // Already in a hot stretch: nothing worth skipping to.
+    if (here && here.intensity >= max * 0.85) return null
+    const target = ahead[0]
+    return target ? Math.floor(target.startMs / 1000) : null
+  }, [heatMarkers, duration, position])
+
   // Most-replayed heat curve under the scrubber: normalized intensities → one SVG
   // polyline over the bar's width. Drawn only when YouTube actually has heat data.
   const heatPath = useMemo(() => {
@@ -934,6 +951,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           </div>
           <span className="text-xs tabular-nums text-white/80">{fmtClock(position)} / {fmtClock(duration)}</span>
           {currentChapter && <span className="hidden truncate text-xs font-medium text-white/70 sm:block max-w-[40%]">· {currentChapter}</span>}
+          {/* Jump ahead: skip to the next most-replayed peak (Premium on YouTube). */}
+          {jumpAheadSec != null && (
+            <button onClick={() => { seekTo(jumpAheadSec); setPosition(jumpAheadSec) }}
+              title="Jump to the part people replay most"
+              className="hidden items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold transition hover:bg-white/25 sm:flex">
+              <FastForward className="size-3" /> Jump ahead
+            </button>
+          )}
           <div className="flex-1" />
 
           {/* Captions: OUR toggle (persisted, default off) - the embed otherwise honors

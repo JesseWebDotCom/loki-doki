@@ -46,7 +46,7 @@ import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackC
 import { acquireAudio, registerTransport } from '@/lib/mediaCoordinator'
 import { useShareLink } from '@/hooks/use-share-link'
 import {
-  getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, listSaves, saveVideo, putWatchState, savedFileUrl,
+  getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, getAutoChapters, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
@@ -66,6 +66,7 @@ import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
 import { MomentsPanel } from '@/components/videos/MomentsPanel'
+import { CatchMeUpCard } from '@/components/videos/CatchMeUpCard'
 import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
 /** A feed/related item → a mini-player queue entry. */
@@ -384,12 +385,24 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   // parse). When that turns up nothing, fall back to YouTube's authoritative chapter list
   // (creator-set or auto) via InnerTube, only fetched in that case, so it's cheap.
   const descChapters = useMemo(() => parseChapters(meta?.description), [meta?.description])
-  const { data: itChapters = [] } = useQuery({
+  const { data: itChapters = [], isFetched: itChaptersDone } = useQuery({
     queryKey: ['yt-chapters', videoId],
     queryFn: () => getChapters(videoId),
     enabled: online && !!videoId && !!meta && descChapters.length === 0,
   })
-  const chapters = descChapters.length ? descChapters : itChapters
+  // Last resort: derive chapters from the transcript with the local model, only for
+  // videos that genuinely have none. Commodity elsewhere (Panopto, Kaltura, Mux) and
+  // week-cached server-side, so this costs one pass per video, ever.
+  const noRealChapters = descChapters.length === 0 && itChaptersDone && itChapters.length === 0
+  const { data: aiChapterData } = useQuery({
+    queryKey: ['yt-auto-chapters', videoId],
+    queryFn: () => getAutoChapters('youtube', videoId),
+    enabled: online && !!videoId && noRealChapters,
+    staleTime: 24 * 60 * 60_000,
+  })
+  const chapters = descChapters.length ? descChapters
+    : itChapters.length ? itChapters
+    : (aiChapterData?.chapters ?? [])
 
   // Current playback second, drives the transcript's follow-along highlight.
   const [currentSec, setCurrentSec] = useState(0)
@@ -499,6 +512,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           localKind={localKind} isShortVid={isShortVid} onMinimize={minimize}
           wtSlot={<WatchTogetherPill wt={wt} />} />
       </div>
+
+        {/* Resuming well past the start: offer a spoiler-safe recap of what came before. */}
+        {online && resumeSec > 120 && <CatchMeUpCard source="youtube" videoId={videoId} resumeSec={resumeSec} />}
 
         <YoutubeInfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
           votes={votes ?? null} />
@@ -1572,6 +1588,11 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                 ))}
               </div>
             </div>
+          {/* Resuming well past the start: offer a spoiler-safe recap of what came before
+              (sources with no captions answer with nothing and the card says so). */}
+          {capabilities?.transcript !== false && resumeSec > 120 && (
+            <CatchMeUpCard source={source} videoId={id} resumeSec={resumeSec} />
+          )}
           <DescriptionCard views={null} description={item.description ?? null} />
           {/* AI summary lives inline with the description it condenses, not as a rail tab. */}
           {capabilities?.transcript !== false && (

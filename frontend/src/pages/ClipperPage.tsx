@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircle, ArrowUpRight, Clock, Download, Film, Globe, Music2, Play, Scissors, X,
+  AlertCircle, ArrowUpRight, Clock, Download, Film, Globe, Music2, Play, Scissors, Sparkles, X,
 } from 'lucide-react'
 
 import { PageShell } from '@/components/shared/PageShell'
@@ -25,7 +25,7 @@ import {
   checkDirectPlay, clipFileUrl, clipStreamUrl, listClips, resolveClipUrl, saveClip,
   type Clip, type ClipKind, type ClipPreview,
 } from '@/lib/clipper/api'
-import { resolveVideoUrl, type ResolveResult, type VideoSource } from '@/lib/videos/api'
+import { getClipSuggestions, resolveVideoUrl, type ResolveResult, type VideoSource } from '@/lib/videos/api'
 
 /** Deep-link targets inside the hub for provider-claimed URLs. */
 const SOURCE_PATHS: Record<VideoSource, { watch: (id: string) => string; creator: (id: string) => string }> = {
@@ -37,6 +37,54 @@ const SOURCE_PATHS: Record<VideoSource, { watch: (id: string) => string; creator
 }
 
 type ProviderHit = Extract<ResolveResult, { kind: 'provider' }>
+
+/** AI-suggested clippable moments for a resolved video: each row opens the watch page at
+ *  that second, where the clip can be trimmed. Mirrors YouTube's 2026 creator feature. */
+function ClipSuggestions({ source, videoId }: { source: VideoSource; videoId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['clip-suggestions', source, videoId],
+    queryFn: () => getClipSuggestions(source, videoId),
+    staleTime: 60 * 60_000,
+  })
+  const suggestions = data?.suggestions ?? []
+
+  if (isLoading) {
+    return (
+      <Card className="mt-4 flex items-center gap-2 p-4 text-sm text-muted-foreground">
+        <Spinner className="size-4" /> Reading the transcript for clippable moments…
+      </Card>
+    )
+  }
+  if (suggestions.length === 0) {
+    return (
+      <Card className="mt-4 p-4 text-sm text-muted-foreground">
+        No clip suggestions for this one (it may have no captions to read).
+      </Card>
+    )
+  }
+  return (
+    <Card className="mt-4 p-4">
+      <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Sparkles className="size-3.5" /> Moments worth clipping
+      </p>
+      <div className="space-y-1.5">
+        {suggestions.map((s, i) => (
+          <Link key={i} to={`${SOURCE_PATHS[source].watch(videoId)}?t=${s.startSec}`}
+            className="flex items-start gap-3 rounded-control p-2 transition-colors hover:bg-accent">
+            <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand">
+              {fmtTime(s.startSec)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{s.title}</span>
+              <span className="block truncate text-xs text-muted-foreground">{s.why}</span>
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.endSec - s.startSec}s</span>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  )
+}
 
 const CLIPS_QUERY_KEY = ['clipper-clips']
 
@@ -72,6 +120,9 @@ export function ClipperPage() {
   const [resolving, setResolving] = useState(false)
   const [resolveError, setResolveError] = useState<string | null>(null)
   const [providerHit, setProviderHit] = useState<ProviderHit | null>(null)
+  // AI clippable-moment suggestions for a resolved provider video (opt in per resolve, so
+  // pasting a link never spends a model pass you didn't ask for).
+  const [suggestFor, setSuggestFor] = useState<{ source: VideoSource; videoId: string } | null>(null)
   const [preview, setPreview] = useState<ClipPreview | null>(null)
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null)
   const [canPlay, setCanPlay] = useState<boolean | null>(null)
@@ -255,11 +306,19 @@ export function ClipperPage() {
                       <Scissors className="size-4" /> Clip anyway
                     </Button>
                   )}
+                  {providerHit.match === 'video' && (
+                    <Button size="sm" variant="ghost" className="gap-1.5 text-muted-foreground hover:text-foreground"
+                      onClick={() => setSuggestFor(providerHit.match === 'video' ? { source: providerHit.source, videoId: providerHit.item.id } : null)}>
+                      <Sparkles className="size-4" /> Suggest moments
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
           </Card>
         )}
+
+        {suggestFor && <ClipSuggestions source={suggestFor.source} videoId={suggestFor.videoId} />}
 
         {/* Preview card */}
         {preview && resolvedUrl && (

@@ -288,6 +288,25 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── AI extras ────────────────────────────────────────────────────────────────────
+
+export interface AiChapter { start: number; title: string }
+export interface ClipSuggestion { startSec: number; endSec: number; title: string; why: string }
+
+/** LLM-derived chapters, for videos whose creator never added any. */
+export function getAutoChapters(source: VideoSource | 'youtube', videoId: string): Promise<{ chapters: AiChapter[] }> {
+  return getJson(`/api/videos/${source}/auto-chapters/${encodeURIComponent(videoId)}`)
+}
+
+/** Spoiler-safe recap of everything before `uptoSec` (never past it). */
+export function getCatchUp(source: VideoSource | 'youtube', videoId: string, uptoSec: number): Promise<{ recap: string | null }> {
+  return getJson(`/api/videos/${source}/catch-up/${encodeURIComponent(videoId)}?upto=${Math.floor(uptoSec)}`)
+}
+
+export function getClipSuggestions(source: VideoSource | 'youtube', videoId: string): Promise<{ suggestions: ClipSuggestion[] }> {
+  return getJson(`/api/videos/${source}/clip-suggestions/${encodeURIComponent(videoId)}`)
+}
+
 // ── Year in Review ───────────────────────────────────────────────────────────────
 
 export interface RecapPerson {
