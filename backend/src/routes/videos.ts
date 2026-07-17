@@ -8,12 +8,15 @@ import { existsSync } from 'node:fs'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions } from '@/db/schema'
+import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { allowlistOnlyEnabled } from '@/lib/videos/allowlist'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
+import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
+import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
+import { askVideo } from '@/lib/videos/askVideo'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -388,6 +391,15 @@ videosRoute.get('/:source/item/:id', async (c) => {
   // if a card leaked through. Classifies synchronously here (single item, the watch path
   // tolerates the ~1s) so the verdict is real rather than a pending "unknown".
   if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+  // Time budget gate: watch start is refused (with a friendly reason) once today's video
+  // minutes are used up or outside the allowed hours. Metering lives on the heartbeats.
+  const timeGate = await checkVideoTime(user.id)
+  if (!timeGate.allowed) {
+    return c.json({
+      error: timeGate.reason === 'hours' ? 'Videos are paused right now. Try again during allowed hours.' : 'Video time is used up for today.',
+      code: 'time_limit',
+    }, 403)
+  }
   // Attach this user's saved position so the watch page can resume where any device left
   // off (the same watch state the history/Continue-watching shelves read).
   const [watch] = await db.select({ positionSec: videoWatchState.positionSec, completed: videoWatchState.completed })
@@ -726,7 +738,74 @@ videosRoute.put('/watch-state', async (c) => {
       },
     })
   }
-  return c.json({ ok: true })
+  // Time budget metering + gate: each heartbeat counts toward today's minutes, and the
+  // response tells the player when the budget runs out so it can wind down mid-video.
+  recordWatchBeat(user.id)
+  // Watched videos join the semantic search index organically (fire and forget).
+  ensureVideoIndexed(source, body.videoId, {
+    userId: user.id, userFirstName: user.firstName,
+    title: body.title ?? null, creatorName: body.creatorName ?? null,
+  })
+  const timeGate = await checkVideoTime(user.id)
+  return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Ask the video: grounded Q&A over the current video's transcript ──────────────
+
+videosRoute.post('/:source/ask/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as {
+    question?: string
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  }
+  if (!body.question?.trim()) return c.json({ error: 'question required' }, 400)
+  const history = Array.isArray(body.history)
+    ? body.history.filter((t) => (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+    : []
+
+  // Same content gates as watching: ceiling/allowlist verdicts apply to asking too.
+  let title: string | null = null
+  let creatorName: string | null = null
+  let url: string | null = null
+  if (source === 'youtube') {
+    const [v] = await db.select({ title: ytVideosTable.title, author: ytVideosTable.author, channelId: ytVideosTable.channelId })
+      .from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
+    title = v?.title ?? null
+    creatorName = v?.author ?? null
+    if (v?.title && !(await videoAllowedForUser(user.id, {
+      source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
+      title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
+    }))) return c.json({ error: 'not available' }, 403)
+  } else {
+    const provider = getProvider(source)
+    if (!provider) return c.json({ error: 'unknown source' }, 404)
+    const item = await provider.getItem(id, user.id).catch(() => null)
+    if (!item) return c.json({ error: 'not found' }, 404)
+    if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+    title = item.title
+    creatorName = item.creator?.name ?? null
+    url = item.url
+  }
+
+  const result = await askVideo({
+    source, videoId: id, question: body.question, history,
+    title, creatorName, url,
+    userId: user.id, userFirstName: user.firstName,
+  })
+  if (!result) return c.json({ error: 'The companion could not answer right now.' }, 503)
+  return c.json(result)
+})
+
+// ── Semantic search: "find the video where..." across everything the household watched ──
+
+videosRoute.get('/semantic-search', async (c) => {
+  const user = c.get('user')
+  const q = (c.req.query('q') ?? '').trim()
+  if (q.length < 3) return c.json({ hits: [] })
+  const hits = await semanticSearch(user.id, q, 20)
+  return c.json({ hits })
 })
 
 // ── Saves: offline downloads for non-YouTube sources ────────────────────────────

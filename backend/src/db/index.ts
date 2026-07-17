@@ -2200,6 +2200,23 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, asset_type, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS video_embeddings (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      segment INTEGER NOT NULL,
+      start_sec INTEGER,
+      text TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(source, video_id, segment)
+    );
+    CREATE TABLE IF NOT EXISTS video_watch_time (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      seconds REAL NOT NULL DEFAULT 0,
+      UNIQUE(user_id, day)
+    );
     CREATE TABLE IF NOT EXISTS video_allowlist (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -3051,6 +3068,54 @@ export function runMigrations() {
   sqlite.exec(`
     DROP TABLE IF EXISTS coding_sessions;
     DROP TABLE IF EXISTS coding_projects;
+  `)
+
+  // Network protection / DNS filtering (see schema.ts dnsDevices/dnsRules; lib/dns)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS dns_devices (
+      ip TEXT NOT NULL PRIMARY KEY,
+      label TEXT NOT NULL,
+      profile TEXT NOT NULL DEFAULT 'default',
+      last_seen_at INTEGER,
+      queries INTEGER NOT NULL DEFAULT 0,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS dns_rules (
+      id TEXT NOT NULL PRIMARY KEY,
+      domain TEXT NOT NULL,
+      action TEXT NOT NULL,
+      profile TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS dns_rules_domain_idx ON dns_rules(domain);
+  `)
+
+  // Routines (see schema.ts routines/routineRuns; lib/routines/engine.ts)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS routines (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      trigger TEXT NOT NULL,
+      actions TEXT NOT NULL,
+      created_via TEXT NOT NULL DEFAULT 'app',
+      last_run_at INTEGER,
+      last_result TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS routine_runs (
+      id TEXT NOT NULL PRIMARY KEY,
+      routine_id TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+      fired_by TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS routine_runs_routine_idx ON routine_runs(routine_id, started_at);
   `)
 
   // Backups (see schema.ts backups; Admin → Storage → Backups)

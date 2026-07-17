@@ -151,6 +151,10 @@ import { artifactsRoute } from '@/routes/artifacts'
 import adminStorage from '@/routes/adminStorage'
 import adminStorageLocations from '@/routes/adminStorageLocations'
 import adminBackups from '@/routes/adminBackups'
+import adminRemoteAccess from '@/routes/adminRemoteAccess'
+import routinesRoute from '@/routes/routines'
+import adminNetworkProtection from '@/routes/adminNetworkProtection'
+import mcpAdmin, { mcpPublic } from '@/routes/mcp'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
@@ -239,8 +243,16 @@ if (firstBoot) {
   startBriefingRefresh()
   startCompanionCheckins()
   import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
+  import('@/lib/routines/engine').then((m) => m.startRoutinesEngine()).catch(() => {})
+  // DNS filtering is opt-in and fail-safe: only starts if the admin enabled it, and
+  // a failed bind (needs privilege for :53) is surfaced in the admin UI, not fatal.
+  import('@/lib/dns/server').then((m) => m.startDnsServer()).catch(() => {})
   startDropSweep()
   startMediaAlertsSweep()
+  // Weekly parent watch reports (Sunday evenings): see lib/videos/watchReport.ts.
+  import('@/lib/videos/watchReport').then((m) => m.startWeeklyWatchReports()).catch(() => {})
+  // Semantic video index backfill (recent watch history, slow-paced): semanticIndex.ts.
+  import('@/lib/videos/semanticIndex').then((m) => m.startSemanticBackfill()).catch(() => {})
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
@@ -746,6 +758,11 @@ app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
 app.route('/api/admin/storage-locations', adminStorageLocations)
 app.route('/api/admin/backups', adminBackups)
+app.route('/api/admin/remote-access', adminRemoteAccess)
+app.route('/api/routines', routinesRoute)
+app.route('/api/admin/network-protection', adminNetworkProtection)
+app.route('/api/admin/mcp', mcpAdmin)
+app.route('/api/mcp', mcpPublic)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

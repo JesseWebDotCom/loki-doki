@@ -113,6 +113,7 @@ const VoiceMemosPage = lazy(() => import('@/pages/VoiceMemosPage').then((m) => (
 const JokePage = lazy(() => import('@/pages/JokePage').then((m) => ({ default: m.JokePage })))
 const UnitConverterPage = lazy(() => import('@/pages/UnitConverterPage').then((m) => ({ default: m.UnitConverterPage })))
 const SpeedTestPage = lazy(() => import('@/pages/SpeedTestPage').then((m) => ({ default: m.SpeedTestPage })))
+const RoutinesPage = lazy(() => import('@/pages/RoutinesPage').then((m) => ({ default: m.RoutinesPage })))
 const ShoppingPage = lazy(() => import('@/pages/shopping/ShoppingPage').then((m) => ({ default: m.ShoppingPage })))
 const ProductDetailPage = lazy(() => import('@/pages/shopping/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage })))
 const CodingPage = lazy(() => import('@/pages/coding/CodingPage').then((m) => ({ default: m.CodingPage })))
@@ -558,6 +559,7 @@ export default function App() {
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/speed-test" element={<SpeedTestPage />} />
+                <Route path="/routines" element={<RoutinesPage />} />
                 <Route path="/shopping" element={<ShoppingPage />} />
                 <Route path="/shopping/product/:retailer/:encodedId" element={<ProductDetailPage />} />
                 <Route path="/coding" element={<CodingPage />} />

@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { fmtClock, thumbUrl } from '@/lib/youtube/format'
@@ -338,11 +339,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     else if (y?.seekTo) { try { y.seekTo(sec, true) } catch { /* noop */ } }
   }
 
+  // Kids time budget: the watch-state response carries the gate. When the budget runs
+  // out mid-video, pause gently (once) instead of hard-cutting; a low-budget warning
+  // fires once so "one more video" decisions are informed.
+  const timeLimitHit = useRef(false)
+  const timeWarned = useRef(false)
+  const applyTimeGate = (gate: { allowed: boolean; reason?: string; remainingSec: number | null } | null) => {
+    if (!gate) return
+    if (!gate.allowed && !timeLimitHit.current) {
+      timeLimitHit.current = true
+      const m = mediaRef.current, y = ytRef.current
+      if (m) { try { m.pause() } catch { /* noop */ } } else { try { y?.pauseVideo?.() } catch { /* noop */ } }
+      toast.info(gate.reason === 'hours' ? 'Videos are paused for now. Come back during allowed hours.' : 'Video time is up for today.')
+    } else if (gate.allowed && gate.remainingSec != null && gate.remainingSec <= 300 && !timeWarned.current) {
+      timeWarned.current = true
+      toast.info('About 5 minutes of video time left today.')
+    }
+  }
+
   const persist = (completed = false) => {
     const s = read(); if (!s) return
     if (s.t < 1 && !completed) return
     const done = completed || (s.d ? s.t >= s.d * 0.97 : false)
-    void saveWatchState(videoId, s.t, done, videoMeta)
+    void saveWatchState(videoId, s.t, done, videoMeta).then(applyTimeGate)
   }
 
   // No dependency array: the handle must close over the CURRENT remux/seek state (an
