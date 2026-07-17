@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack } from '@/lib/music/radioEngine'
+import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack, type ShuffleMode } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
@@ -37,6 +37,12 @@ interface RadioCtx extends RadioState {
   /** Sweet Fades: overlap the next song where this one's outro begins (loudness-timed). */
   sweetFades: boolean
   setSweetFades: (on: boolean) => void
+  /** AutoMix: beat-matched transitions (tempo nudge during the crossfade when BPMs are close). */
+  autoMix: boolean
+  setAutoMix: (on: boolean) => void
+  /** Shuffle mode: off / true random / no repeats until everything has played. */
+  shuffleMode: ShuffleMode
+  setShuffleMode: (mode: ShuffleMode) => void
   /** Up Next editing: move a queue item (absolute indexes) / play a queue item now. */
   reorderQueue: (from: number, to: number) => void
   jumpTo: (index: number) => void
@@ -100,6 +106,18 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const setSweetFades = (on: boolean) => {
     engineRef.current?.setSweetFades(on)
     setSweetFadesState(engineRef.current?.getSweetFades() ?? on)
+  }
+  // AutoMix (beat-matched transitions) mirrors the engine's persisted flag the same way.
+  const [autoMix, setAutoMixState] = useState(() => engineRef.current?.getAutoMix() ?? false)
+  const setAutoMix = (on: boolean) => {
+    engineRef.current?.setAutoMix(on)
+    setAutoMixState(engineRef.current?.getAutoMix() ?? on)
+  }
+  // Shuffle mode mirrors the engine's persisted value for the mode picker.
+  const [shuffleMode, setShuffleModeState] = useState<ShuffleMode>(() => engineRef.current?.getShuffleMode() ?? 'off')
+  const setShuffleMode = (mode: ShuffleMode) => {
+    engineRef.current?.setShuffleMode(mode)
+    setShuffleModeState(engineRef.current?.getShuffleMode() ?? mode)
   }
 
   useEffect(() => {
@@ -223,11 +241,15 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     setCrossfadeMs,
     sweetFades,
     setSweetFades,
+    autoMix,
+    setAutoMix,
+    shuffleMode,
+    setShuffleMode,
     lyricLeadSec,
     setLyricLeadSec,
     visualizerEnabled,
     toggleVisualizer,
-  }), [state, e, visualizerEnabled, dsp, crossfadeMs, sweetFades, lyricLeadSec])
+  }), [state, e, visualizerEnabled, dsp, crossfadeMs, sweetFades, autoMix, shuffleMode, lyricLeadSec])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
