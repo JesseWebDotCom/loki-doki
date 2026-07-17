@@ -710,6 +710,21 @@ Pill-shaped card ⇄ list switch (`LayoutGrid` / `List` icons). Use anywhere a p
 useViewPreference(key: string, fallback?: 'grid' | 'list')
 ```
 
+### Family audio components - `src/components/shared/FamilyAudioGuard.tsx` and siblings
+
+The kids/family audio guardrail UX (backend: `lib/family/audioPolicy.ts`, admin surface:
+Admin > Family Audio). Three pieces, all driven by `useFamilyAudio()`
+(`src/hooks/useFamilyAudio.ts`, polls `GET /api/family-audio/me`):
+- `FamilyAudioGuard` - mounted ONCE in `App.tsx` inside the player providers; stops
+  music/live-radio/podcast playback when the profile's time budget or quiet hours gate
+  closes, fires the one-time "5 minutes left" warning toast, and clamps player volume to
+  the profile's cap. Renders nothing.
+- `FamilyRemainingChip` - small remaining-audio-time pill for player bars (renders only
+  when the profile has a daily budget). Used by `RadioMiniBar` and `PodcastPlayerBar`.
+- `FamilyAudioBlockedCard` - friendly full-state card ("Audio time is done for today" /
+  quiet hours) for media hubs; renders nothing while the gate is open, so pages mount it
+  unconditionally. Used by the Music home and the Podcasts Listen Now page.
+
 ### Toasts (app-wide) - `sonner`
 
 Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere. Do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.

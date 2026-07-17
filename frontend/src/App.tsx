@@ -20,6 +20,7 @@ import { LiveRadioProvider } from '@/context/LiveRadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { MonitoringAnnounceProvider } from '@/context/MonitoringAnnounceContext'
+import { FamilyAudioGuard } from '@/components/shared/FamilyAudioGuard'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -362,6 +363,8 @@ export default function App() {
           <FrigateAnnounceProvider>
           <MonitoringAnnounceProvider>
           <ChatProvider>
+          {/* Family audio guardrails: graceful stop, 5-minute warning, volume cap. */}
+          <FamilyAudioGuard />
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
             <Route path="/setup" element={<SetupGuard />} />
