@@ -5,10 +5,10 @@
 import { Hono } from 'hono'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
+import { mediaAssets, videoFolders, videoFolderMembers, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
@@ -748,6 +748,115 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Subscription folders ─────────────────────────────────────────────────────────
+// User-made groups over subscriptions/follows, each with its own filtered feed. A
+// creator can live in several folders; membership is (source, externalId) so YouTube
+// channels and hub creators group side by side.
+
+videosRoute.get('/folders', async (c) => {
+  const user = c.get('user')
+  const folders = await db.select().from(videoFolders)
+    .where(eq(videoFolders.userId, user.id))
+    .orderBy(asc(videoFolders.sortOrder), asc(videoFolders.createdAt))
+  if (folders.length === 0) return c.json({ folders: [] })
+  const members = await db.select().from(videoFolderMembers)
+    .where(inArray(videoFolderMembers.folderId, folders.map((f) => f.id)))
+  return c.json({
+    folders: folders.map((f) => ({
+      id: f.id, name: f.name, sortOrder: f.sortOrder,
+      members: members.filter((m) => m.folderId === f.id).map((m) => ({ source: m.source, externalId: m.externalId })),
+    })),
+  })
+})
+
+videosRoute.post('/folders', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { name?: string }
+  const name = body.name?.trim().slice(0, 60)
+  if (!name) return c.json({ error: 'name required' }, 400)
+  const [{ count } = { count: 0 }] = await db.select({ count: sqlCount() }).from(videoFolders).where(eq(videoFolders.userId, user.id))
+  const id = randomUUID()
+  await db.insert(videoFolders).values({ id, userId: user.id, name, sortOrder: Number(count) || 0, createdAt: new Date() })
+  return c.json({ folder: { id, name, sortOrder: Number(count) || 0, members: [] } })
+})
+
+videosRoute.patch('/folders/:id', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as { name?: string }
+  const name = body.name?.trim().slice(0, 60)
+  if (!name) return c.json({ error: 'name required' }, 400)
+  await db.update(videoFolders).set({ name })
+    .where(and(eq(videoFolders.id, c.req.param('id')), eq(videoFolders.userId, user.id)))
+  return c.json({ ok: true })
+})
+
+videosRoute.delete('/folders/:id', async (c) => {
+  const user = c.get('user')
+  await db.delete(videoFolders)
+    .where(and(eq(videoFolders.id, c.req.param('id')), eq(videoFolders.userId, user.id)))
+  return c.json({ ok: true })
+})
+
+// Toggle a creator's membership. Owner-checked through the parent folder.
+videosRoute.post('/folders/:id/members', async (c) => {
+  const user = c.get('user')
+  const folderId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { source?: string; externalId?: string; member?: boolean }
+  const source = body.source?.trim()
+  const externalId = body.externalId?.trim()
+  if (!source || !externalId) return c.json({ error: 'source and externalId required' }, 400)
+  const [folder] = await db.select({ id: videoFolders.id }).from(videoFolders)
+    .where(and(eq(videoFolders.id, folderId), eq(videoFolders.userId, user.id))).limit(1)
+  if (!folder) return c.json({ error: 'not found' }, 404)
+  if (body.member === false) {
+    await db.delete(videoFolderMembers).where(and(
+      eq(videoFolderMembers.folderId, folderId),
+      eq(videoFolderMembers.source, source),
+      eq(videoFolderMembers.externalId, externalId),
+    ))
+  } else {
+    await db.insert(videoFolderMembers)
+      .values({ id: randomUUID(), folderId, source, externalId, createdAt: new Date() })
+      .onConflictDoNothing()
+  }
+  return c.json({ ok: true })
+})
+
+// ── Play Something: one-tap shuffle from what you already follow/saved ────────────
+// Netflix's decision-fatigue killer, and the natural "just put something on" button for
+// approved-only kid profiles. Draws from the followed-creator feed cache, skips anything
+// already finished, and runs the policy chokepoint like every other list.
+
+videosRoute.get('/play-something', async (c) => {
+  const user = c.get('user')
+  const follows = await db.select({ id: videoFollows.id }).from(videoFollows).where(eq(videoFollows.userId, user.id))
+  const rows = follows.length
+    ? await db.select().from(videoItems)
+        .where(inArray(videoItems.followId, follows.map((f) => f.id)))
+        .orderBy(desc(videoItems.publishedAt))
+        .limit(300)
+    : []
+  const items: VideoItem[] = rows.map((r) => ({
+    source: r.source as VideoSource, id: r.externalId,
+    url: '', title: r.title,
+    creator: r.creatorId ? { id: r.creatorId, name: r.creatorName ?? '' } : null,
+    thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, isAdult: r.isAdult ?? false,
+    publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+  }))
+  const allowed = await filterVideosForUser(user.id, items)
+  if (allowed.length === 0) return c.json({ item: null })
+  // Exclude anything already watched to the end, so shuffle keeps finding new things.
+  const finished = new Set(
+    (await db.select({ source: videoWatchState.source, videoId: videoWatchState.videoId })
+      .from(videoWatchState)
+      .where(and(eq(videoWatchState.userId, user.id), eq(videoWatchState.completed, true))))
+      .map((w) => `${w.source}:${w.videoId}`),
+  )
+  const pool = allowed.filter((i) => !finished.has(`${i.source}:${i.id}`))
+  const from = pool.length ? pool : allowed
+  return c.json({ item: from[Math.floor(Math.random() * from.length)] })
 })
 
 // ── Ask the video: grounded Q&A over the current video's transcript ──────────────

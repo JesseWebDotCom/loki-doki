@@ -288,6 +288,32 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Subscription folders ─────────────────────────────────────────────────────────
+
+export interface FolderMember { source: VideoSource; externalId: string }
+export interface VideoFolder { id: string; name: string; sortOrder: number; members: FolderMember[] }
+
+export function listFolders(): Promise<{ folders: VideoFolder[] }> {
+  return getJson('/api/videos/folders')
+}
+export function createFolder(name: string): Promise<{ folder: VideoFolder }> {
+  return sendJson('/api/videos/folders', 'POST', { name })
+}
+export function renameFolder(id: string, name: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}`, 'PATCH', { name })
+}
+export function deleteFolder(id: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}`, 'DELETE', {})
+}
+export function setFolderMember(id: string, source: VideoSource, externalId: string, member: boolean): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/folders/${id}/members`, 'POST', { source, externalId, member })
+}
+
+/** One-tap shuffle from what this user follows (null when there's nothing to play). */
+export function playSomething(): Promise<{ item: HubVideoItem | null }> {
+  return getJson('/api/videos/play-something')
+}
+
 export interface SemanticHit {
   source: VideoSource
   videoId: string

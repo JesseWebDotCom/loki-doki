@@ -29,6 +29,7 @@ import { historyToItem } from '@/lib/youtube/types'
 import { getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
+import { PlaySomethingButton } from '@/components/videos/PlaySomethingButton'
 import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { listStudioBin, isMineBinItem } from '@/lib/videos/studioApi'
 
@@ -204,6 +205,7 @@ function HubLanding() {
             </>
           )}
         </ChipRow>
+        <PlaySomethingButton className="hidden shrink-0 sm:inline-flex" />
         <ViewToggle value={view} onChange={setView} className="shrink-0" />
       </div>
 

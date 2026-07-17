@@ -2345,6 +2345,28 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Subscription folders: user-made groups over subscriptions/follows across every source
+// ("Science", "Kids", "Gaming"), each with its own filtered feed. YouTube killed
+// Collections a decade ago and never replaced it; this is the most-requested library
+// feature in every alt-frontend community. A creator may sit in several folders.
+export const videoFolders = sqliteTable('video_folders', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const videoFolderMembers = sqliteTable('video_folder_members', {
+  id: text('id').primaryKey(),
+  folderId: text('folder_id').notNull().references(() => videoFolders.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),                       // 'youtube' | hub VideoSource
+  externalId: text('external_id').notNull(),              // channelId / creator id
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  memberUnique: uniqueIndex('video_folder_members_unique').on(t.folderId, t.source, t.externalId),
+}))
+
 // Semantic video search index (lib/videos/semanticIndex.ts): one row per embedded chunk.
 // segment -1 = title/description meta row; 0+ = transcript windows with their start time,
 // so search results can jump straight to the matching moment. Household-shared.
