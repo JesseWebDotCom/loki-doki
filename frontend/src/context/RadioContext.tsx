@@ -108,6 +108,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     const unTransport = registerTransport('radio', {
       toggle: () => e?.togglePause(), next: () => e?.skip(),
       prev: () => e?.seek(0), seek: (sec) => e?.seek(sec), stop: () => e?.stop(),
+      volumeUp: () => e?.nudgeVolume(0.1), volumeDown: () => e?.nudgeVolume(-0.1), toggleMute: () => e?.toggleMute(),
     })
     return () => { unregister(); unTransport(); engineRef.current?.destroy() }
   }, [])

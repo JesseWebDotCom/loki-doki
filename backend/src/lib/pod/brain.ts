@@ -25,6 +25,8 @@ export interface PodBrainOptions {
   convId: string
   /** Device-group reply-length override ('inherit' or unset → use the character's). */
   replyStyleOverride?: string | null
+  /** HA area id of this device — the origin room for "here"/room-context resolution. */
+  originAreaId?: string | null
   signal: { readonly aborted: boolean }
 }
 
@@ -100,6 +102,7 @@ async function buildTurnParams(
     uiContext: null,
     clientLat: null,
     clientLng: null,
+    originAreaId: opts.originAreaId ?? null,
     convId: opts.convId,
     history: opts.history ?? [],
     prefs: ctx.prefs,

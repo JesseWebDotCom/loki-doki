@@ -541,7 +541,7 @@ pod.post('/devices/:id/pair-code', requireAdmin, async (c) => {
 
 pod.patch('/devices/:id', requireAdmin, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
-    name?: string; userId?: string; characterId?: string | null; wakeWord?: string | null; orientation?: number
+    name?: string; userId?: string; characterId?: string | null; wakeWord?: string | null; orientation?: number; areaId?: string | null
   }
   const id = c.req.param('id')
   const updated = await updateDevice(id, {
@@ -550,6 +550,7 @@ pod.patch('/devices/:id', requireAdmin, async (c) => {
     characterId: body.characterId === undefined ? undefined : (body.characterId || null),
     wakeWord: body.wakeWord === undefined ? undefined : (body.wakeWord || null),
     orientation: body.orientation !== undefined ? (Number(body.orientation) || 0) : undefined,
+    areaId: body.areaId === undefined ? undefined : (body.areaId || null),
   })
   if (!updated) return c.json({ error: 'device not found' }, 404)
   if (body.orientation !== undefined) {

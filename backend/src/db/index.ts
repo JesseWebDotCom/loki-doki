@@ -2464,6 +2464,7 @@ export function runMigrations() {
   `)
   // group_id: which device_groups row a device belongs to (null → built-in Default).
   addColumn('devices', 'group_id', 'TEXT')
+  addColumn('devices', 'area_id', 'TEXT')   // HA area for room-context ("here") resolution
   // Seed the built-in Default group with the baseline settings (idempotent).
   sqlite.exec(`
     INSERT OR IGNORE INTO device_groups (id, name, is_default, settings, created_at)

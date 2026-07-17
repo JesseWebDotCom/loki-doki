@@ -9,7 +9,7 @@ import { deterministicResolve, scopeCandidates, type ResolvedPlan, type HAAction
 import { VALID_ACTIONS, serviceCallsFor, actionTargetDomain, clampPct, type ServiceCall } from './actions'
 import { isSecurityEntity } from './security'
 import { getGrants, filterByGrants } from './permissions'
-import { ctxKey, getContext, setContext, isFollowUp, followUpResolve } from './context'
+import { ctxKey, getContext, setContext, setClarify, isFollowUp, followUpResolve, resolveClarify } from './context'
 import { stageWithDirective } from '@/lib/companionActions'
 import type { Directive } from '@/tools/index'
 
@@ -53,6 +53,14 @@ export interface HandleParams {
   model?: string          // chat/fast model for the LLM fallback
   llmFallback: boolean
   conversationId?: string // enables per-conversation follow-up corrections
+  /** HA area id of the device that heard the command (a bound pod/dock). Resolves
+   *  "here" and breaks bare-domain ambiguity to the speaker's own room. */
+  originAreaId?: string | null
+  /** Comfort cues ("it's hot in here"): false disables them entirely. */
+  comfortCues?: boolean
+  /** When true, a reversible cue acts immediately (spoken result); otherwise it is
+   *  proposed and confirmed first. Never applies to security actions. */
+  comfortCuesAuto?: boolean
 }
 
 export interface HandleResult {
@@ -82,8 +90,21 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
   // plan lives there as an execute closure, and the affirmative reply routes to
   // the confirm_pending pseudo-tool (companionTurn re-route) instead of back here.
 
+  const cuesEnabled = p.comfortCues !== false
+
+  // 0) Answer a pending clarification first ("the desk one" after we asked which
+  // fan). This carries the original action, so a short reply finishes the command.
+  let plan: ResolvedPlan | undefined
+  if (p.conversationId) {
+    const ctx = getContext(ctxKey(p.userId, p.conversationId))
+    if (ctx?.pendingClarify) {
+      const rc = resolveClarify(p.message, ctx)
+      if (rc) plan = rc
+    }
+  }
+
   // 1) Deterministic resolution (instant, no LLM).
-  let plan = deterministicResolve(p.message, entities, store.areas)
+  if (!plan) plan = deterministicResolve(p.message, entities, store.areas, p.originAreaId, { cues: cuesEnabled })
 
   // 1b) Follow-up correction ("I meant 20", "turn those off") — apply to the device
   // the user just acted on in this conversation.
@@ -95,16 +116,29 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
     }
   }
 
-  // 2) LLM fallback only when deterministic resolution was inconclusive.
-  if (plan.intent === 'unknown' && p.llmFallback && p.model) {
-    const llm = await llmResolve(p.message, scopeCandidates(p.message, entities, store.areas), p.model).catch((e) => {
+  // 1c) Ambiguous ("turn on the fan" with several fans, none named): ask which one
+  // and remember the pending action, instead of guessing or an LLM round-trip.
+  if (plan.intent === 'unknown' && plan.ambiguousCandidates && plan.action && p.conversationId) {
+    const cands = plan.ambiguousCandidates
+    setClarify(ctxKey(p.userId, p.conversationId), {
+      candidates: cands, action: plan.action,
+      brightnessPct: plan.brightnessPct, value: plan.value, tempDelta: plan.tempDelta,
+      hvacMode: plan.hvacMode, kelvin: plan.kelvin, colorName: plan.colorName,
+    })
+    return { ok: false, reply: `I can reach ${listNames(cands)}. Which one?` }
+  }
+
+  // 2) LLM fallback only when deterministic resolution was inconclusive (and not a
+  // clarifiable ambiguity, which we just asked about).
+  if (plan.intent === 'unknown' && !plan.ambiguousCandidates && p.llmFallback && p.model) {
+    const llm = await llmResolve(p.message, scopeCandidates(p.message, entities, store.areas, 40, p.originAreaId), p.model).catch((e) => {
       logger.warn(`[HA] llm fallback error: ${e}`)
       return null
     })
     if (llm) plan = llm
   }
 
-  logger.info(`[HA] resolve intent=${plan.intent} action=${plan.action ?? '-'} area=${plan.matchedArea ?? '-'} domain=${plan.matchedDomain ?? '-'} targets=${plan.targets.length} llm=${plan.usedLLM} reason=${plan.reason} msg="${p.message.slice(0, 60)}"`)
+  logger.info(`[HA] resolve intent=${plan.intent} action=${plan.action ?? '-'} area=${plan.matchedArea ?? '-'} domain=${plan.matchedDomain ?? '-'} targets=${plan.targets.length} llm=${plan.usedLLM} cue=${plan.cue ?? false} reason=${plan.reason} msg="${p.message.slice(0, 60)}"`)
 
   if (plan.intent === 'unknown' || plan.targets.length === 0) {
     return { ok: false, reply: "I couldn't tell which device you meant. Try naming the room and device, e.g. \"turn off the office lights.\"" }
@@ -120,6 +154,25 @@ export async function handleCommand(p: HandleParams): Promise<HandleResult> {
     return { ok: false, reply: "You don't have permission to control those devices." }
   }
   plan.targets = allowed
+
+  // 3a) Comfort cue ("it's hot in here"): ground the corrective action in the room's
+  // current state and confirm it before acting. In auto mode we act immediately but
+  // still say what we did. Cues never reach the security gate (no unlock/open verbs).
+  if (plan.cue && plan.intent === 'control' && !p.comfortCuesAuto && p.conversationId) {
+    const cuePlan = plan
+    const proposal = describeCueProposal(cuePlan, store)
+    const { directive } = stageWithDirective({
+      userId: p.userId,
+      conversationId: p.conversationId,
+      toolId: 'homeAssistant',
+      summary: proposal.summary,
+      approveLabel: 'Yes',
+      declineLabel: 'No',
+      execute: () => executePlan(p, store, cuePlan, denied.length),
+    })
+    logger.info(`[HA] cue proposed axis=${cuePlan.cueAxis} action=${cuePlan.action} targets=${cuePlan.targets.length}`)
+    return { ok: true, reply: proposal.ask, data: { intent: 'confirm', action: cuePlan.action, cue: true }, directive }
+  }
 
   // 3b) Security confirmation gate: unlocking, or opening a garage/gate/entry
   // cover, must be explicitly confirmed. A fuzzy Tier-1 match must never actuate
@@ -227,11 +280,18 @@ async function llmResolve(message: string, candidates: CatalogEntity[], model: s
   const action = parsed.action && VALID_ACTIONS.has(parsed.action as HAAction) ? (parsed.action as HAAction) : undefined
   if (intent === 'control' && !action) return null
 
+  // Actions that require a numeric value must have one — otherwise a service call
+  // would go out with a silent default (e.g. set_temperature → some fixed setpoint).
+  const value = typeof parsed.value === 'number' ? parsed.value : undefined
+  if (intent === 'control' && (action === 'set_temperature' || action === 'set_volume' || action === 'set_position') && value === undefined) {
+    return null
+  }
+
   return {
     intent,
     action,
     brightnessPct: typeof parsed.brightness_pct === 'number' ? parsed.brightness_pct : undefined,
-    value: typeof parsed.value === 'number' ? parsed.value : undefined,
+    value,
     hvacMode: typeof parsed.hvac_mode === 'string' && parsed.hvac_mode ? parsed.hvac_mode : undefined,
     targets,
     matchedArea: targets[0]?.areaName ?? null,
@@ -264,7 +324,42 @@ function buildServiceCalls(plan: ResolvedPlan, store: HAStore): ServiceCall[] {
     })
   }
 
-  return serviceCallsFor(plan.action, ids, { brightnessPct: plan.brightnessPct, value: plan.value, hvacMode: plan.hvacMode })
+  // Never send a setpoint change with no value — an LLM that returned set_temperature
+  // without a number would otherwise silently drive the thermostat to a fixed default.
+  if (plan.action === 'set_temperature' && plan.value === undefined && plan.tempDelta === undefined) {
+    return []
+  }
+
+  return serviceCallsFor(plan.action, ids, { brightnessPct: plan.brightnessPct, value: plan.value, hvacMode: plan.hvacMode, kelvin: plan.kelvin, colorName: plan.colorName })
+}
+
+// Candidate list for a clarifying question: "the ceiling fan or the desk fan".
+function listNames(cands: CatalogEntity[]): string {
+  const names = cands.slice(0, 4).map(c => `the ${c.name.toLowerCase()}`)
+  if (names.length <= 1) return names[0] ?? 'a device'
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+}
+
+// Ground a comfort cue in the room's current state and phrase a yes/no proposal.
+function describeCueProposal(plan: ResolvedPlan, store: HAStore): { ask: string; summary: string } {
+  const room = plan.matchedArea ? plan.matchedArea.toLowerCase() : 'here'
+  const roomIn = plan.matchedArea ? `the ${room}` : 'here'
+  if (plan.cueAxis === 'temperature') {
+    const climate = plan.targets.find(t => t.domain === 'climate')
+    const cur = climate ? store.attributes.get(climate.entityId)?.['current_temperature'] : undefined
+    const dir = (plan.tempDelta ?? 0) < 0 ? 'cool it down' : 'warm it up'
+    const lead = typeof cur === 'number' ? `It's ${Math.round(cur)}° in ${roomIn}. ` : ''
+    return { ask: `${lead}Want me to ${dir}?`, summary: `${dir} in ${room}` }
+  }
+  if (plan.cueAxis === 'volume') {
+    const dir = plan.action === 'volume_down' ? 'turn the volume down' : 'turn the volume up'
+    return { ask: `Want me to ${dir}?`, summary: dir }
+  }
+  // brightness
+  if (plan.action === 'turn_on') {
+    return { ask: `Want me to turn the ${room} lights on?`, summary: `turn on the ${room} lights` }
+  }
+  return { ask: `Want me to dim the ${room} lights?`, summary: `dim the ${room} lights` }
 }
 
 function buildConfirmation(plan: ResolvedPlan): string {
@@ -275,6 +370,9 @@ function buildConfirmation(plan: ResolvedPlan): string {
         ? `Set ${describeTargets(plan)} to ${plan.value}°.`
         : `Nudged ${describeTargets(plan)} ${(plan.tempDelta ?? 0) >= 0 ? 'up' : 'down'} ${Math.abs(plan.tempDelta ?? 2)}°.`
     case 'set_hvac_mode': return `Switched ${describeTargets(plan)} to ${(plan.hvacMode ?? 'auto').replace('_', ' ')} mode.`
+    case 'set_percentage': return `Set ${describeTargets(plan)} to ${clampPct(plan.value ?? 50)}%.`
+    case 'set_color_temp': return `Set ${describeTargets(plan)} to ${(plan.kelvin ?? 3000) <= 3200 ? 'a warm' : (plan.kelvin ?? 3000) >= 4600 ? 'a cool' : 'a neutral'} white.`
+    case 'set_color': return `Set ${describeTargets(plan)} to ${plan.colorName ?? 'white'}.`
     case 'set_volume': return `Set ${describeTargets(plan)} volume to ${clampPct(plan.value ?? 50)}%.`
     case 'set_position': return `Set ${describeTargets(plan)} to ${clampPct(plan.value ?? 50)}%.`
     default: return `${actionVerb(plan)} ${describeTargets(plan)}.`

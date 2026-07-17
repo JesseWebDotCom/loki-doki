@@ -11,6 +11,11 @@ export interface Transport {
   prev: () => void
   seek: (sec: number) => void
   stop: () => void
+  // Optional volume controls — engines that own a mixer register these so a remote
+  // (controller button, voice) can adjust the volume of whatever is playing locally.
+  volumeUp?: () => void
+  volumeDown?: () => void
+  toggleMute?: () => void
 }
 
 export type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio'
@@ -69,6 +74,15 @@ export function dispatchTransport(action: string, position?: number): void {
   else if (action === 'prev') t.prev()
   else if (action === 'seek' && typeof position === 'number') t.seek(position)
   else if (action === 'stop') t.stop()
+  else if (action === 'volume_up') t.volumeUp?.()
+  else if (action === 'volume_down') t.volumeDown?.()
+  else if (action === 'mute' || action === 'unmute' || action === 'toggle_mute') t.toggleMute?.()
+}
+
+/** Whether an engine is currently active and can take a remote volume command. */
+export function hasLocalVolumeControl(): boolean {
+  const t = active ? transports[active] : null
+  return !!(t && (t.volumeUp || t.toggleMute))
 }
 
 // Winner selection shared by every "one media surface at a time" placement
