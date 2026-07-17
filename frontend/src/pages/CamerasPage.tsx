@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { getFrigateStatus, listEvents, type FrigateEvent } from '@/lib/frigate/api'
+import { LiveCameras } from '@/components/cameras/LiveCameras'
 
 const NOOP = () => {}
 
@@ -120,7 +121,7 @@ export function CamerasPage() {
   return (
     <PageShell>
       <PageContainer className="pb-10">
-        <PageHeader subtitle="Recent activity from your home cameras." />
+        <PageHeader subtitle="Live view and recent activity from your home cameras." />
 
         {!enabled ? (
           <Card variant="dashed" className="flex flex-col items-center justify-center gap-3 py-20 text-center">
@@ -134,6 +135,9 @@ export function CamerasPage() {
           </Card>
         ) : (
           <>
+            {/* Live first: "what's happening now" beats "what happened earlier". */}
+            <LiveCameras />
+
             {cameras.length > 1 && (
               <ChipRow className="mb-4">
                 <Chip label="All cameras" active={cameraFilter === null} onClick={() => setCameraFilter(null)} />
