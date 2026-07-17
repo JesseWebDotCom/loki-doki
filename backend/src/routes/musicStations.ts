@@ -25,6 +25,9 @@ import { getOrFetchMediaImage } from '@/lib/titles/imageProxy'
 import { filterTracksForUser } from '@/lib/music/advisory'
 import { ensureLyricAdvisories } from '@/lib/music/lyricsAdvisory'
 import { featureCount, searchFeatures, sonicAdventurePath } from '@/lib/music/similarity'
+import {
+  audioGateFor, familyEntrySetsFor, stationAllowed, filterTracksBySets, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -359,7 +362,11 @@ musicStations_route.get('/', async (c) => {
     ))
     .orderBy(desc(musicStations.isBuiltin), desc(musicStations.updatedAt))
 
-  const all = rows.map(r => serialize(r.s, user.id, r.ownerName))
+  let all = rows.map(r => serialize(r.s, user.id, r.ownerName))
+  // Family audio: allowlist-only profiles see only their approved stations (built-in,
+  // own, or family-shared alike); blocklisted stations disappear for anyone they apply to.
+  const sets = await familyEntrySetsFor(user.id)
+  if (sets.hasAny) all = all.filter(s => stationAllowed(sets, s.id))
   return c.json({
     builtin: all.filter(s => s.isBuiltin),
     mine: all.filter(s => !s.isBuiltin && s.owned),
@@ -425,6 +432,11 @@ musicStations_route.get('/:id', async (c) => {
     .where(eq(musicStations.id, id))
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.s.userId && row.s.userId !== user.id && row.s.visibility !== 'shared') return c.json({ error: 'not available' }, 403)
+  const sets = await familyEntrySetsFor(user.id)
+  if (sets.hasAny && !stationAllowed(sets, row.s.id)) {
+    logFamilyAudioEvent(user.id, 'blocked_play', { label: row.s.name, medium: 'music', reason: 'station' })
+    return c.json({ error: 'This station is not available on this profile', code: 'family_blocked' }, 403)
+  }
   return c.json({ station: serialize(row.s, user.id, row.ownerName) })
 })
 
@@ -737,6 +749,25 @@ musicStations_route.post('/queue', async (c) => {
   }
   const body = await c.req.json<QueueBody>().catch(() => ({} as QueueBody))
 
+  // Family audio: every queue build is a playback start, so gate the time budget and
+  // quiet hours here, and hold allowlist-only profiles to their approved stations.
+  const gateUser = c.get('user')
+  const familyGate = await audioGateFor(gateUser.id)
+  if (!familyGate.allowed) {
+    logFamilyAudioEvent(gateUser.id, familyGate.reason === 'quiet_hours' ? 'quiet_hours_block' : 'budget_exhausted', { medium: 'music' })
+    return c.json({ error: familyGate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+  }
+  const familySets = await familyEntrySetsFor(gateUser.id)
+  const stationApproved = !!body.stationId && stationAllowed(familySets, body.stationId)
+  if (familySets.allowlistOnly && !stationApproved) {
+    logFamilyAudioEvent(gateUser.id, 'blocked_play', { label: body.stationId ?? body.aiPrompt ?? body.personal ?? 'station', medium: 'music', reason: 'station' })
+    return c.json({ error: 'This station is not available on this profile', code: 'family_blocked' }, 403)
+  }
+  if (body.stationId && !stationAllowed(familySets, body.stationId)) {
+    logFamilyAudioEvent(gateUser.id, 'blocked_play', { label: body.stationId, medium: 'music', reason: 'station' })
+    return c.json({ error: 'This station is not available on this profile', code: 'family_blocked' }, 403)
+  }
+
   // Sonic Adventure: the path is cheap to compute and finite, so both the fast and the
   // full build return the whole thing (the engine's head-dedup keeps the order stable).
   if (body.adventure?.from && body.adventure?.to) {
@@ -744,7 +775,10 @@ musicStations_route.post('/queue', async (c) => {
     if (!path) return c.json({ error: 'Both songs need sonic analysis first' }, 400)
     const listener = c.get('user')
     let tracks = path.map(t => ({ videoId: t.ref, title: t.title ?? t.ref, artist: t.artist ?? '' }))
-    if (listener) tracks = await filterTracksForUser(listener.id, tracks)
+    if (listener) {
+      tracks = filterTracksBySets(familySets, tracks)
+      tracks = await filterTracksForUser(listener.id, tracks)
+    }
     return c.json({ tracks, source: 'sonic-adventure' })
   }
 
@@ -753,6 +787,7 @@ musicStations_route.post('/queue', async (c) => {
     const listener = c.get('user')
     const exclude = Array.isArray(body.excludeVideoIds) ? body.excludeVideoIds.slice(0, 200) : []
     const personal = await buildPersonalQueue(listener.id, body.personal, body.count, exclude, body.fast === true)
+    personal.tracks = filterTracksBySets(familySets, personal.tracks)
     personal.tracks = await filterTracksForUser(listener.id, personal.tracks)
     return c.json(personal)
   }
@@ -785,6 +820,9 @@ musicStations_route.post('/queue', async (c) => {
   // for the listening user. Unknowns get background-checked so the picture sharpens.
   const listener = c.get('user')
   if (listener) {
+    // Family audio: blocklisted artists never surface; an approved station is the
+    // parent's unit of approval, so its tracks aren't re-vetted artist-by-artist.
+    result.tracks = filterTracksBySets(familySets, result.tracks, stationApproved)
     result.tracks = await filterTracksForUser(listener.id, result.tracks)
     // Warm lyric-derived advisories for tracks the catalog couldn't rate, so the unknown
     // population shrinks and teen-tier filtering sharpens over time (background).

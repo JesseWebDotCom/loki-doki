@@ -12,6 +12,9 @@ import { innertubeSearch, SEARCH_FILTERS } from '@/lib/youtube/innertube'
 import { ytmusicRadio } from '@/lib/youtube/ytmusic'
 import { filterTracksForUser } from '@/lib/music/advisory'
 import { ensureLyricAdvisories } from '@/lib/music/lyricsAdvisory'
+import {
+  audioGateFor, familyEntrySetsFor, artistAllowed, filterTracksBySets, logFamilyAudioEvent,
+} from '@/lib/family/audioPolicy'
 import type { AppEnv } from '@/types'
 
 export const musicRadio = new Hono<AppEnv>()
@@ -124,6 +127,22 @@ musicRadio.get('/queue', async (c) => {
   const q = c.req.query('q')?.trim()
   if (!q) return c.json({ tracks: [] })
 
+  // Family audio gates: time budget/quiet hours stop the mix from starting at all;
+  // allowlist-only profiles may only seed a mix with an approved artist's name.
+  {
+    const listener = c.get('user')
+    const gate = await audioGateFor(listener.id)
+    if (!gate.allowed) {
+      logFamilyAudioEvent(listener.id, gate.reason === 'quiet_hours' ? 'quiet_hours_block' : 'budget_exhausted', { label: q, medium: 'music' })
+      return c.json({ error: gate.reason === 'quiet_hours' ? 'Audio is paused during quiet hours' : 'Audio time is done for today', code: 'family_time' }, 403)
+    }
+    const sets = await familyEntrySetsFor(listener.id)
+    if (sets.allowlistOnly && !artistAllowed(sets, q)) {
+      logFamilyAudioEvent(listener.id, 'blocked_play', { label: q, medium: 'music', reason: 'mix' })
+      return c.json({ error: 'This mix is not available on this profile', code: 'family_blocked' }, 403)
+    }
+  }
+
   try {
     const search = await innertubeSearch(q, 15, 0, 8000, 0, SEARCH_FILTERS.videos)
     const vids = (search.videos ?? []).filter(v => v.videoId)
@@ -152,7 +171,11 @@ musicRadio.get('/queue', async (c) => {
     // drop for blocking profiles, unknowns drop only in strict mode and get background-checked.
     const listener = c.get('user')
     if (listener) {
-      const keyed = out.map(t => ({ ...t, artist: t.author ?? '' }))
+      let keyed = out.map(t => ({ ...t, artist: t.author ?? '' }))
+      // Family audio: drop blocklisted artists from the mix (the seed artist itself was
+      // already vetted above; the mix drifts, so re-check every track).
+      const sets = await familyEntrySetsFor(listener.id)
+      if (sets.hasAny) keyed = filterTracksBySets(sets, keyed, sets.allowlistOnly)
       const kept = await filterTracksForUser(listener.id, keyed)
       const keepIds = new Set(kept.map(t => t.videoId))
       out = out.filter(t => keepIds.has(t.videoId))
