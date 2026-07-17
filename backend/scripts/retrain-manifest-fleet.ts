@@ -16,9 +16,20 @@
 // companionWake use live. A failing retrain is logged and the manifest is
 // left untouched for that phrase (never regress a working baseline).
 //
-// Usage: bun scripts/retrain-manifest-fleet.ts
+// Usage: bun scripts/retrain-manifest-fleet.ts [--force] [--only "Hey X" "Hey Y" ...]
 // Long-running (each phrase is ~10-15 min); run detached:
 //   cd backend && nohup bun scripts/retrain-manifest-fleet.ts > <log> 2>&1 &
+//
+// --force: retrain phrases regardless of whether a file already exists on disk.
+// The default skip-if-file-exists check only proves a model was trained at SOME
+// point, not that it was trained under the current (fixed) pipeline — use
+// --force after a trainer/pipeline change to re-certify existing models, not
+// just fill gaps left by phrases with no file at all.
+//
+// --only: restrict the run to exactly these phrases (everything after --only on
+// the command line), instead of the full DEFAULT_COMPANIONS roster — combine
+// with --force to re-certify a specific known-stale subset without wastefully
+// re-touching phrases already confirmed good.
 import '@/lib/logger'
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
@@ -54,10 +65,10 @@ function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`)
 }
 
-async function retrainOne(phrase: string, manifest: ManifestEntry[]): Promise<void> {
+async function retrainOne(phrase: string, manifest: ManifestEntry[], force: boolean): Promise<void> {
   const norm = normPhrase(phrase)
   const existing = manifest.filter((e) => normPhrase(e.phrase) === norm)
-  if (existing.length && existing.some((e) => existsSync(join(wakewordDir(), e.file)))) {
+  if (!force && existing.length && existing.some((e) => existsSync(join(wakewordDir(), e.file)))) {
     log(`SKIP "${phrase}" — manifest already has a model on disk (${existing[0]!.id})`)
     return
   }
@@ -101,17 +112,26 @@ async function retrainOne(phrase: string, manifest: ManifestEntry[]): Promise<vo
 }
 
 async function main(): Promise<void> {
+  const force = process.argv.includes('--force')
+  const onlyIdx = process.argv.indexOf('--only')
+  const only = onlyIdx >= 0 ? process.argv.slice(onlyIdx + 1) : null
+
   const allPhrases = DEFAULT_COMPANIONS.map((c) => c.wakeWordPhrase)
   const priority = PRIORITY_PHRASES.filter((p) => allPhrases.some((a) => normPhrase(a) === normPhrase(p)))
   const rest = allPhrases.filter((p) => !priority.some((pr) => normPhrase(pr) === normPhrase(p)) && normPhrase(p) !== normPhrase('Hey Loki Doki'))
-  const ordered = [...priority, ...rest]
+  let ordered = [...priority, ...rest]
+  if (only) {
+    ordered = ordered.filter((p) => only.some((o) => normPhrase(o) === normPhrase(p)))
+    const unmatched = only.filter((o) => !ordered.some((p) => normPhrase(p) === normPhrase(o)))
+    if (unmatched.length) log(`WARNING: --only phrase(s) not found in DEFAULT_COMPANIONS: ${unmatched.join(', ')}`)
+  }
 
-  log(`Fleet retrain: ${ordered.length} phrases (${priority.length} priority + ${rest.length} rest). Manifest: ${MANIFEST_PATH}`)
+  log(`Fleet retrain${force ? ' (FORCE)' : ''}${only ? ` (--only, ${ordered.length} of ${priority.length + rest.length})` : ''}: ${ordered.length} phrases. Manifest: ${MANIFEST_PATH}`)
 
   let done = 0
   for (const phrase of ordered) {
     const manifest = loadManifest() // reload each iteration so partial progress is never lost
-    await retrainOne(phrase, manifest)
+    await retrainOne(phrase, manifest, force)
     done++
     log(`PROGRESS ${done}/${ordered.length} phrases attempted`)
   }
