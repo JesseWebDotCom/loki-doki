@@ -752,8 +752,9 @@ export const musicPlaylists = sqliteTable('music_playlists', {
   coverPath: text('cover_path'),
   visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
   // manual = hand-built; magic = AI vibe-generated (recipe in rulesJson for Regenerate);
-  // smart = rule-based, re-evaluated on read (no persisted track rows).
-  kind: text('kind', { enum: ['manual', 'magic', 'smart'] }).notNull().default('manual'),
+  // smart = rule-based, re-evaluated on read (no persisted track rows);
+  // blend = Family Blend output (owned by a music_blends row, auto-refreshed daily).
+  kind: text('kind', { enum: ['manual', 'magic', 'smart', 'blend'] }).notNull().default('manual'),
   rulesJson: text('rules_json'),
   generatedAt: integer('generated_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -3396,3 +3397,36 @@ export const suggestionImpressions = sqliteTable('suggestion_impressions', {
   userDomainRefUnique: unique().on(t.userId, t.domain, t.ref),
   userDomainIdx: index('suggestion_impressions_user_domain_idx').on(t.userId, t.domain),
 }))
+
+// ─── Music intelligence: Mixes For You + Family Blend ────────────────────────────
+// music_mixes: the cached daily "Mixes For You" per user - recent listening clustered in
+// embedding space plus sonic neighbors, 3-6 named mixes. Recomputed by the daily music
+// intel job (lib/music/intelJobs); tracks_json is [{videoId,title,artist}] using the
+// unified track-ref carrier. key is the stable per-slot identity ('mix-1'..'mix-6') so
+// "Not interested" dismissals (suggestion_impressions ref `mix:<key>`) survive refreshes.
+export const musicMixes = sqliteTable('music_mixes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),             // 'mix-1'..'mix-6'
+  name: text('name').notNull(),           // named from the dominant artist/genre
+  subtitle: text('subtitle'),
+  tracksJson: text('tracks_json').notNull(),
+  computedAt: integer('computed_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userKeyUnique: unique().on(t.userId, t.key) }))
+
+// music_blends: Family Blend definitions - two or more household profiles' listening
+// blended into one auto-refreshing shared playlist (playlist_id points at a normal
+// music_playlists row with kind 'blend', visibility 'shared'). match_percent is the
+// taste-match score across members (embedding-centroid similarity, artist-overlap
+// fallback). Refreshed daily by the music intel job.
+export const musicBlends = sqliteTable('music_blends', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  memberIdsJson: text('member_ids_json').notNull(),   // JSON string[] of user ids (includes owner)
+  playlistId: text('playlist_id').notNull(),
+  matchPercent: integer('match_percent'),
+  refreshedAt: integer('refreshed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})

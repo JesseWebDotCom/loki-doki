@@ -3500,4 +3500,30 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS suggestion_impressions_user_domain_idx ON suggestion_impressions(user_id, domain);
   `)
+
+  // Music intelligence: cached "Mixes For You" per user + Family Blend definitions
+  // (see schema.ts musicMixes / musicBlends).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS music_mixes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      subtitle TEXT,
+      tracks_json TEXT NOT NULL,
+      computed_at INTEGER NOT NULL,
+      UNIQUE(user_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS music_blends (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      member_ids_json TEXT NOT NULL,
+      playlist_id TEXT NOT NULL,
+      match_percent INTEGER,
+      refreshed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
 }

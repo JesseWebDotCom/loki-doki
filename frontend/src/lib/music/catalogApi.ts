@@ -41,7 +41,7 @@ export interface SmartRule { field: 'artist' | 'title' | 'genre' | 'plays' | 'la
 export interface SmartRules { match: 'all' | 'any'; limit?: number; sort?: 'plays' | 'recent' | 'rating' | 'title'; rules: SmartRule[] }
 export interface Playlist {
   id: string; name: string; description: string | null; visibility: Visibility
-  kind: 'manual' | 'magic' | 'smart'; rules: SmartRules | null
+  kind: 'manual' | 'magic' | 'smart' | 'blend'; rules: SmartRules | null
   owned: boolean; ownerName: string | null; trackCount: number; coverUrl: string | null
 }
 export interface PlaylistTrack {
