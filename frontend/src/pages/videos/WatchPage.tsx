@@ -5,7 +5,7 @@ import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
   ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
 } from 'lucide-react'
-import { ExternalLink, Share2, PictureInPicture2, Sparkles } from 'lucide-react'
+import { ExternalLink, Share2, PictureInPicture2, Sparkles, ListVideo, FileText, Bookmark, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useArtPalette } from '@/lib/artPalette'
 import { videoAccentVars } from '@/components/videos/AccentScope'
@@ -181,7 +181,7 @@ function DescriptionCard({ views, description }: { views: string | null; descrip
 /** Tabbed Card shell for the side column: same tab-header style (border-b, active underline)
  *  for every source, whatever tabs it actually has. */
 function SidePanelShell<T extends string>({ tabs, active, onChange, action, children }: {
-  tabs: Array<{ key: T; label: string }>
+  tabs: Array<{ key: T; label: string; icon?: React.ComponentType<{ className?: string }> }>
   active: T
   onChange: (t: T) => void
   /** Optional right-aligned control on the tab row (e.g. the queue's Autoplay toggle). */
@@ -193,18 +193,26 @@ function SidePanelShell<T extends string>({ tabs, active, onChange, action, chil
   // group, active tab solid white - no card box, no underline tabs.
   // At xl this root completes the sticky rail's flex chain (aside fixes the height; the
   // panes inside carry flex-1/overflow-y-auto): tabs stay pinned, only the list scrolls.
+  // The 400px side column can't fit five text labels plus the Autoplay toggle (it used to
+  // clip mid-word with no scroll affordance) - inactive tabs collapse to just their icon,
+  // full label reappears once a tab is selected.
   return (
     <div className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         {/* design-ok(glass-on-plain-bg): pill tab switcher over the watch page's UltraBlur cinema backdrop */}
         <div className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-white/10 p-1">
-          {tabs.map(({ key, label }) => (
-            <button key={key} onClick={() => onChange(key)}
-              className={cn('shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors',
-                active === key ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
-              {label}
-            </button>
-          ))}
+          {tabs.map(({ key, label, icon: Icon }) => {
+            const isActive = active === key
+            return (
+              <button key={key} onClick={() => onChange(key)} title={label} aria-label={label}
+                className={cn('flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1.5 text-sm font-semibold transition-colors',
+                  isActive ? 'pl-2.5 pr-3.5' : 'px-2.5',
+                  isActive ? 'bg-white text-black' : 'text-white/70 hover:text-white')}>
+                {Icon && <Icon className="size-4 shrink-0" />}
+                {(isActive || !Icon) && <span>{label}</span>}
+              </button>
+            )
+          })}
         </div>
         {action}
       </div>
@@ -553,11 +561,11 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
       <aside className="min-w-0 xl:sticky xl:top-6 xl:flex xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:flex-col xl:self-start">
         <SidePanelShell
           tabs={[
-            { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
-            { key: 'transcript' as SideTab, label: 'Transcript' },
-            { key: 'ask' as SideTab, label: 'Ask' },
-            { key: 'moments' as SideTab, label: 'Moments' },
-            { key: 'comments' as SideTab, label: 'Comments' },
+            { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next', icon: ListVideo },
+            { key: 'transcript' as SideTab, label: 'Transcript', icon: FileText },
+            { key: 'ask' as SideTab, label: 'Ask', icon: Sparkles },
+            { key: 'moments' as SideTab, label: 'Moments', icon: Bookmark },
+            { key: 'comments' as SideTab, label: 'Comments', icon: MessageSquare },
           ]}
           active={tab} onChange={setTab}
           action={tab === 'upnext' && !viewFlags.noAutoplay ? (
@@ -1415,16 +1423,16 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // AI Summary drop off where the platform's videos never carry captions (TikTok,
   // Reddit), where they'd always render empty, and Comments drops off where there's no
   // comments API at all (TikTok).
-  const tabs: Array<{ key: SideTab; label: string }> = [
-    { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
+  const tabs: Array<{ key: SideTab; label: string; icon?: React.ComponentType<{ className?: string }> }> = [
+    { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next', icon: ListVideo },
   ]
   if (capabilities?.transcript !== false) {
-    tabs.push({ key: 'transcript', label: 'Transcript' })
-    tabs.push({ key: 'ask', label: 'Ask' })
+    tabs.push({ key: 'transcript', label: 'Transcript', icon: FileText })
+    tabs.push({ key: 'ask', label: 'Ask', icon: Sparkles })
   }
   // Moments are ours, not the platform's, so every source gets them.
-  tabs.push({ key: 'moments', label: 'Moments' })
-  if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
+  tabs.push({ key: 'moments', label: 'Moments', icon: Bookmark })
+  if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments', icon: MessageSquare })
 
   return (
    <WatchCinema art={item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : null}>
