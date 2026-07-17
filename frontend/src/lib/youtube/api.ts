@@ -344,6 +344,15 @@ export async function getChapters(videoId: string): Promise<YtChapter[]> {
   return (await r.json() as { chapters: YtChapter[] }).chapters ?? []
 }
 
+/** One "most replayed" heat marker: rewatch intensity (0-1) over a time slice. */
+export interface YtHeatMarker { startMs: number; durationMs: number; intensity: number }
+
+export async function getHeatmap(videoId: string): Promise<YtHeatMarker[]> {
+  const r = await fetch(`/api/youtube/heatmap/${videoId}`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { markers: YtHeatMarker[] }).markers ?? []
+}
+
 // ── Return YouTube Dislike ─────────────────────────────────────────────────────────
 
 export interface VideoVotes { likes: number; dislikes: number; rating: number; viewCount: number }

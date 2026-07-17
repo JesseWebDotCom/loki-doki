@@ -32,7 +32,7 @@ import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getRelatedSearches, getSponsorSegments,
-  getComments, getChapters, getVotes, addSubscription, deleteSubscription,
+  getComments, getChapters, getHeatmap, getVotes, addSubscription, deleteSubscription,
   startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy, prewarmStream,
   type VideoMeta, type VideoVotes, type StreamQuality,
 } from '@/lib/youtube/api'
@@ -65,6 +65,7 @@ import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogethe
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
+import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -116,12 +117,19 @@ export function WatchPage() {
  *  control (SegBtns, Subscribe, tab underlines, progress bars) follows the video with zero
  *  per-control edits. One of the three sanctioned dynamic-palette surfaces. No art (or a
  *  still-loading palette) simply keeps the mode accent. */
-function WatchCinema({ art, children }: { art: string | null; children: React.ReactNode }) {
+function WatchCinema({ art, ambient, children }: { art: string | null; ambient?: string | null; children: React.ReactNode }) {
   const palette = useArtPalette(art)
   return (
     <div className="relative" style={art ? videoAccentVars(palette) : undefined}>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[560px] overflow-hidden">
         <UltraBlur artUrl={art} palette={palette} scrim="light" />
+        {/* Ambient mode: a soft wash of the CURRENT frame's average color over the static
+            wallpaper, so the room glow follows the video. Only present on native playback
+            (the embed's frames aren't readable); crossfades rather than snapping. */}
+        {ambient && (
+          <div className="absolute inset-0 transition-colors duration-1000"
+            style={{ backgroundImage: `radial-gradient(120% 80% at 50% 0%, ${ambient}, transparent 70%)`, opacity: 0.45 }} />
+        )}
         {/* Dissolve the wallpaper into the layout's true black so it reads as atmosphere. */}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black" />
       </div>
@@ -278,6 +286,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const { data: related = [] } = useQuery({ queryKey: ['yt-related', videoId], queryFn: () => getRelated(videoId), enabled: online && !!videoId })
   // SponsorBlock segments, auto-skipped + marked on the scrubber (online only).
   const { data: segments = [] } = useQuery({ queryKey: ['yt-sb', videoId], queryFn: () => getSponsorSegments(videoId), enabled: online && !!videoId })
+  // "Most replayed": the rewatch-intensity curve under the scrubber (online only; empty
+  // for videos YouTube has no heat data for, which hides the curve entirely).
+  const { data: heatMarkers = [] } = useQuery({ queryKey: ['yt-heatmap', videoId], queryFn: () => getHeatmap(videoId), enabled: online && !!videoId, staleTime: 60 * 60_000 })
   // Return YouTube Dislike: estimated like/dislike counts (online only).
   const { data: votes } = useQuery({ queryKey: ['yt-votes', videoId], queryFn: () => getVotes(videoId), enabled: online && !!videoId })
   // DeArrow: swap a clickbait title for the community one on the watch header too.
@@ -381,6 +392,9 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
   // Current playback second, drives the transcript's follow-along highlight.
   const [currentSec, setCurrentSec] = useState(0)
+  // Ambient mode: the live frame color the player samples (null on the embed, where the
+  // pixels aren't readable, so the backdrop keeps the thumbnail palette).
+  const [ambientColor, setAmbientColor] = useState<string | null>(null)
   const videoMeta = useMemo(() => ({
     title: meta?.title ?? feedItem?.title ?? navState.title ?? undefined,
     author, channelId: meta?.channelId ?? null, durationSec: meta?.durationSec ?? null,
@@ -430,7 +444,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   }
 
   return (
-   <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))}>
+   <WatchCinema art={ytImageProxy(thumbUrl(videoId, 'hq'))} ambient={ambientColor}>
     <PageContainer width="full" className="py-6">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
       {/* Main column: player with the vertical action rail beside it, then a calm title
@@ -451,6 +465,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               onTogglePrivacy={online ? togglePrivacy : undefined}
               onToggleAudioOnly={online ? toggleAudioOnly : undefined}
               durationHintSec={meta?.durationSec ?? null}
+              onAmbientColor={setAmbientColor}
               onNeedsProxyForPip={enablePrivacyForPip}
               autoRequestPip={pipPending} onPipRequestHandled={() => setPipPending(false)}
               onNeedsProxyForBoost={enablePrivacyForBoost}
@@ -458,6 +473,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               skipSegments={online ? segments : undefined}
               onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
               chapters={chapters}
+              heatMarkers={online ? heatMarkers : undefined}
               onTime={(s) => {
                 secRef.current = s; setCurrentSec(Math.floor(s))
                 // Scrubbing back into the video (or it simply not being at the very end
@@ -1233,6 +1249,24 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   }
   const toggleNativePlay = () => { const v = videoRef.current; if (!v) return; v.paused ? void v.play().catch(() => {}) : v.pause() }
 
+  // Touch gestures on the native hub player, matching the YouTube one: double-tap the
+  // sides for ±10s, press-and-hold for 2×. Embeds keep their own chrome (TikTok/Vimeo
+  // postMessage APIs expose no rate control), so this only rides the native surface.
+  const rateBeforeHold = useRef(1)
+  const gestures = useVideoGestures({
+    seekBy: (delta) => {
+      const v = videoRef.current
+      if (!v) return
+      v.currentTime = Math.max(0, Math.min(v.currentTime + delta, v.duration || Infinity))
+    },
+    setHold: (on) => {
+      const v = videoRef.current
+      if (!v) return
+      if (on) { rateBeforeHold.current = v.playbackRate; v.playbackRate = 2 }
+      else v.playbackRate = rateBeforeHold.current
+    },
+  }, hasNativeVideo)
+
   // Advances to the playlist's next entry. There's no algorithmic "up next" for hub sources,
   // so outside a playlist context this is simply never triggered.
   function goToNext() {
@@ -1398,7 +1432,16 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   }}
                   className="size-full"
                 />
-                <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay} />
+                <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay}
+                  gestureHandlers={gestures.handlers} suppressClick={gestures.isHolding}>
+                  {gestures.indicator && (
+                    // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome): transient gesture chip over the video surface
+                    <span key={gestures.indicator.id} aria-live="polite"
+                      className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 animate-in fade-in rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+                      {gestureIndicatorText(gestures.indicator)}
+                    </span>
+                  )}
+                </PlayerClickToggle>
                 <PlayerControlBar playing={nativePlaying} muted={nativeMuted}
                   position={currentSec < 0 ? 0 : currentSec} duration={nativeDuration}
                   onToggle={toggleNativePlay}

@@ -19,7 +19,7 @@ import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { serveYtRecommended } from '@/lib/interests/videos'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
@@ -1565,6 +1565,16 @@ youtubeRoute.get('/chapters/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
   const chapters = await tryInnertube('chapters', () => innertubeChapters(videoId), [])
   return c.json({ chapters })
+})
+
+// Most-replayed heatmap: the rewatch-intensity curve drawn under the scrubber. Rides the
+// same `next` response as chapters, so it's cached for a day (heat data moves slowly and
+// a cold call costs a full InnerTube round trip). Empty for videos with no heat data.
+youtubeRoute.get('/heatmap/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const markers = await cachedLookup('youtube:heatmap', videoId, 24 * 60 * 60_000, () =>
+    tryInnertube('heatmap', () => innertubeHeatmap(videoId), []))
+  return c.json({ markers: markers ?? [] })
 })
 
 // Return YouTube Dislike — estimated like/dislike counts, proxied server-side.

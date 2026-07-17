@@ -29,10 +29,17 @@ export interface DspSettings {
   eqGains: EqGains
   crossfeed: boolean
   loudnessOn: boolean
+  /** Stable volume: gentle dynamics compression so loud moments and quiet talkers land
+   *  at a similar level (mixed-source video feeds especially). Off = transparent.
+   *
+   *  Optional because it is owned by a DIFFERENT surface than the rest: the video
+   *  player's own toggle, not the music EQ panel. Omitting it from an applyDsp call
+   *  (as the music panel's saved settings do) leaves the current value alone. */
+  stableVolume?: boolean
 }
 
 export const FLAT_EQ: EqGains = Array(EQ_BANDS_HZ.length).fill(0)
-export const DEFAULT_DSP: DspSettings = { eqOn: false, eqGains: [...FLAT_EQ], crossfeed: false, loudnessOn: true }
+export const DEFAULT_DSP: DspSettings = { eqOn: false, eqGains: [...FLAT_EQ], crossfeed: false, loudnessOn: true, stableVolume: false }
 
 export interface MediaAudioGraph {
   gain: GainNode
@@ -42,6 +49,7 @@ export interface MediaAudioGraph {
   preGain: GainNode
   eq: BiquadFilterNode[]
   crossfeedWet: GainNode
+  compressor: DynamicsCompressorNode
   /** The loudness trim this element WOULD apply; gated by settings.loudnessOn. */
   trimDb: number
 }
@@ -87,16 +95,26 @@ function applyToGraph(g: MediaAudioGraph) {
   ramp(g.crossfeedWet.gain, settings.crossfeed ? 0.35 : 0, actx)
   const trim = settings.loudnessOn && g.kind === 'music' ? g.trimDb : 0
   ramp(g.preGain.gain, Math.pow(10, trim / 20), actx)
+  // Stable volume: a broadcast-style leveller when on; ratio 1 at 0dB threshold = bypass.
+  ramp(g.compressor.threshold, settings.stableVolume ? -28 : 0, actx)
+  ramp(g.compressor.ratio, settings.stableVolume ? 8 : 1, actx)
+  ramp(g.compressor.knee, settings.stableVolume ? 24 : 0, actx)
 }
 
-/** Push new DSP settings to every live graph (and all future ones). */
-export function applyDsp(next: DspSettings): void {
-  settings = { ...next, eqGains: [...next.eqGains] }
+/** Push new DSP settings to every live graph (and all future ones). Accepts a partial:
+ *  unspecified keys keep their current value, so independent owners (music EQ panel,
+ *  the video player's stable-volume toggle) don't reset each other. */
+export function applyDsp(next: Partial<DspSettings>): void {
+  settings = { ...settings, ...next, eqGains: [...(next.eqGains ?? settings.eqGains)] }
   for (const ref of liveGraphs) {
     const g = ref.deref()
     if (g) applyToGraph(g)
     else liveGraphs.delete(ref)   // element was GC'd; drop the dead ref
   }
+}
+
+export function getDspSettings(): DspSettings {
+  return { ...settings, eqGains: [...settings.eqGains] }
 }
 
 /** Per-element loudness trim (dB). The radio engine sets this per cued track from the
@@ -159,6 +177,16 @@ export function ensureMediaGraph(el: HTMLMediaElement, opts?: { kind?: 'music' |
     merger.connect(crossfeedWet)
     crossfeedWet.connect(cfOut)
 
+    // Stable volume: a leveller between the crossfeed stage and the output gain. At
+    // ratio 1 / threshold 0 it is transparent, so it stays inline even when off rather
+    // than needing a reconnect (same posture as the EQ's 0dB bypass).
+    const compressor = actx.createDynamicsCompressor()
+    compressor.threshold.value = 0
+    compressor.ratio.value = 1
+    compressor.knee.value = 0
+    compressor.attack.value = 0.006
+    compressor.release.value = 0.25
+
     // Output stage: boost gain, per-element analyser, shared mix-bus analyser.
     const gain = actx.createGain()
     const analyser = actx.createAnalyser()
@@ -169,12 +197,13 @@ export function ensureMediaGraph(el: HTMLMediaElement, opts?: { kind?: 'music' |
     let head: AudioNode = preGain
     for (const band of eq) { head.connect(band); head = band }
     head.connect(cfIn)
-    cfOut.connect(gain)
+    cfOut.connect(compressor)
+    compressor.connect(gain)
     gain.connect(actx.destination)  // keep it audible
     gain.connect(analyser)          // parallel read tap (post-gain, so EQ reflects boost)
     gain.connect(sharedAnalyser)    // mix bus
 
-    const graph: MediaAudioGraph = { gain, analyser, kind: opts?.kind ?? 'music', preGain, eq, crossfeedWet, trimDb: 0 }
+    const graph: MediaAudioGraph = { gain, analyser, kind: opts?.kind ?? 'music', preGain, eq, crossfeedWet, compressor, trimDb: 0 }
     graphs.set(el, graph)
     liveGraphs.add(new WeakRef(graph))
     applyToGraph(graph)             // pick up current settings immediately

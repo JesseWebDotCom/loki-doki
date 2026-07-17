@@ -752,6 +752,30 @@ export async function innertubeChapters(videoId: string, timeout = 8000): Promis
   return out.filter((ch, i) => i === 0 || ch.start !== out[i - 1]!.start)
 }
 
+// ── Most-replayed heatmap ─────────────────────────────────────────────────────────
+// The same `next` response's markersMap carries the "most replayed" heat markers
+// (heatMarkerRenderer): normalized rewatch intensity per time slice. Walked with the
+// same tree-agnostic collect() as chapters so it survives YouTube reshuffles. Empty
+// for videos too small/new to have heat data.
+
+export interface ItHeatMarker { startMs: number; durationMs: number; intensity: number }
+
+export async function innertubeHeatmap(videoId: string, timeout = 8000): Promise<ItHeatMarker[]> {
+  const data = await call('next', { videoId }, timeout)
+  const raw: any[] = []
+  collect(data, 'heatMarkerRenderer', raw, 500)
+  const out: ItHeatMarker[] = []
+  for (const m of raw) {
+    const startMs = Number(m?.timeRangeStartMillis)
+    const durationMs = Number(m?.markerDurationMillis)
+    const intensity = Number(m?.heatMarkerIntensityScoreNormalized)
+    if (!Number.isFinite(startMs) || !Number.isFinite(intensity)) continue
+    out.push({ startMs, durationMs: Number.isFinite(durationMs) ? durationMs : 0, intensity: Math.max(0, Math.min(1, intensity)) })
+  }
+  out.sort((a, b) => a.startMs - b.startMs)
+  return out.filter((m, i) => i === 0 || m.startMs !== out[i - 1]!.startMs)
+}
+
 // ── Comments ───────────────────────────────────────────────────────────────────
 // Two-step: the first `next` call carries a continuation token for the comments
 // section; a second `next` with that token returns the actual threads. Modern WEB
