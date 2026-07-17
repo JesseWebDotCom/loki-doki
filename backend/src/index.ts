@@ -229,6 +229,10 @@ if (firstBoot) {
   import('@/lib/routines/engine').then((m) => m.startRoutinesEngine()).catch(() => {})
   startDropSweep()
   startMediaAlertsSweep()
+  // Weekly parent watch reports (Sunday evenings): see lib/videos/watchReport.ts.
+  import('@/lib/videos/watchReport').then((m) => m.startWeeklyWatchReports()).catch(() => {})
+  // Semantic video index backfill (recent watch history, slow-paced): semanticIndex.ts.
+  import('@/lib/videos/semanticIndex').then((m) => m.startSemanticBackfill()).catch(() => {})
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})

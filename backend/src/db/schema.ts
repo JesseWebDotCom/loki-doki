@@ -2345,6 +2345,33 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Semantic video search index (lib/videos/semanticIndex.ts): one row per embedded chunk.
+// segment -1 = title/description meta row; 0+ = transcript windows with their start time,
+// so search results can jump straight to the matching moment. Household-shared.
+export const videoEmbeddings = sqliteTable('video_embeddings', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  segment: integer('segment').notNull(),
+  startSec: integer('start_sec'),
+  text: text('text').notNull(),
+  embedding: text('embedding').notNull(),                  // JSON number[]
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  chunkUnique: uniqueIndex('video_embeddings_chunk').on(t.source, t.videoId, t.segment),
+}))
+
+// Kids time budgets: seconds of video actually watched per user per local day, metered
+// from player position heartbeats (lib/videos/watchTime.ts). Read by the budget gate
+// and the weekly parent report.
+export const videoWatchTime = sqliteTable('video_watch_time', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),                              // 'YYYY-MM-DD', server-local
+  seconds: real('seconds').notNull().default(0),
+}, (t) => ({
+  userDayUnique: uniqueIndex('video_watch_time_user_day').on(t.userId, t.day),
+}))
+
 // Kids allowlist-only mode: when a user's `videos.allowlistOnly` preference is on, the
 // video policy layer keeps ONLY items from these parent-approved creators (or these
 // individually approved videos) — no search discovery, no suggestions, no unvetted
