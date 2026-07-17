@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowDownUp, Clapperboard, Globe, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Video, type LucideIcon,
+  ArrowDownUp, Clapperboard, Globe, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Sparkles, Video, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
@@ -123,6 +123,7 @@ export function VideosRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'dra
       <RailLink to="/videos/watch-later" icon={Clock} label="Watch Later" />
       <RailLink to="/videos/liked" icon={Heart} label="Liked Videos" />
       <RailLink to="/videos/offline" icon={Download} label="Offline" />
+      <RailLink to="/videos/recap" icon={Sparkles} label="Year in Review" />
 
       <div className="mb-1 mt-5 flex items-center justify-between gap-2 px-3">
         <Link to="/videos/subscriptions" className="text-overline text-muted-foreground/60 transition-colors hover:text-foreground">Subscriptions</Link>

@@ -288,6 +288,35 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Year in Review ───────────────────────────────────────────────────────────────
+
+export interface RecapPerson {
+  userId: string
+  name: string
+  minutes: number
+  videoCount: number
+  topCreator: string | null
+  topCreatorShare: number
+}
+
+export interface Recap {
+  scope: 'me' | 'household'
+  year: number
+  totalMinutes: number
+  videoCount: number
+  topCreators: Array<{ name: string; count: number }>
+  byMonth: number[]
+  busiestDay: { day: string; minutes: number } | null
+  longestStreak: number
+  people: RecapPerson[]
+  sharedCreators: string[]
+  note: string | null
+}
+
+export function getRecap(year: number, scope: 'me' | 'household'): Promise<{ recap: Recap }> {
+  return getJson(`/api/videos/recap?year=${year}&scope=${scope}`)
+}
+
 // ── Family social layer ──────────────────────────────────────────────────────────
 
 export interface VideoMoment {

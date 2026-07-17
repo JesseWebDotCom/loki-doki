@@ -218,6 +218,7 @@ const YoutubePlaylistPage = lazy(() => import('@/pages/youtube/YoutubePlaylistPa
 const YoutubeMyPlaylistPage = lazy(() => import('@/pages/youtube/YoutubeMyPlaylistPage').then((m) => ({ default: m.YoutubeMyPlaylistPage })))
 const WatchPage = lazy(() => import('@/pages/videos/WatchPage').then((m) => ({ default: m.WatchPage })))
 const VideosSettingsPage = lazy(() => import('@/pages/videos/VideosSettingsPage').then((m) => ({ default: m.VideosSettingsPage })))
+const VideosRecapPage = lazy(() => import('@/pages/videos/VideosRecapPage').then((m) => ({ default: m.VideosRecapPage })))
 
 function AppLoading() {
   return (
@@ -475,6 +476,7 @@ export default function App() {
                   <Route path="watch-later" element={<YoutubeWatchLaterPage />} />
                   <Route path="liked" element={<YoutubeLikedPage />} />
                   <Route path="offline" element={<VideosOfflinePage />} />
+                  <Route path="recap" element={<VideosRecapPage />} />
                   <Route path="clip" element={<ClipperPage />} />
                   {/* Mine: your videos + the studio and AI generation (former /video app). */}
                   <Route path="mine" element={<MyVideosPage />} />

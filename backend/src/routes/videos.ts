@@ -18,6 +18,7 @@ import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { askVideo } from '@/lib/videos/askVideo'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
+import { buildRecap } from '@/lib/videos/recap'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -749,6 +750,16 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Year in Review: the private Wrapped (see lib/videos/recap.ts) ────────────────
+
+videosRoute.get('/recap', async (c) => {
+  const user = c.get('user')
+  const year = Number(c.req.query('year')) || new Date().getFullYear()
+  const scope = c.req.query('scope') === 'household' ? 'household' as const : 'me' as const
+  const recap = await buildRecap(user.id, year, scope)
+  return c.json({ recap })
 })
 
 // ── Family social layer: moments, timed reactions, movie-night votes, Blend ───────
