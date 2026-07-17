@@ -518,6 +518,29 @@ musicInfo.get('/lyrics', async (c) => {
   return c.json(result)
 })
 
+// POST /api/music/info/lyrics/translate: LLM translation (+ romanized pronunciation for
+// non-Latin sources) of the lyric lines the client is already displaying. Cached per
+// (track, language) in lyric_translations, so a song is generated once per household.
+musicInfo.post('/lyrics/translate', async (c) => {
+  const body = await c.req.json<{ artist?: string; title?: string; lang?: string; lines?: unknown }>().catch(() => null)
+  const artist = body?.artist?.trim() ?? ''
+  const title = body?.title?.trim() ?? ''
+  const lang = body?.lang?.trim() ?? ''
+  const lines = Array.isArray(body?.lines) ? body!.lines.filter((l): l is string => typeof l === 'string') : []
+  if (!title || !lang || lines.length === 0) return c.json({ error: 'title, lang and lines are required' }, 400)
+
+  const { translateLyrics, LYRIC_LANGS } = await import('@/lib/music/lyricsTranslate')
+  if (!LYRIC_LANGS[lang]) return c.json({ error: 'Unsupported language' }, 400)
+  try {
+    const translated = await translateLyrics({ artist, title, lang, lines })
+    return c.json({ lines: translated })
+  } catch {
+    // The model being down/misbehaving is an expected state for a self-hosted LLM; the
+    // client keeps normal lyrics and shows a quiet toast.
+    return c.json({ error: 'Translation is unavailable right now' }, 502)
+  }
+})
+
 // GET /api/music/info/soundtrack?title=SHOW_TITLE — Songs from a show/movie's soundtrack
 musicInfo.get('/soundtrack', async (c) => {
   const title = c.req.query('title')?.trim()
