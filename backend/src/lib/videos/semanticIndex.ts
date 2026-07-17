@@ -11,6 +11,7 @@ import { videoEmbeddings, videoItems, ytVideos, videoWatchState, ytWatchState, u
 import { embed, cachedVector, cosineSimilarity } from '@/llm/embed'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { resolveVideoVtt } from '@/lib/podcast/transcript'
+import { getGeneratedTranscriptCues } from '@/lib/videos/transcribe'
 import { filterVideosForUser } from '@/lib/videos/policy'
 import { logger } from '@/lib/logger'
 import type { VideoItem } from '@/lib/videos/types'
@@ -133,17 +134,24 @@ async function indexVideo(source: string, videoId: string, meta: IndexMeta): Pro
   const metaText = [title, creator, description?.slice(0, 500)].filter(Boolean).join(' — ')
   rows.push({ segment: -1, startSec: null, text: metaText })
 
-  // Transcript chunks (best-effort; YouTube via its caption cache, hub via yt-dlp VTT).
+  // Transcript chunks: a locally-generated (Whisper) transcript wins when present — it's
+  // a cheap DB read, and needs no per-user cache dir — else fall back to platform
+  // captions (YouTube's caption cache, hub sources via yt-dlp VTT).
   try {
-    let vtt: string | null = null
-    if (source === 'youtube') {
-      const p = await ensureTranscript(videoId, meta.userId, meta.userFirstName)
-      if (p) vtt = await readFile(p, 'utf-8').catch(() => null)
-    } else {
-      vtt = await resolveVideoVtt({ source, videoId, url: meta.url ?? undefined }, meta.userId, meta.userFirstName)
+    const generated = await getGeneratedTranscriptCues(source, videoId)
+    let cues = generated
+    if (!cues) {
+      let vtt: string | null = null
+      if (source === 'youtube') {
+        const p = await ensureTranscript(videoId, meta.userId, meta.userFirstName)
+        if (p) vtt = await readFile(p, 'utf-8').catch(() => null)
+      } else {
+        vtt = await resolveVideoVtt({ source, videoId, url: meta.url ?? undefined }, meta.userId, meta.userFirstName)
+      }
+      cues = vtt ? parseVttCues(vtt) : null
     }
-    if (vtt) {
-      const chunks = chunkCues(parseVttCues(vtt))
+    if (cues) {
+      const chunks = chunkCues(cues)
       chunks.forEach((ch, i) => rows.push({ segment: i, startSec: Math.floor(ch.start), text: ch.text.slice(0, 2000) }))
     }
   } catch { /* caption-less video: title row still lands */ }

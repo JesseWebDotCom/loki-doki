@@ -16,6 +16,7 @@ import { ensureTranscript } from '@/lib/youtube/download'
 import { resolveVideoVtt } from '@/lib/podcast/transcript'
 import { parseVttCues, chunkCues, ensureVideoIndexed } from '@/lib/videos/semanticIndex'
 import { getVideoAboutBlurb, getVideoTopComments } from '@/lib/videos/askContext'
+import { getGeneratedTranscriptCues } from '@/lib/videos/transcribe'
 
 export interface AskTurn { role: 'user' | 'assistant'; content: string }
 
@@ -45,19 +46,24 @@ async function relevantExcerpts(
     return chunks.slice(0, MAX_EXCERPTS).map((r) => ({ startSec: r.startSec, text: r.text }))
   }
 
-  // Not indexed yet: parse the VTT fresh (and kick indexing off for next time).
+  // Not indexed yet: a locally-generated transcript wins when present (cheap DB read),
+  // else parse the VTT fresh (and kick indexing off for next time).
   ensureVideoIndexed(source, videoId, { userId, userFirstName, url })
-  let vtt: string | null = null
-  try {
-    if (source === 'youtube') {
-      const p = await ensureTranscript(videoId, userId, userFirstName)
-      if (p) vtt = await readFile(p, 'utf-8').catch(() => null)
-    } else {
-      vtt = await resolveVideoVtt({ source, videoId, url: url ?? undefined }, userId, userFirstName)
-    }
-  } catch { /* caption fetch failed */ }
-  if (!vtt) return []
-  const all = chunkCues(parseVttCues(vtt))
+  let cues = await getGeneratedTranscriptCues(source, videoId)
+  if (!cues) {
+    let vtt: string | null = null
+    try {
+      if (source === 'youtube') {
+        const p = await ensureTranscript(videoId, userId, userFirstName)
+        if (p) vtt = await readFile(p, 'utf-8').catch(() => null)
+      } else {
+        vtt = await resolveVideoVtt({ source, videoId, url: url ?? undefined }, userId, userFirstName)
+      }
+    } catch { /* caption fetch failed */ }
+    if (!vtt) return []
+    cues = parseVttCues(vtt)
+  }
+  const all = chunkCues(cues)
   if (all.length <= MAX_EXCERPTS + 4) return all.map((ch) => ({ startSec: Math.floor(ch.start), text: ch.text.slice(0, 500) }))
   // Evenly sample long videos so the answer at least knows the shape of the whole thing.
   const step = all.length / (MAX_EXCERPTS + 4)

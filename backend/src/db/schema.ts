@@ -2452,6 +2452,26 @@ export const videoEmbeddings = sqliteTable('video_embeddings', {
   chunkUnique: uniqueIndex('video_embeddings_chunk').on(t.source, t.videoId, t.segment),
 }))
 
+// Locally-generated transcript for a video that ships no captions of its own (or whose
+// captions failed to resolve) — the "Transcribe" affordance's status/result, mirroring
+// podcast_transcripts (see lib/podcast/transcribe.ts's job runner, reused verbatim for
+// the actual Whisper mechanics via lib/audio/whisperTranscribe.ts). One row per
+// (source, videoId); videos with real platform captions never need one.
+export const videoTranscripts = sqliteTable('video_transcripts', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  segmentsJson: text('segments_json'),
+  segmentCount: integer('segment_count'),
+  requestedBy: text('requested_by'),    // user who asked for a Whisper run (audit only, no FK)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  sourceVideoUnique: unique().on(t.source, t.videoId),
+}))
+
 // Kids time budgets: seconds of video actually watched per user per local day, metered
 // from player position heartbeats (lib/videos/watchTime.ts). Read by the budget gate
 // and the weekly parent report.

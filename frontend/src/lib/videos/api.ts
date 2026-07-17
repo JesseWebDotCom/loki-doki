@@ -526,6 +526,30 @@ export async function routeVideoUrl(url: string): Promise<{ source: VideoSource;
   return { source: data.source, kind: data.kind ?? 'video', id: data.id }
 }
 
+// ── Local transcript generation (the "no captions" fallback) ─────────────────────
+
+export interface TranscriptCue { start: number; text: string }
+
+export type VideoTranscriptStatus =
+  | { status: 'captions' }
+  | { status: 'none' }
+  | { status: 'ready'; cues: TranscriptCue[] }
+  | { status: 'pending' | 'processing' | 'failed'; error: string | null }
+
+export function getVideoTranscriptStatus(source: VideoSource | 'youtube', videoId: string): Promise<VideoTranscriptStatus> {
+  return getJson(`/api/videos/${source}/transcript-status/${encodeURIComponent(videoId)}`)
+}
+
+export async function transcribeVideo(source: VideoSource | 'youtube', videoId: string): Promise<void> {
+  const res = await fetch(`/api/videos/${source}/transcribe/${encodeURIComponent(videoId)}`, {
+    method: 'POST', credentials: 'include',
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(d?.error || 'Could not start transcription.')
+  }
+}
+
 // ── Ask the video ────────────────────────────────────────────────────────────────
 
 export interface AskVideoMessage { role: 'user' | 'assistant'; content: string }

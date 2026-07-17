@@ -39,7 +39,7 @@ import {
 import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
 import { fmtAge, fmtViews, thumbUrl } from '@/lib/youtube/format'
 import { parseChapters } from '@/lib/youtube/chapters'
-import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
+import { parseVtt, clockLabel, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
@@ -50,6 +50,7 @@ import { useShareLink } from '@/hooks/use-share-link'
 import {
   getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, getAutoChapters, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
+  getVideoTranscriptStatus, transcribeVideo,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
@@ -874,9 +875,24 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
 /** Timed transcript panel. YouTube reads its own caption endpoints; any other source
  *  (pass `source`) reads the hub transcript route (provider captions API or yt-dlp). */
 function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { videoId: string; onSeek: (sec: number) => void; currentSec: number; source?: VideoSource }) {
+  const qc = useQueryClient()
   const [q, setQ] = useState('')
+  const [starting, setStarting] = useState(false)
   const activeRef = useRef<HTMLButtonElement>(null)
-  const { data, isPending } = useQuery({
+
+  const statusKey = ['video-transcript-status', source, videoId] as const
+  const { data: statusData, isPending: statusPending } = useQuery({
+    queryKey: statusKey,
+    queryFn: () => getVideoTranscriptStatus(source, videoId),
+    refetchInterval: (q) => {
+      const s = q.state.data?.status
+      return s === 'pending' || s === 'processing' ? 5000 : false
+    },
+  })
+  const status = statusData?.status
+
+  // Real platform captions: same fetch as before, only run once we know they exist.
+  const { data: captionsData, isPending: captionsPending } = useQuery({
     queryKey: source === 'youtube' ? ['yt-transcript', videoId] : ['videos-transcript', source, videoId],
     queryFn: async () => {
       if (source !== 'youtube') {
@@ -889,9 +905,29 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
       ])
       return { lines: parseVtt(vtt) as TranscriptLine[], prose }
     },
+    enabled: status === 'captions',
   })
 
-  const lines = data?.lines ?? []
+  async function handleTranscribe() {
+    setStarting(true)
+    try {
+      await transcribeVideo(source, videoId)
+      toast.success('Transcribing in the background. This can take a few minutes.')
+      await qc.invalidateQueries({ queryKey: statusKey })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not start transcription.')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const generatedLines: TranscriptLine[] = useMemo(() => {
+    if (!statusData || statusData.status !== 'ready') return []
+    return statusData.cues.map((c) => ({ sec: c.start, label: clockLabel(c.start), text: c.text }))
+  }, [statusData])
+
+  const lines = status === 'captions' ? (captionsData?.lines ?? []) : generatedLines
+  const prose = status === 'captions' ? (captionsData?.prose ?? null) : null
   const ql = q.trim().toLowerCase()
 
   // The line currently being spoken: the last one whose timestamp we've passed.
@@ -915,8 +951,35 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
     }
   }, [activeIdx])
 
-  if (isPending) return <Centered><Spinner /> Fetching captions…</Centered>
-  const prose = data?.prose ?? null
+  if (statusPending) return <Centered><Spinner /> Checking for a transcript…</Centered>
+  if (status === 'captions' && captionsPending) return <Centered><Spinner /> Fetching captions…</Centered>
+
+  if (status === 'none' || status === 'failed') {
+    const error = statusData && statusData.status === 'failed' ? statusData.error : null
+    return (
+      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+        {/* design-ok(glass-on-plain-bg): same glass tile treatment as the rest of this panel */}
+        <div className="flex size-12 items-center justify-center rounded-full bg-white/10">
+          <FileText className="size-6 opacity-50" />
+        </div>
+        <div>
+          <p className="text-sm font-medium">{status === 'failed' ? 'Transcription did not finish' : 'No transcript yet'}</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+            {error ?? 'This video did not ship captions. Transcribe it locally to search it, ask about it, and read along.'}
+          </p>
+        </div>
+        <Button size="sm" onClick={() => void handleTranscribe()} disabled={starting} className="gap-1.5 font-semibold">
+          {starting ? <Spinner className="text-current" /> : <Sparkles className="size-3.5" />}
+          {status === 'failed' ? 'Try again' : 'Transcribe'}
+        </Button>
+      </div>
+    )
+  }
+
+  if (status === 'pending' || status === 'processing') {
+    return <Centered><Spinner /> Transcribing… this can take a few minutes.</Centered>
+  }
+
   if (!lines.length && !prose) return <Empty>No transcript available for this video.</Empty>
 
   const shown = ql ? lines.filter(l => l.text.toLowerCase().includes(ql)) : lines
@@ -1419,19 +1482,18 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const saveState = save?.status
   const badge = SOURCE_META[source]
   // Same panel as YouTube's: the queue/watch-next content is the first (default) tab,
-  // then Transcript / AI Summary / Comments. Each tab is capability-gated: Transcript +
-  // AI Summary drop off where the platform's videos never carry captions (TikTok,
-  // Reddit), where they'd always render empty, and Comments drops off where there's no
+  // then Transcript / Ask / Moments / Comments. Transcript no longer drops off for
+  // caption-less sources (TikTok, Reddit) — it offers local generation instead (see
+  // TranscriptTab's 'none' state) — and Ask is grounded in About/comments even before a
+  // transcript exists, so both stay universal. Comments still drops off where there's no
   // comments API at all (TikTok).
   const tabs: Array<{ key: SideTab; label: string; icon?: React.ComponentType<{ className?: string }> }> = [
     { key: 'upnext', label: pq.active && pq.playlistId ? 'Queue' : 'Up next', icon: ListVideo },
+    { key: 'transcript', label: 'Transcript', icon: FileText },
+    { key: 'ask', label: 'Ask', icon: Sparkles },
+    // Moments are ours, not the platform's, so every source gets them.
+    { key: 'moments', label: 'Moments', icon: Bookmark },
   ]
-  if (capabilities?.transcript !== false) {
-    tabs.push({ key: 'transcript', label: 'Transcript', icon: FileText })
-    tabs.push({ key: 'ask', label: 'Ask', icon: Sparkles })
-  }
-  // Moments are ours, not the platform's, so every source gets them.
-  tabs.push({ key: 'moments', label: 'Moments', icon: Bookmark })
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments', icon: MessageSquare })
 
   return (

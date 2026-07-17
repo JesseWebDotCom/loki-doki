@@ -2262,6 +2262,19 @@ export function runMigrations() {
       seconds REAL NOT NULL DEFAULT 0,
       UNIQUE(user_id, day)
     );
+    CREATE TABLE IF NOT EXISTS video_transcripts (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      segments_json TEXT,
+      segment_count INTEGER,
+      requested_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(source, video_id)
+    );
     CREATE TABLE IF NOT EXISTS video_allowlist (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

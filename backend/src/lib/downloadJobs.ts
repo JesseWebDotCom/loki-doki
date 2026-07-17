@@ -34,7 +34,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'video-transcribe' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
@@ -43,7 +43,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan', 'video-transcribe'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -429,6 +429,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failPodcastTranscribeByJobRefId } = await import('@/lib/podcast/transcribe')
           await failPodcastTranscribeByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'video-transcribe') {
+          const { failVideoTranscribeByJobRefId } = await import('@/lib/videos/transcribe')
+          await failVideoTranscribeByJobRefId(job.refId, String(err)).catch(() => {})
+        }
         if (job.type === 'podcast-ad-scan') {
           const { failPodcastAdScanByJobRefId } = await import('@/lib/podcast/adScan')
           await failPodcastAdScanByJobRefId(job.refId, String(err)).catch(() => {})
@@ -598,6 +602,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       const { runPodcastTranscribeJob } = await import('@/lib/podcast/transcribe')
       const payload = JSON.parse(job.refId)
       await runPodcastTranscribeJob(payload, onProgress, signal)
+      return
+    }
+    case 'video-transcribe': {
+      const { runVideoTranscribeJob } = await import('@/lib/videos/transcribe')
+      const payload = JSON.parse(job.refId)
+      await runVideoTranscribeJob(payload, onProgress, signal)
       return
     }
     case 'podcast-ad-scan': {
@@ -1413,6 +1423,10 @@ export async function cancelJob(id: string): Promise<void> {
   if (job?.type === 'podcast-transcribe') {
     const { failPodcastTranscribeByJobRefId } = await import('@/lib/podcast/transcribe')
     await failPodcastTranscribeByJobRefId(job.refId, 'cancelled').catch(() => {})
+  }
+  if (job?.type === 'video-transcribe') {
+    const { failVideoTranscribeByJobRefId } = await import('@/lib/videos/transcribe')
+    await failVideoTranscribeByJobRefId(job.refId, 'cancelled').catch(() => {})
   }
   if (job?.type === 'podcast-ad-scan') {
     const { failPodcastAdScanByJobRefId } = await import('@/lib/podcast/adScan')

@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
+import { mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoTranscripts, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
@@ -20,6 +20,8 @@ import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { buildAskVideoContext, ASK_VIDEO_SYSTEM_PROMPT } from '@/lib/videos/askVideo'
 import { ollamaChatStream } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
+import { enqueueVideoTranscription, getGeneratedTranscriptCues } from '@/lib/videos/transcribe'
+import { ensureTranscript } from '@/lib/youtube/download'
 import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { buildRecap } from '@/lib/videos/recap'
 import { autoChapters, catchMeUp, studyNotes, studyNotesMarkdown, suggestClips } from '@/lib/videos/aiExtras'
@@ -620,6 +622,80 @@ videosRoute.get('/:source/transcript/:id', async (c) => {
   const vtt = await resolveVideoVtt({ videoId: id, source, url: item.url }, user.id, user.firstName).catch(() => null)
   if (!vtt) return c.text('', 404)
   return c.text(vtt, 200, { 'Content-Type': 'text/vtt; charset=utf-8' })
+})
+
+// ── Local transcript generation: the "no captions" fallback ──────────────────────
+// Every source can transcribe locally now (yt-dlp audio-only pull + the shared Whisper
+// pipeline, see lib/videos/transcribe.ts) — TikTok/Reddit included, despite neither
+// shipping platform captions.
+
+// Tells the watch page's Transcript tab what to show: real platform captions (still
+// served from the raw VTT routes above / YouTube's own), a locally-generated transcript
+// mid-flight, or "none yet, offer to generate."
+videosRoute.get('/:source/transcript-status/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+
+  let hasCaptions = false
+  if (source === 'youtube') {
+    hasCaptions = !!(await ensureTranscript(id, user.id, user.firstName).catch(() => null))
+  } else {
+    const provider = getProvider(source)
+    const item = provider ? await provider.getItem(id, user.id).catch(() => null) : null
+    if (item) hasCaptions = !!(await resolveVideoVtt({ videoId: id, source, url: item.url }, user.id, user.firstName).catch(() => null))
+  }
+  if (hasCaptions) return c.json({ status: 'captions' as const })
+
+  const [row] = await db.select({ status: videoTranscripts.status, error: videoTranscripts.error })
+    .from(videoTranscripts)
+    .where(and(eq(videoTranscripts.source, source), eq(videoTranscripts.videoId, id))).limit(1)
+  if (!row) return c.json({ status: 'none' as const })
+  if (row.status === 'ready') {
+    const cues = (await getGeneratedTranscriptCues(source, id)) ?? []
+    return c.json({ status: 'ready' as const, cues })
+  }
+  return c.json({ status: row.status, error: row.error ?? null })
+})
+
+// Kick off local Whisper transcription for a video with no platform captions. Same
+// content gates as watching/asking apply — no transcribing something this user
+// couldn't watch in the first place.
+videosRoute.post('/:source/transcribe/:id', async (c) => {
+  const source = c.req.param('source')
+  const id = c.req.param('id')
+  const user = c.get('user')
+
+  let url: string | null = null
+  let durationSec: number | null = null
+  if (source === 'youtube') {
+    const [v] = await db.select({
+      title: ytVideosTable.title, author: ytVideosTable.author,
+      channelId: ytVideosTable.channelId, durationSec: ytVideosTable.durationSec,
+    }).from(ytVideosTable).where(eq(ytVideosTable.videoId, id)).limit(1)
+    if (!v?.title) return c.json({ error: 'not found' }, 404)
+    if (!(await videoAllowedForUser(user.id, {
+      source: 'youtube', id, url: `https://www.youtube.com/watch?v=${id}`,
+      title: v.title, creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : null,
+    }))) return c.json({ error: 'not available' }, 403)
+    url = `https://www.youtube.com/watch?v=${id}`
+    durationSec = v.durationSec ?? null
+  } else {
+    const provider = getProvider(source)
+    if (!provider) return c.json({ error: 'unknown source' }, 404)
+    const item = await provider.getItem(id, user.id).catch(() => null)
+    if (!item) return c.json({ error: 'not found' }, 404)
+    if (!(await videoAllowedForUser(user.id, item))) return c.json({ error: 'not available' }, 403)
+    url = item.url
+    durationSec = item.durationSec ?? null
+  }
+
+  try {
+    await enqueueVideoTranscription(source, id, url, durationSec, user.id)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Could not start transcription' }, 400)
+  }
+  return c.json({ ok: true })
 })
 
 // AI summary for a hub video: transcript (provider captions API or yt-dlp) through the
