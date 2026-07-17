@@ -37,6 +37,23 @@ const MAX_EPISODE_SECONDS = 6 * 60 * 60
 export const transcribeJobRefId = (episodeId: string) =>
   JSON.stringify({ episodeId } satisfies PodcastTranscribePayload)
 
+/** The bundled voice sidecar answers /health; a plain whisper-server 404s it but answers
+ *  its root. Either response proves something is listening and able to take /inference. */
+async function sttReachable(): Promise<boolean> {
+  try {
+    const base = await whisperUrl()
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2500) })
+    if (res.ok) return true
+  } catch { /* fall through to the root probe */ }
+  try {
+    const base = await whisperUrl()
+    const res = await fetch(`${base}/`, { signal: AbortSignal.timeout(2500) })
+    return res.ok || res.status === 400 || res.status === 404
+  } catch {
+    return false
+  }
+}
+
 /** Queue a Whisper transcription for an episode (idempotent: an in-flight job is
  *  reused; a finished/failed one is reset). Marks the transcript row pending. */
 export async function enqueueEpisodeTranscription(episodeId: string, requestedBy: string | null): Promise<void> {
@@ -190,7 +207,7 @@ export async function runPodcastTranscribeJob(
   // come up before the first chunk (model load can take a minute on first run).
   await maybeSpawnVoiceServer().catch(() => {})
   const deadline = Date.now() + 120_000
-  while (!(await whisperHealth())) {
+  while (!(await sttReachable())) {
     if (signal.aborted) throw new Error('Aborted')
     if (Date.now() > deadline) throw new Error('Voice server (Whisper) is not reachable')
     await new Promise(r => setTimeout(r, 3000))
