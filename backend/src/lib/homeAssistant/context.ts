@@ -6,10 +6,24 @@ import type { ResolvedPlan, HAAction } from './resolve'
 // "make it 30%") can be applied to the device the user just acted on. Without this
 // the router can't catch such corrections — they look like chitchat.
 
+// A staged clarification: several devices matched a command and we asked which one.
+// The pending action is kept so the user's short reply ("the desk one") can finish it.
+export interface PendingClarify {
+  candidates: CatalogEntity[]
+  action: HAAction
+  brightnessPct?: number
+  value?: number
+  tempDelta?: number
+  hvacMode?: string
+  kelvin?: number
+  colorName?: string
+}
+
 interface HAContext {
   targets: CatalogEntity[]
   matchedArea: string | null
   matchedDomain: string | null
+  pendingClarify?: PendingClarify
   ts: number
 }
 
@@ -33,6 +47,57 @@ export function getContext(key: string): HAContext | null {
 
 export function hasRecentContext(userId: string, conversationId: string): boolean {
   return getContext(ctxKey(userId, conversationId)) !== null
+}
+
+// Stash a pending clarification so the next short reply can pick a device.
+export function setClarify(key: string, pendingClarify: PendingClarify): void {
+  store.set(key, { targets: [], matchedArea: null, matchedDomain: null, pendingClarify, ts: Date.now() })
+}
+
+const CLARIFY_GENERIC = new Set(['light', 'lights', 'switch', 'switches', 'fan', 'fans', 'lock', 'locks', 'cover', 'covers', 'lamp', 'lamps', 'tv', 'speaker', 'speakers', 'the', 'one', 'that'])
+const ORDINALS: Array<{ re: RegExp; idx: number }> = [
+  { re: /\b(first|1st|left|top)\b/, idx: 0 },
+  { re: /\b(second|2nd|middle)\b/, idx: 1 },
+  { re: /\b(third|3rd)\b/, idx: 2 },
+  { re: /\b(last|right|bottom)\b/, idx: -1 },
+]
+
+// Resolve a short reply against a pending clarification: match a candidate by a
+// distinctive name word ("the desk one") or an ordinal ("the first one").
+export function resolveClarify(message: string, ctx: HAContext): ResolvedPlan | null {
+  const pc = ctx.pendingClarify
+  if (!pc) return null
+  const t = message.toLowerCase()
+  const words = new Set(t.match(/[a-z]+/g) ?? [])
+
+  let picked = pc.candidates.filter(e => {
+    const parts = e.name.toLowerCase().split(/\s+/).filter(w => w.length >= 3 && !CLARIFY_GENERIC.has(w))
+    return parts.length > 0 && parts.some(w => words.has(w))
+  })
+
+  if (picked.length !== 1) {
+    for (const { re, idx } of ORDINALS) {
+      if (re.test(t)) { const e = idx < 0 ? pc.candidates.at(idx) : pc.candidates[idx]; if (e) { picked = [e]; break } }
+    }
+  }
+  if (picked.length !== 1) return null
+
+  const target = picked[0]!
+  return {
+    intent: 'control',
+    action: pc.action,
+    brightnessPct: pc.brightnessPct,
+    value: pc.value,
+    tempDelta: pc.tempDelta,
+    hvacMode: pc.hvacMode,
+    kelvin: pc.kelvin,
+    colorName: pc.colorName,
+    targets: [target],
+    matchedArea: target.areaName,
+    matchedDomain: target.domain,
+    reason: 'clarify-resolved',
+    usedLLM: false,
+  }
 }
 
 // Does a message look like a follow-up to a just-issued home command? Gated by

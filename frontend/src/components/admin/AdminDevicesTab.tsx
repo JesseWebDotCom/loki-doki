@@ -39,6 +39,7 @@ interface DeviceRow {
   model: string | null
   wakeWord: string | null
   groupId: string | null
+  areaId: string | null
   pairingCode: string | null
   pairingExpiresAt: string | null
   lastSeenAt: string | null
@@ -512,6 +513,11 @@ function DeviceDetailPage({
   const [groups, setGroups] = useState<{ id: string; name: string; isDefault: boolean }[]>([])
   const [groupId, setGroupId] = useState(device.groupId ?? 'default')
 
+  // Home Assistant room this device lives in: the origin for "here" / room-aware
+  // voice commands ("turn off the lights" resolves to this room's lights).
+  const [areas, setAreas] = useState<{ id: string; name: string }[]>([])
+  const [areaId, setAreaId] = useState(device.areaId ?? '')
+
   // Screen mode (LVGL: normal/camera-test/touch-test)
   const [mode, setMode] = useState('normal')
   const [modeBusy, setModeBusy] = useState(false)
@@ -533,6 +539,7 @@ function DeviceDetailPage({
     setCharacterId(device.characterId ?? '')
     setWakeWord(device.wakeWord ?? '')
     setGroupId(device.groupId ?? 'default')
+    setAreaId(device.areaId ?? '')
     setOrientation(device.orientation ?? 0)
     setLocks({ lockScreenSelection: device.lockScreenSelection ?? false, lockScreenConfig: device.lockScreenConfig ?? false })
   }, [device.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -543,6 +550,12 @@ function DeviceDetailPage({
       .then((r) => (r.ok ? r.json() : []))
       .then((g) => setGroups(Array.isArray(g) ? g : []))
       .catch(() => setGroups([]))
+
+    // HA rooms for the origin-area picker; empty (control hidden) when HA isn't set up.
+    fetch('/api/admin/home-assistant/catalog', opts)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAreas(Array.isArray(d?.areas) ? d.areas : []))
+      .catch(() => setAreas([]))
 
     if (isScreen) {
       fetch(`/api/pod/devices/${device.id}/mode`, opts)
@@ -556,7 +569,8 @@ function DeviceDetailPage({
     name.trim() !== device.name ||
     userId !== device.userId ||
     characterId !== (device.characterId ?? '') ||
-    wakeWord !== (device.wakeWord ?? '')
+    wakeWord !== (device.wakeWord ?? '') ||
+    areaId !== (device.areaId ?? '')
 
   const selectedCompanion = companions.find((c) => c.id === characterId)
   const companionPhrase = selectedCompanion?.wakeWordPhrase?.trim()
@@ -574,7 +588,7 @@ function DeviceDetailPage({
     try {
       const r = await fetch(`/api/pod/devices/${device.id}`, {
         ...opts, method: 'PATCH', headers: J,
-        body: JSON.stringify({ name: name.trim(), userId, characterId: characterId || null, wakeWord: wakeWord || null }),
+        body: JSON.stringify({ name: name.trim(), userId, characterId: characterId || null, wakeWord: wakeWord || null, areaId: areaId || null }),
       })
       if (!r.ok) throw new Error()
       toast.success('Saved')
@@ -778,8 +792,16 @@ function DeviceDetailPage({
                   {groups.map((g) => <option key={g.id} value={g.isDefault ? 'default' : g.id}>{g.name}</option>)}
                 </DetailPicker>
               </FieldRow>
+              {areas.length > 0 && (
+                <FieldRow label="Room">
+                  <DetailPicker value={areaId} onChange={setAreaId}>
+                    <option value="">No room set</option>
+                    {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </DetailPicker>
+                </FieldRow>
+              )}
             </div>
-            <p className="px-1 text-caption text-muted-foreground">Changing the group deploys settings to the device immediately.</p>
+            <p className="px-1 text-caption text-muted-foreground">Changing the group deploys settings to the device immediately. Setting a room lets this device resolve “turn off the lights” or “it’s hot in here” to that room.</p>
           </section>
         </div>
       )}

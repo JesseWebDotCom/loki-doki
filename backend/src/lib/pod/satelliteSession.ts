@@ -82,6 +82,7 @@ export class SatelliteSession implements PodFireTarget {
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
   private _deviceId: string | null = null
+  private _areaId: string | null = null   // HA area this device is in — origin for room-context resolution
   private hwid: string | null = null
   // Wake mode: ON by default (the Pod streams continuously; the Host runs
   // openWakeWord and opens an STT capture window after each detection — this is
@@ -581,7 +582,7 @@ export class SatelliteSession implements PodFireTarget {
     const ac = new AbortController()
     this.turnAbort = ac
 
-    const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, signal: ac.signal })
+    const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, originAreaId: this._areaId, signal: ac.signal })
     try {
       // The reply is ALWAYS typed onto the device screen; it's ALSO spoken aloud when
       // the device's audio output is on (replyMode 'voice'). Audio off ('text') → typed
@@ -727,6 +728,7 @@ export class SatelliteSession implements PodFireTarget {
     }
     this._deviceId = device.id
     this.userId = device.userId
+    this._areaId = device.areaId ?? null
     this.characterId = device.characterId ?? null
     this.wakeWord = device.wakeWord ?? null
     if (device.hwid) this.hwid = device.hwid
