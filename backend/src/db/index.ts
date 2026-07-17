@@ -3636,4 +3636,39 @@ export function runMigrations() {
       created_at INTEGER NOT NULL
     );
   `)
+
+  // Listening Together: persisted player-device names + Family Jam shared queue
+  // (schema.ts playerDevices / musicJams / musicJamItems, lib/together/, routes/together.ts).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS player_devices (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS music_jams (
+      id TEXT NOT NULL PRIMARY KEY,
+      host_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      host_name TEXT NOT NULL,
+      host_device_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Family Jam',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      ended_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS music_jam_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      jam_id TEXT NOT NULL REFERENCES music_jams(id) ON DELETE CASCADE,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      thumbnail TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0,
+      added_by_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      added_by_name TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS music_jam_items_jam_pos_idx ON music_jam_items(jam_id, position);
+  `)
 }

@@ -3565,3 +3565,48 @@ export const podcastEpisodeFilters = sqliteTable('podcast_episode_filters', {
 }, t => ({
   userIdx: index('podcast_episode_filters_user_idx').on(t.userId),
 }))
+
+// ── Listening Together: player devices + Family Jam (see lib/together/) ──────────
+
+// User-editable names for browser player sessions ("Living Room TV", "Kitchen iPad").
+// The id is a client-minted stable device id (localStorage); everything ELSE about a
+// live session (current player state, last seen) is in-memory only - the name is the
+// single piece worth persisting across restarts.
+export const playerDevices = sqliteTable('player_devices', {
+  id: text('id').primaryKey(),                            // client device id
+  name: text('name').notNull(),                           // user-chosen label
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),  // who named it
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Family Jam: a shared, server-held Up Next queue any household member can add to.
+// At most one active jam per household (enforced in routes/together.ts). DB-backed
+// rather than in-memory because reorder/attribution need durable ordering, the rows
+// are tiny, and a server restart mid-party should not eat the queue.
+export const musicJams = sqliteTable('music_jams', {
+  id: text('id').primaryKey(),
+  hostUserId: text('host_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  hostName: text('host_name').notNull(),
+  hostDeviceId: text('host_device_id').notNull(),          // presence device consuming the queue
+  name: text('name').notNull().default('Family Jam'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
+})
+
+// One queued track in a jam, with member attribution ("added by Maya").
+export const musicJamItems = sqliteTable('music_jam_items', {
+  id: text('id').primaryKey(),
+  jamId: text('jam_id').notNull().references(() => musicJams.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),                     // track ref (yt id / local: / plex:)
+  title: text('title').notNull(),
+  author: text('author'),
+  thumbnail: text('thumbnail').notNull().default(''),
+  position: integer('position').notNull().default(0),
+  addedById: text('added_by_id').references(() => users.id, { onDelete: 'set null' }),
+  addedByName: text('added_by_name').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  jamPosIdx: index('music_jam_items_jam_pos_idx').on(t.jamId, t.position),
+}))
