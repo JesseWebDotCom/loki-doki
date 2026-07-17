@@ -16,6 +16,7 @@ import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
 import { getActionById, resolveAction } from '@/lib/companionActions'
 import * as genQueue from '@/lib/genQueue'
 import { logger } from '@/lib/logger'
+import { getVoicePrefs, setVoicePrefs, type VoicePrefs } from '@/lib/voice/voicePrefs'
 import type { AppEnv } from '@/types'
 
 const companions_ = new Hono<AppEnv>()
@@ -373,6 +374,47 @@ companions_.post('/action/:id/decline', requireAuth, async (c) => {
   const res = await resolveAction(a.id, false)
   if (!res) return c.json({ ok: false, error: 'expired' }, 404)
   return c.json(res)
+})
+
+// ── Per-user voice customization (design: keen-percolating-swan) ────────────────
+// A family member's personal voice/speed/pitch/hushed override for ONE companion,
+// distinct from the character's own authored defaults, and never affects other
+// household members. Storage: userPreferences (see lib/voice/voicePrefs.ts).
+companions_.get('/:id/voice-prefs', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  const override = (await getVoicePrefs(user.id, id)) ?? {}
+  // `effective` merges the override onto the character's own defaults, so the
+  // client never has to duplicate this resolution logic (routes/tts.ts applies
+  // the same precedence when actually speaking a reply).
+  return c.json({
+    override,
+    effective: {
+      voiceId: override.voiceId ?? row.ttsVoice ?? null,
+      speechRate: override.speechRate ?? row.speechRate ?? 1.0,
+      pitchSemitones: override.pitchSemitones ?? 0,
+      hushed: override.hushed ?? false,
+    },
+  })
+})
+
+companions_.put('/:id/voice-prefs', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  const body = (await c.req.json()) as Partial<Record<keyof VoicePrefs, unknown>>
+  // A field explicitly sent as null clears that override (falls back to the
+  // character/app default); an omitted field is left untouched.
+  const patch: VoicePrefs = {}
+  if ('voiceId' in body) patch.voiceId = typeof body.voiceId === 'string' && body.voiceId ? body.voiceId : undefined
+  if ('speechRate' in body) patch.speechRate = typeof body.speechRate === 'number' ? Math.max(0.8, Math.min(1.3, body.speechRate)) : undefined
+  if ('pitchSemitones' in body) patch.pitchSemitones = typeof body.pitchSemitones === 'number' ? Math.max(-12, Math.min(12, Math.round(body.pitchSemitones))) : undefined
+  if ('hushed' in body) patch.hushed = typeof body.hushed === 'boolean' ? body.hushed : undefined
+  const saved = await setVoicePrefs(user.id, id, patch)
+  return c.json({ ok: true, override: saved })
 })
 
 // ── Single character ─────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import { requireAuth } from '@/middleware/auth'
 import { wakewordDir, sileroVadPath } from '@/lib/download'
 import { encodeWav } from '@/lib/voice/sttSession'
 import { transcribeWav } from '@/lib/whisper'
+import { listKokoroVoices } from '@/lib/voice/engines/kokoroEngine'
 import type { AppEnv } from '@/types'
 
 // User-facing voice assets. The wakeword ONNX models are downloaded at runtime
@@ -87,6 +88,13 @@ voice.get('/wakewords', requireAuth, async (c) => {
       }
     }),
   })
+})
+
+// Kokoro's voice catalog, for the end-user voice picker (design: keen-percolating-
+// swan). Same helper the admin route (routes/adminVoice.ts) uses; no admin-only
+// data involved, so requireAuth is the right bar rather than requireAdmin.
+voice.get('/voices', requireAuth, async (c) => {
+  return c.json({ voices: await listKokoroVoices() })
 })
 
 export { voice }

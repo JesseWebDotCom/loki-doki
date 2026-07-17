@@ -70,6 +70,11 @@ function nextBoundary(sub: string): number {
   return termEnd
 }
 
+// Matches the server-side manual-hushed constant (routes/tts.ts, mirroring the
+// "whisper ≈ 0.55" convention documented in lib/voice/pcm.ts) so auto-detected and
+// manually-toggled hushed delivery sound the same.
+const AUTO_HUSH_GAIN = 0.55
+
 export function useCompanionVoice(opts: {
   text: string
   streaming: boolean
@@ -77,8 +82,14 @@ export function useCompanionVoice(opts: {
   voiceOn: boolean
   /** Character's 0–1 prosody swing (DB `expressiveness`); null/undefined = default. */
   expressiveness?: number | null
+  /** This reply's triggering user utterance was auto-detected as whispered (design:
+   *  keen-percolating-swan); match it by hushing this reply's delivery, layered on
+   *  top of any persistent manual "hushed" preference (which is applied server-side
+   *  instead, via applyUserVoicePrefs below). Purely client-side: gain is already a
+   *  per-request param, so no server change is needed for the auto-detect case. */
+  hushedThisTurn?: boolean
 }) {
-  const { text, streaming, characterId, voiceOn, expressiveness } = opts
+  const { text, streaming, characterId, voiceOn, expressiveness, hushedThisTurn } = opts
   const consumed = useRef(0)
   const prevText = useRef('')
   const prevStreaming = useRef(false)
@@ -142,12 +153,13 @@ export function useCompanionVoice(opts: {
         if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
         const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
         if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${chunk.slice(0, 45)}»`)
-        void enqueueSpeech({ text: chunk, characterId, rateScale: tone.rateScale, gain: tone.gain })
+        const gain = hushedThisTurn ? tone.gain * AUTO_HUSH_GAIN : tone.gain
+        void enqueueSpeech({ text: chunk, characterId, rateScale: tone.rateScale, gain, applyUserVoicePrefs: true })
       }
       localConsumed += end
     }
     consumed.current += localConsumed
-  }, [text, voiceOn, characterId, expressiveness])
+  }, [text, voiceOn, characterId, expressiveness, hushedThisTurn])
 
   // Flush the trailing fragment (no terminator) when generation ends.
   useEffect(() => {
@@ -162,8 +174,9 @@ export function useCompanionVoice(opts: {
       if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
       const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
       if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${rest.slice(0, 45)}»`)
-      void enqueueSpeech({ text: rest, characterId, rateScale: tone.rateScale, gain: tone.gain })
+      const gain = hushedThisTurn ? tone.gain * AUTO_HUSH_GAIN : tone.gain
+      void enqueueSpeech({ text: rest, characterId, rateScale: tone.rateScale, gain, applyUserVoicePrefs: true })
       consumed.current = text.length
     }
-  }, [streaming, text, voiceOn, characterId, expressiveness])
+  }, [streaming, text, voiceOn, characterId, expressiveness, hushedThisTurn])
 }
