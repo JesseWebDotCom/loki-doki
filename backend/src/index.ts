@@ -340,6 +340,8 @@ if (firstBoot) {
   startFeedPoller()
   // Real podcast subscriptions: refresh RSS shows for new episodes (+ auto-download pass).
   startPodcastFeedPoller()
+  // AI shows on a daily schedule (e.g. the Household Daily preset): one episode per day.
+  import('@/lib/podcast/dailyScheduler').then((m) => m.startPodcastDailyScheduler()).catch(() => {})
   // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
   // that window between polls (bursts / extended downtime) is invisible to the poller forever.
   // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
