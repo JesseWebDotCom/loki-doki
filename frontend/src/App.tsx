@@ -131,6 +131,7 @@ const PodcastLibraryPage = lazy(() => import('@/pages/podcast/PodcastLibraryPage
 const PodcastOfflinePage = lazy(() => import('@/pages/podcast/PodcastOfflinePage').then((m) => ({ default: m.PodcastOfflinePage })))
 const PodcastFiltersPage = lazy(() => import('@/pages/podcast/PodcastFiltersPage').then((m) => ({ default: m.PodcastFiltersPage })))
 const PodcastBookmarksPage = lazy(() => import('@/pages/podcast/PodcastBookmarksPage').then((m) => ({ default: m.PodcastBookmarksPage })))
+const PodcastReplayPage = lazy(() => import('@/pages/podcast/PodcastReplayPage').then((m) => ({ default: m.PodcastReplayPage })))
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
@@ -168,6 +169,8 @@ const MusicArtistPage = lazy(() => import('@/pages/music/MusicArtistPage').then(
 const MusicAlbumPage = lazy(() => import('@/pages/music/MusicAlbumPage').then((m) => ({ default: m.MusicAlbumPage })))
 const MusicLibraryPage = lazy(() => import('@/pages/music/MusicLibraryPage').then((m) => ({ default: m.MusicLibraryPage })))
 const MusicReplayPage = lazy(() => import('@/pages/music/MusicReplayPage').then((m) => ({ default: m.MusicReplayPage })))
+const MusicStatsPage = lazy(() => import('@/pages/music/MusicStatsPage').then((m) => ({ default: m.MusicStatsPage })))
+const MusicImportPage = lazy(() => import('@/pages/music/MusicImportPage').then((m) => ({ default: m.MusicImportPage })))
 const MusicPlaylistPage = lazy(() => import('@/pages/music/MusicPlaylistPage').then((m) => ({ default: m.MusicPlaylistPage })))
 const MusicGeneratePage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicGeneratePage })))
 const MusicRemixPage = lazy(() => import('@/pages/music/MusicCreatePages').then((m) => ({ default: m.MusicRemixPage })))
@@ -416,6 +419,8 @@ export default function App() {
                   <Route path="remix" element={<MusicRemixPage />} />
                   <Route path="library" element={<MusicLibraryPage />} />
                   <Route path="replay" element={<MusicReplayPage />} />
+                  <Route path="stats" element={<MusicStatsPage />} />
+                  <Route path="import" element={<MusicImportPage />} />
                   <Route path="studio" element={<MusicStudioPage />} />
                   <Route path="studio/:id" element={<MusicStudioLayout />}>
                     <Route index element={<MusicStudioDetailPage />} />
@@ -527,6 +532,7 @@ export default function App() {
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="filters" element={<PodcastFiltersPage />} />
                   <Route path="bookmarks" element={<PodcastBookmarksPage />} />
+                  <Route path="replay" element={<PodcastReplayPage />} />
                   <Route path="offline" element={<PodcastOfflinePage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
                   <Route path="settings" element={<PodcastSettingsPage />} />

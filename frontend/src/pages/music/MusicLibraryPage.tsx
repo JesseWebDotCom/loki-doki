@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter, Users } from 'lucide-react'
+import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter, Users, Rss } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { SongArt } from '@/components/music/SongArt'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { listTracks, renameTrack, deleteTrack, trackAudioUrl, type MusicTrack } from '@/lib/music/api'
 import { fmtBytes } from '@/lib/youtube/format'
+import { getRssToken, radioFeedUrl } from '@/lib/podcast/portabilityApi'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
@@ -578,6 +579,25 @@ function cnBadge(status: LiveRecording['status']): string {
   return `${base} bg-destructive/15 text-destructive`
 }
 
+/** Copies the private feed URL for the whole recordings collection, so a podcatcher on
+ *  the LAN can subscribe once and pick up every future capture. */
+function CopyRadioFeedButton() {
+  async function copy() {
+    try {
+      const token = await getRssToken()
+      await navigator.clipboard.writeText(radioFeedUrl(token))
+      toast.success('RSS feed URL copied. Paste it into any podcast app on your network.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not copy the feed URL.')
+    }
+  }
+  return (
+    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-foreground" onClick={() => void copy()}>
+      <Rss className="size-3.5" /> Copy RSS feed
+    </Button>
+  )
+}
+
 function RadioTab() {
   const { data: stations } = useQuery({ queryKey: ['live-radio-library'], queryFn: fetchLiveLibrary })
   const { data: recordings } = useQuery({
@@ -601,9 +621,9 @@ function RadioTab() {
         </section>
       )}
       {recs.length > 0 && (
-        <section>
-          <SectionHeader title="Recordings" />
-          <div className="mt-3 max-w-3xl divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 bg-card/30">
+        <section className="max-w-3xl">
+          <SectionHeader title="Recordings" action={<CopyRadioFeedButton />} />
+          <div className="mt-3 divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 bg-card/30">
             {recs.map(r => <RecordingRow key={r.id} rec={r} />)}
           </div>
         </section>

@@ -86,6 +86,8 @@ async function loadVisibleShows(user: Actor) {
     link: podcastShows.link,
     categoriesJson: podcastShows.categoriesJson,
     feedError: podcastShows.feedError,
+    personsJson: podcastShows.personsJson,
+    fundingJson: podcastShows.fundingJson,
     createdAt: podcastShows.createdAt,
   }).from(podcastShows)
     // Push the visibility filter into SQL (indexed on owner_user_id) instead of scanning
@@ -120,6 +122,9 @@ async function loadVisibleShows(user: Actor) {
         hosts: safeParse(s.hostsJson, [] as unknown[]),
         segments: safeParse(s.segmentsJson, [] as unknown[]),
         categories: safeParse(s.categoriesJson, [] as string[]),
+        // Podcasting 2.0 channel tags (RSS shows): person credits + funding links.
+        persons: safeParse(s.personsJson, [] as unknown[]),
+        funding: safeParse(s.fundingJson, [] as unknown[]),
         ownerName: ownerMap[s.ownerUserId] ? `${ownerMap[s.ownerUserId]!.firstName}`.trim() : 'Unknown',
         isOwn: s.ownerUserId === user.id,
         subscription: sub ? { autoDownload: sub.autoDownload, autoDownloadKeep: sub.autoDownloadKeep } : null,
@@ -173,6 +178,8 @@ podcastsRoute.get('/feed', async (c) => {
     ;(episodesByShow[e.showId] ??= []).push({
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(e.soundbitesJson, [] as unknown[]),
+      persons: safeParse(e.personsJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
       download: downloadMap.get(e.id) ?? null,
     })
@@ -571,6 +578,8 @@ podcastsRoute.get('/episodes/:id', async (c) => {
     episode: {
       ...episode,
       chapters: safeParse(episode.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(episode.soundbitesJson, [] as unknown[]),
+      persons: safeParse(episode.personsJson, [] as unknown[]),
       transcript,
       watchState: watch ?? null,
       sources,
@@ -675,6 +684,8 @@ podcastsRoute.get('/shows/:id/episodes', async (c) => {
     episodes: episodes.map(e => ({
       ...e,
       chapters: safeParse(e.chaptersJson, [] as unknown[]),
+      soundbites: safeParse(e.soundbitesJson, [] as unknown[]),
+      persons: safeParse(e.personsJson, [] as unknown[]),
       watchState: watchMap.get(e.id) ?? null,
       download: downloadMap.get(e.id) ?? null,
       // Whether this episode carries the transcript the study-kit action needs.
@@ -798,7 +809,9 @@ podcastsRoute.delete('/episodes/:id', async (c) => {
 
 // Serve a local audio file with clamped Range support (seek without re-buffering).
 // `pin` holds an in-flight read on a blob so GC can't unlink it mid-stream.
-function streamLocalAudio(c: { req: { header(name: string): string | undefined } }, absPath: string, contentType: string, pin?: string | null): Response {
+// Exported for the token-authed private RSS feeds (routes/podcastRssOut.ts), which
+// serve the same generated-episode and radio-recording files to external podcatchers.
+export function streamLocalAudio(c: { req: { header(name: string): string | undefined } }, absPath: string, contentType: string, pin?: string | null): Response {
   let stat: ReturnType<typeof statSync>
   try { stat = statSync(absPath) } catch { return Response.json({ error: 'File missing' }, { status: 404 }) }
 

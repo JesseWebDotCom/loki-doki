@@ -1726,6 +1726,11 @@ export const podcastShows = sqliteTable('podcast_shows', {
   // Show-level parental advisory from <itunes:explicit> / collectionExplicitness:
   // null=unknown, 0=clean, 1=explicit. Feeds kid-safe podcast filtering.
   explicit: integer('explicit'),
+  // Podcasting 2.0 channel tags: <podcast:person> credits (JSON array of
+  // {name, role, group, img, href}) and <podcast:funding> links (JSON array of
+  // {url, label}). Populated from the feed on subscribe/refresh; null when absent.
+  personsJson: text('persons_json'),
+  fundingJson: text('funding_json'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   ownerIdx: index('podcast_shows_owner_idx').on(t.ownerUserId),
@@ -1757,6 +1762,11 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   // including empty/failed results, so a chapterless episode isn't re-fetched every open).
   chaptersUrl: text('chapters_url'),
   chaptersFetchedAt: integer('chapters_fetched_at', { mode: 'timestamp' }),
+  // Podcasting 2.0 item tags: <podcast:person> episode credits (JSON array of
+  // {name, role, group, img, href}) and <podcast:soundbite> highlights (JSON array of
+  // {startSec, durationSec, title}). Parsed inline from the feed item; null when absent.
+  personsJson: text('persons_json'),
+  soundbitesJson: text('soundbites_json'),
   // Shared media_assets rendition once any household member downloads this episode.
   assetId: text('asset_id'),
   // Episode-level parental advisory from <itunes:explicit>/trackExplicitness: null=unknown,
@@ -3626,3 +3636,68 @@ export const musicJamItems = sqliteTable('music_jam_items', {
 }, t => ({
   jamPosIdx: index('music_jam_items_jam_pos_idx').on(t.jamId, t.position),
 }))
+
+// ── Portability: scrobbling out + gPodder-compatible sync ─────────────────────────
+
+// Outbox for listens headed to an external scrobble service (ListenBrainz). Playback
+// paths only ever INSERT here (local, fast, fire-and-forget); a background flusher does
+// the network submission with retry/backoff, so an offline server or a bad token can
+// never slow a play. Sent rows are deleted; rows that exhaust their attempts stay as
+// 'failed' so the settings UI can report them honestly.
+export const scrobbleQueue = sqliteTable('scrobble_queue', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  service: text('service', { enum: ['listenbrainz'] }).notNull().default('listenbrainz'),
+  // {artist, title, durationSec|null, listenedAt (epoch sec)}
+  payloadJson: text('payload_json').notNull(),
+  status: text('status', { enum: ['pending', 'failed'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp' }),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  statusIdx: index('scrobble_queue_status_idx').on(t.status, t.nextAttemptAt),
+  userIdx: index('scrobble_queue_user_idx').on(t.userId),
+}))
+
+// gPodder-compatible sync: devices a podcatcher (AntennaPod etc.) registered against
+// this server. Purely informational; the sync protocol keys on (user, deviceId).
+export const gpodderDevices = sqliteTable('gpodder_devices', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull(),
+  caption: text('caption'),
+  type: text('type'),               // desktop | laptop | mobile | server | other
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userDeviceUnique: unique().on(t.userId, t.deviceId) }))
+
+// Subscription change log (tombstones included) so gpodder clients can ask "what
+// changed since T". Written on every subscribe/unsubscribe, in-app or device-driven.
+// timestamp is epoch SECONDS (the gpodder wire unit).
+export const gpodderSubscriptionLog = sqliteTable('gpodder_subscription_log', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  feedUrl: text('feed_url').notNull(),
+  action: text('action', { enum: ['subscribe', 'unsubscribe'] }).notNull(),
+  deviceId: text('device_id'),      // null = changed in the app itself
+  timestamp: integer('timestamp').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userTsIdx: index('gpodder_sub_log_user_ts_idx').on(t.userId, t.timestamp) }))
+
+// Episode actions uploaded by gpodder clients (play/download/delete/new). 'play'
+// actions also fold into podcastWatchState so positions sync into the app; the rest
+// are kept verbatim for the protocol's download side.
+export const gpodderEpisodeActions = sqliteTable('gpodder_episode_actions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id'),
+  podcastUrl: text('podcast_url').notNull(),
+  episodeUrl: text('episode_url').notNull(),
+  action: text('action').notNull(),
+  positionSec: integer('position_sec'),
+  startedSec: integer('started_sec'),
+  totalSec: integer('total_sec'),
+  actionAt: integer('action_at').notNull(),   // epoch seconds
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userAtIdx: index('gpodder_episode_actions_user_at_idx').on(t.userId, t.actionAt) }))

@@ -7,6 +7,21 @@ export type PodcastStyle = 'recap' | 'in-depth' | 'roundtable' | 'interview' | '
 export interface ShowHost { characterId: string; role: string }
 export interface ShowSegment { type: string; label?: string; params?: Record<string, unknown> }
 
+// ── Podcasting 2.0 tags (RSS shows) ────────────────────────────────────────────────
+/** A <podcast:person> credit. `role` is null when the feed omitted it (the spec's
+ *  default is "host"); the UI applies that default at render time. */
+export interface PodcastPerson {
+  name: string
+  role: string | null
+  group: string | null
+  img: string | null
+  href: string | null
+}
+/** A <podcast:funding> link: how listeners can support the show. */
+export interface PodcastFunding { url: string; label: string | null }
+/** A <podcast:soundbite>: a highlight clip within an episode, rendered as a seek. */
+export interface PodcastSoundbite { startSec: number; durationSec: number; title: string | null }
+
 export interface Show {
   id: string
   ownerUserId: string
@@ -31,6 +46,9 @@ export interface Show {
   link?: string | null
   categories?: string[]
   feedError?: string | null
+  /** Podcasting 2.0 channel tags: who makes the show, and how to support it. */
+  persons?: PodcastPerson[]
+  funding?: PodcastFunding[]
   /** This user's subscription prefs — null unless they subscribe to this show. */
   subscription?: { autoDownload: boolean; autoDownloadKeep: number | null } | null
 }
@@ -54,6 +72,9 @@ export interface Episode {
   publishedAt?: string | number | null
   imageUrl?: string | null
   link?: string | null
+  /** Podcasting 2.0 item tags: episode credits and highlight clips. */
+  persons?: PodcastPerson[]
+  soundbites?: PodcastSoundbite[]
   /** This user's offline copy state — null when not downloaded. */
   download?: { status: 'pending' | 'downloading' | 'ready' | 'failed'; auto: boolean } | null
   /** True when the episode carries a transcript, so study notes can be made from it. */

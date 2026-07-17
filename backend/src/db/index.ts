@@ -3685,4 +3685,60 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS music_jam_items_jam_pos_idx ON music_jam_items(jam_id, position);
   `)
+
+  // Portability pack: Podcasting 2.0 credits/funding/soundbites on the podcast tables,
+  // plus the scrobble outbox and gPodder-compatible sync state (see schema.ts).
+  addColumn('podcast_shows', 'persons_json', 'TEXT')
+  addColumn('podcast_shows', 'funding_json', 'TEXT')
+  addColumn('podcast_episodes', 'persons_json', 'TEXT')
+  addColumn('podcast_episodes', 'soundbites_json', 'TEXT')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS scrobble_queue (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      service TEXT NOT NULL DEFAULT 'listenbrainz',
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER,
+      last_error TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS scrobble_queue_status_idx ON scrobble_queue(status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS scrobble_queue_user_idx ON scrobble_queue(user_id);
+    CREATE TABLE IF NOT EXISTS gpodder_devices (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_id TEXT NOT NULL,
+      caption TEXT,
+      type TEXT,
+      last_seen_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(user_id, device_id)
+    );
+    CREATE TABLE IF NOT EXISTS gpodder_subscription_log (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      feed_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      device_id TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gpodder_sub_log_user_ts_idx ON gpodder_subscription_log(user_id, timestamp);
+    CREATE TABLE IF NOT EXISTS gpodder_episode_actions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_id TEXT,
+      podcast_url TEXT NOT NULL,
+      episode_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      position_sec INTEGER,
+      started_sec INTEGER,
+      total_sec INTEGER,
+      action_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gpodder_episode_actions_user_at_idx ON gpodder_episode_actions(user_id, action_at);
+  `)
 }

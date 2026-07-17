@@ -30,6 +30,7 @@ import {
 import { getBookmarks } from '@/lib/podcast/playerApi'
 import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
 import { BookmarkRow } from '@/components/podcast/BookmarkRow'
+import { PodcastCredits, PodcastFundingLink, PodcastHighlights } from '@/components/podcast/PodcastCredits'
 import { fmtDate, fmtDuration } from '@/lib/podcast/format'
 
 const PAGE_SIZE = EPISODE_PAGE_SIZE
@@ -164,6 +165,9 @@ export function RssShowDetail({ show }: { show: Show }) {
             {refreshing ? <Spinner className="text-current" /> : <RotateCw className="size-4" />}
           </Button>
 
+          {/* Podcasting 2.0: the show's own support link, when the feed publishes one. */}
+          <PodcastFundingLink funding={show.funding} />
+
           {show.subscription && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -187,6 +191,9 @@ export function RssShowDetail({ show }: { show: Show }) {
           )}
         </>}
       />
+
+      {/* ── Podcasting 2.0 person credits (renders nothing when the feed has none) ── */}
+      <PodcastCredits persons={show.persons} title="Who makes this" className="mb-6" />
 
       {/* ── Bookmarks in this show ── */}
       <ShowBookmarksSection showId={show.id} />
@@ -342,7 +349,7 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
   onToggle: () => void
   onInvalidate: () => Promise<void>
 }) {
-  const { track, playing, play, enqueue, playNextInQueue, pause, resume } = usePodcastPlayback()
+  const { track, playing, play, enqueue, playNextInQueue, pause, resume, seek } = usePodcastPlayback()
   const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
   const isCurrent = track?.episodeId === episode.id
   const ready = episode.status === 'ready'
@@ -374,6 +381,14 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not remove the download.')
     }
+  }
+
+  /** Jump to a soundbite: seek when this episode is already loaded, otherwise start it
+   *  at that moment. Either way the tap lands on the highlight. */
+  function handleSeekHighlight(startSec: number) {
+    if (!ready) return
+    if (isCurrent) { seek(startSec); if (!playing) resume(); return }
+    play(toTrack(episode, show), startSec)
   }
 
   return (
@@ -450,7 +465,14 @@ function RssEpisodeRow({ episode, show, readyTracks, onPlay, expanded, onToggle,
           </div>
         )}
 
-        {/* Expanded actions */}
+        {/* Expanded: Podcasting 2.0 episode credits + soundbite highlights, then actions. */}
+        {expanded && (
+          <div onClick={e => e.stopPropagation()}>
+            <PodcastCredits persons={episode.persons} title="In this episode" className="mt-3" />
+            <PodcastHighlights soundbites={episode.soundbites} onSeek={handleSeekHighlight} className="mt-3" />
+          </div>
+        )}
+
         {expanded && (
           <div className="mt-3 flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
             {ready && (

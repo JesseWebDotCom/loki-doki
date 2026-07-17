@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { podcastDownloads, podcastEpisodes, podcastShows, podcastSubscriptions, podcastWatchState } from '@/db/schema'
 import { parsePodcastFeed } from '@/lib/podcast/rss'
+import { logSubscriptionChange } from '@/lib/podcast/gpodderStore'
 import { safeFetch } from '@/lib/ssrfGuard'
 import { logger } from '@/lib/logger'
 
@@ -89,6 +90,7 @@ export async function subscribeToFeed(
     await db.insert(podcastSubscriptions).values({
       id: crypto.randomUUID(), userId, showId: existing.id, addedAt: new Date(),
     }).onConflictDoNothing()
+    await logSubscriptionChange(userId, normalized, 'subscribe').catch(() => {})
     return { showId: existing.id, created: false }
   }
 
@@ -117,6 +119,8 @@ export async function subscribeToFeed(
     link: parsed.link ?? null,
     categoriesJson: JSON.stringify(parsed.categories.length ? parsed.categories : (seed?.genre ? [seed.genre] : [])),
     explicit: parsed.explicit,
+    personsJson: parsed.persons.length ? JSON.stringify(parsed.persons) : null,
+    fundingJson: parsed.funding.length ? JSON.stringify(parsed.funding) : null,
     feedEtag: fetched.etag, feedLastModified: fetched.lastModified, feedFetchedAt: now,
     createdAt: now,
   })
@@ -124,6 +128,7 @@ export async function subscribeToFeed(
   await db.insert(podcastSubscriptions).values({
     id: crypto.randomUUID(), userId, showId, addedAt: now,
   })
+  await logSubscriptionChange(userId, normalized, 'subscribe').catch(() => {})
   logger.info(`[podcast-rss] subscribed: "${name}" (${backlog.length} of ${parsed.episodes.length} episodes)`)
   return { showId, created: true }
 }
@@ -154,6 +159,8 @@ async function insertEpisodes(showId: string, episodes: ParsedEpisodes): Promise
       publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
       explicit: e.explicit,
       chaptersUrl: e.chaptersUrl,
+      personsJson: e.persons.length ? JSON.stringify(e.persons) : null,
+      soundbitesJson: e.soundbites.length ? JSON.stringify(e.soundbites) : null,
       createdAt: now,
     }))).onConflictDoNothing()
   }
@@ -201,6 +208,8 @@ export async function refreshPodcastFeed(showId: string): Promise<number> {
         artworkUrl: parsed.imageUrl || show.artworkUrl,
         author: parsed.author || show.author,
         link: parsed.link ?? show.link,
+        personsJson: parsed.persons.length ? JSON.stringify(parsed.persons) : show.personsJson,
+        fundingJson: parsed.funding.length ? JSON.stringify(parsed.funding) : show.fundingJson,
         feedEtag: fetched.etag ?? show.feedEtag,
         feedLastModified: fetched.lastModified ?? show.feedLastModified,
         feedFetchedAt: now, feedError: null,
@@ -262,6 +271,11 @@ export async function runAutoDownloadPass(showId: string): Promise<void> {
  *  refs → gcSweep reclaims blobs); otherwise the show survives and ownership transfers
  *  off the leaver so their account deletion can never cascade the household's show away. */
 export async function unsubscribe(userId: string, showId: string): Promise<void> {
+  // Tombstone for gpodder sync BEFORE anything cascades the feedUrl away.
+  const [forLog] = await db.select({ feedUrl: podcastShows.feedUrl }).from(podcastShows)
+    .where(eq(podcastShows.id, showId)).limit(1)
+  if (forLog?.feedUrl) await logSubscriptionChange(userId, forLog.feedUrl, 'unsubscribe').catch(() => {})
+
   await db.delete(podcastSubscriptions)
     .where(and(eq(podcastSubscriptions.userId, userId), eq(podcastSubscriptions.showId, showId)))
   // Their download refs go too — keeping refs without membership would pin blobs forever.

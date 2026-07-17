@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom'
-import { Home, Compass, Library, Download, Plus, Settings2, ListFilter, Bookmark, type LucideIcon } from 'lucide-react'
+import { Home, Compass, Library, Download, Plus, Settings2, ListFilter, Bookmark, CalendarRange, type LucideIcon } from 'lucide-react'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
@@ -37,6 +37,7 @@ export function PodcastRail({ shows, onCreate, variant = 'sidebar' }: { shows: S
       <RailLink to="/podcasts/library" icon={Library} label="Library" />
       <RailLink to="/podcasts/filters" icon={ListFilter} label="Filters" />
       <RailLink to="/podcasts/bookmarks" icon={Bookmark} label="Bookmarks" />
+      <RailLink to="/podcasts/replay" icon={CalendarRange} label="Replay" />
       <RailLink to="/podcasts/offline" icon={Download} label="Offline" />
       {/* Settings now hosts per-user sections (Playback, Subscriptions) - visible to everyone;
           admin-only sections show a locked notice inside the shell. */}
