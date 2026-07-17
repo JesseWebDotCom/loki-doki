@@ -36,6 +36,7 @@ import { drop } from '@/routes/drop'
 import { desktopApp } from '@/routes/desktop'
 import { startDropSweep } from '@/lib/drop/service'
 import { startMediaAlertsSweep } from '@/lib/media/alerts'
+import { startStationCoverBackfill } from '@/lib/music/coverBackfill'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminGpu } from '@/routes/adminGpu'
@@ -223,6 +224,7 @@ if (firstBoot) {
   startCompanionCheckins()
   startDropSweep()
   startMediaAlertsSweep()
+  startStationCoverBackfill()
   // Prune expired session rows at boot and hourly so the sessions table doesn't grow
   // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
   void pruneExpiredSessions().catch(() => {})
