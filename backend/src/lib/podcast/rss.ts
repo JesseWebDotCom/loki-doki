@@ -17,6 +17,7 @@ export interface ParsedPodcastEpisode {
   durationSec: number | null   // itunes:duration (HH:MM:SS / MM:SS / seconds)
   publishedAt: number | null   // Unix ms
   explicit: number | null      // <itunes:explicit>: 1=explicit, 0=clean, null=unknown (inherits channel)
+  chaptersUrl: string | null   // Podcasting 2.0 <podcast:chapters url= /> JSON document
 }
 
 export interface ParsedPodcastFeed {
@@ -135,6 +136,11 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
       // Episode explicit tag, inheriting the channel's when the item omits its own (common:
       // publishers often set it once at the channel level).
       explicit: parseExplicit(tag(block, 'itunes:explicit')) ?? feedExplicit,
+      // Podcasting 2.0 chapters: a JSON document URL. Only http(s) URLs are kept.
+      chaptersUrl: (() => {
+        const url = decodeEntities(attr(block, 'podcast:chapters', 'url'))
+        return url && /^https?:/i.test(url) ? url : null
+      })(),
     })
   }
 

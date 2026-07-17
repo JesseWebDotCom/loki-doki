@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Play, Pause, Clock, AlertCircle, ListPlus, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
+import { Play, Pause, Clock, AlertCircle, ListPlus, ListStart, MoreHorizontal, Check, RotateCw, Trash2, ArrowDownToLine } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -26,7 +26,7 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
   /** Owner/admin: enables Regenerate + Delete. */
   canManage?: boolean
 }) {
-  const { track, playing, play, playQueue, enqueue, pause, resume, close } = usePodcastPlayback()
+  const { track, playing, play, playQueue, enqueue, playNextInQueue, pause, resume, close } = usePodcastPlayback()
   const qc = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmRemoveDl, setConfirmRemoveDl] = useState(false)
@@ -126,7 +126,7 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
       {(showMenu || isRss) && (
         <div className="flex shrink-0 items-center gap-1">
           {ready && (
-            <Button type="button" variant="ghost" size="icon-sm" onClick={() => enqueue(toTrack(episode, show))} title="Add to Up Next" aria-label="Add to Up Next"
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => enqueue(toTrack(episode, show))} title="Add to queue" aria-label="Add to queue"
               className="size-8 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
               <ListPlus className="size-4" />
             </Button>
@@ -156,7 +156,8 @@ export function EpisodeRow({ episode, show, playlist, showThumb = true, canManag
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {ready && <DropdownMenuItem onSelect={handlePlay}><Play className="size-4" /> Play</DropdownMenuItem>}
-                {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to Up Next</DropdownMenuItem>}
+                {ready && <DropdownMenuItem onSelect={() => playNextInQueue(toTrack(episode, show))}><ListStart className="size-4" /> Play next</DropdownMenuItem>}
+                {ready && <DropdownMenuItem onSelect={() => enqueue(toTrack(episode, show))}><ListPlus className="size-4" /> Add to queue</DropdownMenuItem>}
                 {isRss && !dl && (
                   <DropdownMenuItem onSelect={() => void handleDownload()}><ArrowDownToLine className="size-4" /> Download</DropdownMenuItem>
                 )}

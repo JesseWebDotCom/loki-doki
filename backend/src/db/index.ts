@@ -1703,6 +1703,61 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS podcast_shows_owner_idx ON podcast_shows(owner_user_id);
   `)
 
+  // Podcast player pack: Podcasting 2.0 chapters cache columns + per-show playback
+  // settings, server-persisted Up Next queue, bookmarks, and saved episode filters.
+  addColumn('podcast_episodes', 'chapters_url', 'TEXT')
+  addColumn('podcast_episodes', 'chapters_fetched_at', 'INTEGER')
+  // The parental-advisory addColumns earlier in this function run BEFORE the podcast
+  // tables' CREATEs, so on a fresh DB they no-op and the columns end up missing (any
+  // select of episode.explicit then fails). Re-run them here, after the CREATEs.
+  addColumn('podcast_shows', 'explicit', 'INTEGER')
+  addColumn('podcast_episodes', 'explicit', 'INTEGER')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS podcast_show_settings (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      show_id TEXT NOT NULL REFERENCES podcast_shows(id) ON DELETE CASCADE,
+      speed REAL,
+      skip_intro_sec INTEGER NOT NULL DEFAULT 0,
+      skip_outro_sec INTEGER NOT NULL DEFAULT 0,
+      trim_silence INTEGER,
+      voice_boost INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_show_settings_user_show ON podcast_show_settings(user_id, show_id);
+
+    CREATE TABLE IF NOT EXISTS podcast_queue (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS podcast_queue_user_ep ON podcast_queue(user_id, episode_id);
+    CREATE INDEX IF NOT EXISTS podcast_queue_user_pos_idx ON podcast_queue(user_id, position);
+
+    CREATE TABLE IF NOT EXISTS podcast_bookmarks (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      position_sec REAL NOT NULL DEFAULT 0,
+      note TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_bookmarks_user_idx ON podcast_bookmarks(user_id);
+    CREATE INDEX IF NOT EXISTS podcast_bookmarks_episode_idx ON podcast_bookmarks(episode_id);
+
+    CREATE TABLE IF NOT EXISTS podcast_episode_filters (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      rules_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_episode_filters_user_idx ON podcast_episode_filters(user_id);
+  `)
+
   // NOTE: the legacy Organizr-style bookmarks CREATE that used to live here was removed.
   // The unified Bookmarks library (formerly Reader) is now created in the belt-and-suspenders
   // block below (search for "CREATE TABLE IF NOT EXISTS bookmarks"). Keeping the old schema

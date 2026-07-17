@@ -153,6 +153,7 @@ async function insertEpisodes(showId: string, episodes: ParsedEpisodes): Promise
       imageUrl: e.imageUrl, link: e.link,
       publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
       explicit: e.explicit,
+      chaptersUrl: e.chaptersUrl,
       createdAt: now,
     }))).onConflictDoNothing()
   }
