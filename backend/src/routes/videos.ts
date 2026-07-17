@@ -17,6 +17,7 @@ import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
 import { ensureVideoIndexed, semanticSearch } from '@/lib/videos/semanticIndex'
 import { askVideo } from '@/lib/videos/askVideo'
+import { trickplaySheetPath } from '@/lib/videos/trickplay'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { redditPost } from '@/lib/videos/providers/reddit'
 import { getRedditClientId, REDDIT_CLIENT_ID_KEY } from '@/lib/videos/redditAuth'
@@ -748,6 +749,19 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Trickplay sheets ─────────────────────────────────────────────────────────────
+// Serves the sprite sheet built by lib/videos/trickplay.ts (Plex, offline saves). Frames
+// of a given file never change, so it's immutable-cached; the sheet lives under data/.
+
+videosRoute.get('/trickplay/:source/:mediaId/sheet.jpg', async (c) => {
+  const p = trickplaySheetPath(c.req.param('source'), c.req.param('mediaId'))
+  const file = Bun.file(p)
+  if (!(await file.exists())) return c.text('Not generated', 404)
+  return new Response(file.stream(), {
+    headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable' },
+  })
 })
 
 // ── Subscription folders ─────────────────────────────────────────────────────────

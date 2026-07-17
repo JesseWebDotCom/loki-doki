@@ -2345,6 +2345,21 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// Media segments (lib/videos/mediaSegments.ts): typed time-spans a player can act on
+// (intro/credits/recap/preview), so skip affordances have ONE model across SponsorBlock
+// and locally detected intros. A single row with type 'none' is the "checked, found
+// nothing" sentinel that stops re-probing on every open. Household-shared: the segments
+// of a file are a property of the file, not of a viewer.
+export const mediaSegments = sqliteTable('media_segments', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),                       // 'plex' | 'local' | hub VideoSource
+  mediaId: text('media_id').notNull(),                    // ratingKey / save id
+  type: text('type').notNull(),                           // intro|credits|recap|preview|sponsor|none
+  startSec: integer('start_sec').notNull(),
+  endSec: integer('end_sec').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // Subscription folders: user-made groups over subscriptions/follows across every source
 // ("Science", "Kids", "Gaming"), each with its own filtered feed. YouTube killed
 // Collections a decade ago and never replaced it; this is the most-requested library

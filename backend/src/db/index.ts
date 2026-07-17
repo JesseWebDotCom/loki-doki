@@ -2145,6 +2145,16 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, asset_type, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS media_segments (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      media_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      start_sec INTEGER NOT NULL,
+      end_sec INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS media_segments_media ON media_segments(source, media_id);
     CREATE TABLE IF NOT EXISTS video_folders (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

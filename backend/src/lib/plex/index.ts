@@ -551,6 +551,14 @@ export async function getPlayback(conn: PlexConnection, ratingKey: string): Prom
 }
 
 /** Open a range-aware byte stream of a part file. Returns the raw upstream Response to pipe. */
+/** The authenticated, direct URL for a part. ffmpeg/ffprobe read HTTP natively, so the
+ *  segment detector and trickplay generator point straight at this rather than staging a
+ *  copy. Carries the token: server-side only, never handed to a client. */
+export function partUrl(conn: PlexConnection, partKey: string): string {
+  const sep = partKey.includes('?') ? '&' : '?'
+  return `${conn.baseUrl}${partKey}${sep}X-Plex-Token=${encodeURIComponent(conn.token)}`
+}
+
 export async function streamPart(conn: PlexConnection, partKey: string, range?: string): Promise<Response | null> {
   try {
     const sep = partKey.includes('?') ? '&' : '?'
