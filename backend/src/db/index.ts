@@ -3908,7 +3908,19 @@ export function runMigrations() {
   `)
 
   // ── Podcast ad skipping: LLM ad-scan results + user corrections ──
-  addColumn('podcast_show_settings', 'skip_ads', 'INTEGER NOT NULL DEFAULT 0')
+  // skip_ads shipped briefly as NOT NULL DEFAULT 0; it is now a nullable tri-state
+  // (null = inherit the global podcasts.skipAds preference, 0/1 = per-show override),
+  // matching trim_silence / voice_boost. The feature is new, so no meaningful values
+  // exist yet: drop the NOT NULL column and re-add it nullable. Idempotent (only the
+  // first boot after this change finds a NOT NULL column to rebuild).
+  {
+    const col = (sqlite.query(`PRAGMA table_info(podcast_show_settings)`).all() as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'skip_ads')
+    if (col && col.notnull === 1) {
+      try { sqlite.exec('ALTER TABLE podcast_show_settings DROP COLUMN skip_ads') } catch { /* re-add below */ }
+    }
+  }
+  addColumn('podcast_show_settings', 'skip_ads', 'INTEGER')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS podcast_ad_scans (
       id TEXT NOT NULL PRIMARY KEY,

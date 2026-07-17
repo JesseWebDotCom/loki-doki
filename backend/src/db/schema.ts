@@ -3705,7 +3705,7 @@ export const podcastShowSettings = sqliteTable('podcast_show_settings', {
   skipOutroSec: integer('skip_outro_sec').notNull().default(0),
   trimSilence: integer('trim_silence'),   // null = inherit global; 0/1 per-show override
   voiceBoost: integer('voice_boost'),     // null = inherit global; 0/1 per-show override
-  skipAds: integer('skip_ads').notNull().default(0),   // 0/1: auto-skip detected ad segments
+  skipAds: integer('skip_ads'),           // null = inherit global; 0/1 per-show override
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userShowUnique: unique().on(t.userId, t.showId),

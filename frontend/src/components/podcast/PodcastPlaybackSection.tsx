@@ -7,11 +7,17 @@ import { usePodcastDspPrefs, useTimeSaved, fmtTimeSaved } from '@/hooks/usePodca
  *  (per-show overrides live on each show's playback settings) and the running
  *  trim-silence "time saved" total. */
 export function PodcastPlaybackSection() {
-  const { voiceBoost, trimSilence, setVoiceBoost, setTrimSilence } = usePodcastDspPrefs()
+  const { voiceBoost, trimSilence, skipAds, setVoiceBoost, setTrimSilence, setSkipAds } = usePodcastDspPrefs()
   const timeSaved = useTimeSaved()
 
   return (
     <div className="space-y-3">
+      <ToggleRow
+        title="Skip ads"
+        description="Automatically jump past detected ad segments in every show. Ads are found from each episode's transcript, so an episode needs a transcript first. Turn it off per show from that show's playback settings."
+        checked={skipAds}
+        onCheckedChange={() => setSkipAds(!skipAds)}
+      />
       <ToggleRow
         title="Voice boost"
         description="Broadcast-style speech leveling: quiet talkers come up, loud moments settle down. Great for listening in the car or kitchen."

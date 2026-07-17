@@ -164,6 +164,11 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const { data: prefs } = useUserPreferences()
   const globalVoiceBoost = prefs?.['podcasts.voiceBoost'] === true
   const globalTrimSilence = prefs?.['podcasts.trimSilence'] === true
+  const globalSkipAds = prefs?.['podcasts.skipAds'] === true
+  // Effective skip-ads for the current show: the per-show override wins, else the
+  // global default (same inherit rule as trim-silence / voice-boost).
+  const effectiveSkipAds = showSettings.skipAds ?? globalSkipAds
+  const effectiveSkipAdsRef = useRef(effectiveSkipAds); effectiveSkipAdsRef.current = effectiveSkipAds
   useEffect(() => {
     applyPodcastDsp({
       voiceBoost: showSettings.voiceBoost ?? globalVoiceBoost,
@@ -392,7 +397,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setAdSegments([])
     const episodeId = track?.episodeId
-    if (!episodeId || !showSettings.skipAds) return
+    if (!episodeId || !effectiveSkipAds) return
     let alive = true
     let tries = 0
     let timer: number | undefined
@@ -409,7 +414,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     }
     void check()
     return () => { alive = false; if (timer) clearTimeout(timer) }
-  }, [track?.episodeId, showSettings.skipAds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [track?.episodeId, effectiveSkipAds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Not an ad?": rewind to where the skip fired, stop skipping the range locally,
   // and record a household-wide suppression. Time-saved credit is not clawed back
@@ -575,7 +580,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       }
       // Ad skip: seek past a detected range. The endSec - 0.75 lower bound keeps the
       // landing frame from re-matching the range it just left.
-      if (s.skipAds && adSegmentsRef.current.length) {
+      if (effectiveSkipAdsRef.current && adSegmentsRef.current.length) {
         const pos = el.currentTime
         const seg = adSegmentsRef.current.find(a => pos >= a.startSec && pos < a.endSec - 0.75)
         if (seg && !skippedAdIds.current.has(seg.id)) {

@@ -13,8 +13,9 @@ export function usePodcastDspPrefs() {
   const prefsQuery = useUserPreferences()
   const voiceBoost = prefsQuery.data?.['podcasts.voiceBoost'] === true
   const trimSilence = prefsQuery.data?.['podcasts.trimSilence'] === true
+  const skipAds = prefsQuery.data?.['podcasts.skipAds'] === true
 
-  const set = useCallback((key: 'podcasts.voiceBoost' | 'podcasts.trimSilence', value: boolean) => {
+  const set = useCallback((key: 'podcasts.voiceBoost' | 'podcasts.trimSilence' | 'podcasts.skipAds', value: boolean) => {
     const userId = user?.id
     if (!userId) return
     patchUserPreferencesCache(queryClient, userId, { [key]: value })
@@ -29,8 +30,10 @@ export function usePodcastDspPrefs() {
   return {
     voiceBoost,
     trimSilence,
+    skipAds,
     setVoiceBoost: (v: boolean) => set('podcasts.voiceBoost', v),
     setTrimSilence: (v: boolean) => set('podcasts.trimSilence', v),
+    setSkipAds: (v: boolean) => set('podcasts.skipAds', v),
   }
 }
 

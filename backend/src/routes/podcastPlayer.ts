@@ -58,7 +58,7 @@ podcastPlayerRoute.get('/shows/:id/settings', async (c) => {
       skipOutroSec: row.skipOutroSec,
       trimSilence: row.trimSilence == null ? null : row.trimSilence === 1,
       voiceBoost: row.voiceBoost == null ? null : row.voiceBoost === 1,
-      skipAds: row.skipAds === 1,
+      skipAds: row.skipAds == null ? null : row.skipAds === 1,
     } : null,
   })
 })
@@ -76,7 +76,7 @@ podcastPlayerRoute.put('/shows/:id/settings', async (c) => {
     skipOutroSec?: number
     trimSilence?: boolean | null
     voiceBoost?: boolean | null
-    skipAds?: boolean
+    skipAds?: boolean | null
   }>().catch(() => ({} as Record<string, never>))
 
   const clampSec = (v: unknown) => Math.max(0, Math.min(600, Math.round(Number(v) || 0)))
@@ -103,7 +103,7 @@ podcastPlayerRoute.put('/shows/:id/settings', async (c) => {
       skipOutroSec: clampSec(body.skipOutroSec),
       trimSilence: tri(body.trimSilence),
       voiceBoost: tri(body.voiceBoost),
-      skipAds: body.skipAds ? 1 : 0,
+      skipAds: tri(body.skipAds),
       updatedAt: now,
     },
   })

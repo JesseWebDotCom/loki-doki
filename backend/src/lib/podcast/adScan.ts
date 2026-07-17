@@ -7,7 +7,7 @@
 
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings } from '@/db/schema'
+import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings, userPreferences } from '@/db/schema'
 import { getScriptModel } from '@/lib/models'
 import { structuredCall } from '@/llm/structured'
 import { fmtStamp, resolveEpisodeTranscript, type TranscriptSegment } from '@/lib/podcast/transcripts'
@@ -127,17 +127,26 @@ export async function failPodcastAdScanByJobRefId(refId: string, error: string):
   await setScanStatus(episodeId, 'failed', { error: error.slice(0, 300) })
 }
 
-/** Chain gate used after transcription: scan only when someone in the household has
- *  skip-ads on for this show, so auto-transcribed episodes never burn LLM time that
- *  nobody asked for. Best-effort by contract (callers catch). */
+/** Chain gate used after transcription: scan only when someone in the household would
+ *  actually skip ads on this show, so auto-transcribed episodes never burn LLM time
+ *  that nobody asked for. "Would skip" mirrors the client's effective value: a per-show
+ *  force-on (skip_ads = 1), or the global podcasts.skipAds preference on for a user who
+ *  has not turned it off (skip_ads = 0) for this show. Best-effort (callers catch). */
 export async function maybeEnqueueAdScanForEpisode(episodeId: string): Promise<void> {
   const [episode] = await db.select({ showId: podcastEpisodes.showId })
     .from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
   if (!episode?.showId) return
-  const [wanted] = await db.select({ id: podcastShowSettings.id }).from(podcastShowSettings)
-    .where(and(eq(podcastShowSettings.showId, episode.showId), eq(podcastShowSettings.skipAds, 1))).limit(1)
-  if (!wanted) return
-  await enqueueAdScan(episodeId, null)
+
+  const rows = await db.select({ userId: podcastShowSettings.userId, skipAds: podcastShowSettings.skipAds })
+    .from(podcastShowSettings).where(eq(podcastShowSettings.showId, episode.showId))
+  // Anyone forcing it on for this show.
+  if (rows.some(r => r.skipAds === 1)) { await enqueueAdScan(episodeId, null); return }
+
+  // Otherwise honor the global default for anyone who has not forced this show off.
+  const forcedOff = new Set(rows.filter(r => r.skipAds === 0).map(r => r.userId))
+  const globalOn = await db.select({ userId: userPreferences.userId }).from(userPreferences)
+    .where(and(eq(userPreferences.key, 'podcasts.skipAds'), eq(userPreferences.value, 'true')))
+  if (globalOn.some(u => !forcedOff.has(u.userId))) await enqueueAdScan(episodeId, null)
 }
 
 /** Split the transcript into overlapping windows of timestamped lines. */
