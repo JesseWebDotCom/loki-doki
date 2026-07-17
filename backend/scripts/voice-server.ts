@@ -56,7 +56,12 @@ function getWhisper(): Promise<unknown> {
   return whisperPromise
 }
 
-// Decode our own 16 kHz mono int16 WAV (from sttSession.encodeWav) → Float32.
+// Decode 16 kHz mono int16 WAV → Float32. Handles both our own encodeWav output and
+// ffmpeg's: ffmpeg streaming to a non-seekable pipe (podcast transcription's
+// `-f wav pipe:1`) cannot backfill the RIFF / data-chunk sizes, so it writes a
+// placeholder (0xFFFFFFFF, 0, or a value past the real end). Trusting that size walked
+// the reader ~2 billion samples off the end of the buffer (RangeError: Offset is
+// outside the bounds of the DataView). We clamp every size to the bytes we actually got.
 function decodeWav(buf: ArrayBuffer): { audio: Float32Array; sampleRate: number } {
   const view = new DataView(buf)
   let offset = 12
@@ -66,13 +71,22 @@ function decodeWav(buf: ArrayBuffer): { audio: Float32Array; sampleRate: number 
   while (offset + 8 <= view.byteLength) {
     const id = String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3))
     const size = view.getUint32(offset + 4, true)
+    const avail = view.byteLength - (offset + 8)
     if (id === 'fmt ') sampleRate = view.getUint32(offset + 8 + 4, true)
-    else if (id === 'data') { dataOffset = offset + 8; dataLen = size }
+    else if (id === 'data') {
+      dataOffset = offset + 8
+      // Never trust a data size that is zero or overruns the buffer (streaming pipe).
+      dataLen = size === 0 || size > avail ? avail : size
+      break  // data is what we need; a bogus size would only walk us off the end
+    }
+    // A non-data chunk whose size overruns the buffer is corrupt/streaming: stop safely.
+    if (size > avail) break
     offset += 8 + size + (size % 2)
   }
   if (dataOffset < 0) return { audio: new Float32Array(0), sampleRate }
-  const n = Math.floor(dataLen / 2)
-  const audio = new Float32Array(n)
+  // Final guard: clamp the sample count to the int16s actually present.
+  const n = Math.min(Math.floor(dataLen / 2), Math.floor((view.byteLength - dataOffset) / 2))
+  const audio = new Float32Array(Math.max(0, n))
   for (let i = 0; i < n; i++) audio[i] = view.getInt16(dataOffset + i * 2, true) / 32768
   return { audio, sampleRate }
 }
