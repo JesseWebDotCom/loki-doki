@@ -11,7 +11,13 @@ import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
  * feature), so the only universal lever is controls=0, which strips ALL native chrome.
  * This replaces it with the shared PlayerControlBar, driven by Vimeo's Player.js SDK.
  */
-export function VimeoWatchPlayer({ embedUrl, title, vertical }: { embedUrl: string; title: string; vertical: boolean }) {
+export function VimeoWatchPlayer({ embedUrl, title, vertical, resumeSec, onProgress }: {
+  embedUrl: string; title: string; vertical: boolean
+  /** Saved position to jump to once playback starts (cross-device resume). */
+  resumeSec?: number
+  /** Live position feed so the watch page can sync watch state (the iframe is opaque to it). */
+  onProgress?: (sec: number, dur: number) => void
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -22,7 +28,7 @@ export function VimeoWatchPlayer({ embedUrl, title, vertical }: { embedUrl: stri
   const player = useVimeoPlayer(iframeRef, embedUrl, {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onTimeUpdate: (sec, dur) => { setPosition(sec); setDuration(dur) },
+    onTimeUpdate: (sec, dur) => { setPosition(sec); setDuration(dur); onProgress?.(sec, dur) },
   })
   const toggleFullscreen = useFullscreenToggle(wrapRef)
 
@@ -46,6 +52,16 @@ export function VimeoWatchPlayer({ embedUrl, title, vertical }: { embedUrl: stri
     if (!playing || appliedVolume.current) return
     appliedVolume.current = true
     player.setVolume(muted ? 0 : volume)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing])
+
+  // Cross-device resume: seek to the saved position once playback first starts (the embed
+  // ignores seeks issued before the player is actually running).
+  const appliedResume = useRef(false)
+  useEffect(() => {
+    if (!playing || appliedResume.current) return
+    appliedResume.current = true
+    if (resumeSec && resumeSec > 1) player.seek(resumeSec)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing])
 

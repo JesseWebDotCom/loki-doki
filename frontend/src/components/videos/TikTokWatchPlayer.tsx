@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { useTikTokPlayer } from '@/hooks/use-tiktok-player'
 import { useFullscreenToggle } from '@/hooks/use-fullscreen-toggle'
@@ -12,7 +12,13 @@ import { PlayerClickToggle } from '@/components/videos/PlayerClickToggle'
  * API is thinner than Vimeo's Player.js (no volume level, only mute/unMute), so mute is a
  * true toggle rather than a remembered volume.
  */
-export function TikTokWatchPlayer({ embedUrl, title, vertical }: { embedUrl: string; title: string; vertical: boolean }) {
+export function TikTokWatchPlayer({ embedUrl, title, vertical, resumeSec, onProgress }: {
+  embedUrl: string; title: string; vertical: boolean
+  /** Saved position to jump to once playback starts (cross-device resume). */
+  resumeSec?: number
+  /** Live position feed so the watch page can sync watch state (the iframe is opaque to it). */
+  onProgress?: (sec: number, dur: number) => void
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -23,9 +29,19 @@ export function TikTokWatchPlayer({ embedUrl, title, vertical }: { embedUrl: str
   const player = useTikTokPlayer(iframeRef, embedUrl, {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onTimeUpdate: (sec, dur) => { setPosition(sec); setDuration(dur) },
+    onTimeUpdate: (sec, dur) => { setPosition(sec); setDuration(dur); onProgress?.(sec, dur) },
   })
   const toggleFullscreen = useFullscreenToggle(wrapRef)
+
+  // Cross-device resume: seek to the saved position once playback first starts (the embed
+  // ignores seeks issued before the player is actually running).
+  const appliedResume = useRef(false)
+  useEffect(() => {
+    if (!playing || appliedResume.current) return
+    appliedResume.current = true
+    if (resumeSec && resumeSec > 1) player.seek(resumeSec)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing])
 
   const toggle = () => (playing ? player.pause() : player.play())
   const toggleMute = () => {
