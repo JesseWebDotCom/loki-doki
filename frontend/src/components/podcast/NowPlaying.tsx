@@ -13,6 +13,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
@@ -38,7 +39,7 @@ const SLEEP_MINUTES = [15, 30, 60]
 
 export function NowPlaying() {
   const {
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, sleep,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, adStatus, sleep,
     pause, resume, seek, setRate, setAutoplay, setSleep,
     nextChapter, prevChapter, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
   } = usePodcastPlayback()
@@ -165,6 +166,17 @@ export function NowPlaying() {
           <span>{fmtTime(positionSec)}</span>
           <span>-{fmtTime(Math.max(0, total - positionSec))}</span>
         </div>
+        {adStatus === 'preparing' && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Spinner size="sm" />
+            Finding ads. Playing with ads until it is ready.
+          </p>
+        )}
+        {adStatus === 'unavailable' && (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Ad skipping needs a transcript, which is not available for this episode.
+          </p>
+        )}
       </div>
 
       {/* Transport */}

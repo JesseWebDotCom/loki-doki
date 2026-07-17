@@ -48,8 +48,11 @@ export async function transcribeWav(wav: Uint8Array, _hotwords?: string): Promis
     throw new Error(`whisper_unreachable: ${(e as Error).message}`)
   }
   if (!res.ok) {
-    logger.warn(`[whisper] transcribe HTTP ${res.status}`)
-    throw new Error(`whisper_http_${res.status}`)
+    // The sidecar returns the real cause in the JSON body ({ error }); surface it so a
+    // 500 is diagnosable ("whisper_http_500" alone tells us nothing).
+    const detail = await res.text().catch(() => '')
+    logger.warn(`[whisper] transcribe HTTP ${res.status}: ${detail.slice(0, 300)}`)
+    throw new Error(`whisper_http_${res.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`)
   }
   const data = (await res.json()) as { text?: string }
   return (data.text ?? '').trim()

@@ -11,7 +11,10 @@ import {
   reportTimeSaved, DEFAULT_SHOW_SETTINGS,
   type ShowPlaybackSettings,
 } from '@/lib/podcast/playerApi'
-import { getAdSegments, reportAdCorrection, requestAdScan, type AdSegment } from '@/lib/podcast/aiApi'
+import {
+  getAdSegments, getEpisodeTranscript, reportAdCorrection, requestAdScan, transcribeEpisode,
+  type AdSegment,
+} from '@/lib/podcast/aiApi'
 import {
   applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
   setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
@@ -36,6 +39,13 @@ export interface PodcastTrack {
 export type SleepMode = 'off' | 'timer' | 'episode' | 'chapter'
 export interface SleepState { mode: SleepMode; minutes?: number; until?: number }
 
+/** Ad-detection pipeline state for the current track:
+ *  'off' = skip-ads not enabled; 'preparing' = transcribing and/or scanning (the
+ *  episode plays with ads meanwhile); 'ready' = scan done (segments may be empty if
+ *  no ads were found); 'unavailable' = no transcript could be made, so ads can't be
+ *  detected for this episode. */
+export type AdPrepStatus = 'off' | 'preparing' | 'ready' | 'unavailable'
+
 interface PodcastPlaybackCtx {
   track: PodcastTrack | null
   playing: boolean
@@ -51,6 +61,8 @@ interface PodcastPlaybackCtx {
   showSettings: ShowPlaybackSettings
   /** Detected ad ranges for the current track (empty unless the show has skip-ads on). */
   adSegments: AdSegment[]
+  /** Ad-detection pipeline state for the current track (see AdPrepStatus). */
+  adStatus: AdPrepStatus
   sleep: SleepState
   audioRef: React.RefObject<HTMLAudioElement | null>
   /** Play a single track now. Up Next is left intact and plays after it. */
@@ -134,6 +146,10 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const [showSettings, setShowSettings] = useState<ShowPlaybackSettings>({ ...DEFAULT_SHOW_SETTINGS })
   const [sleep, setSleepState] = useState<SleepState>({ mode: 'off' })
   const [adSegments, setAdSegments] = useState<AdSegment[]>([])
+  const [adStatus, setAdStatus] = useState<AdPrepStatus>('off')
+  // Auto-transcribe is kicked at most once per episode per session, so a failing
+  // sidecar (or an un-transcribable episode) is not re-hammered on every poll tick.
+  const preparedEpisodes = useRef(new Set<string>())
   // Each detected range fires at most once per play session, so a user who scrubs
   // back into one deliberately can listen through it (the natural way to verify a
   // detection) without the player fighting them.
@@ -390,27 +406,48 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track?.episodeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Ad segments ────────────────────────────────────────────────────────────────
-  // Fetched only when the show has skip-ads on. A never-scanned episode gets a lazy
-  // on-demand scan (covers feed-transcript and back-catalog episodes; the server
-  // rejects it harmlessly when no transcript exists yet), then bounded polling while
-  // the job runs so ranges appear mid-listen.
+  // When skip-ads is on for the current track, drive the whole detection pipeline
+  // lazily and non-blocking: the episode plays immediately (with ads), and in the
+  // background we make sure it has a transcript, then a scan, then live ad ranges.
+  // Auto-transcribe is the point of this: an episode with no transcript gets one
+  // started automatically (once per session), and the transcribe job chains into the
+  // ad scan on completion. Ads only start being skipped once ranges arrive; until
+  // then adStatus is 'preparing' so the UI can say so.
   useEffect(() => {
-    setAdSegments([])
     const episodeId = track?.episodeId
-    if (!episodeId || !effectiveSkipAds) return
+    setAdSegments([])
+    if (!episodeId || !effectiveSkipAds) { setAdStatus('off'); return }
+    setAdStatus('preparing')
     let alive = true
     let tries = 0
     let timer: number | undefined
+    const poll = () => { if (++tries <= 60) timer = window.setTimeout(() => { void check() }, 20_000) }
     const check = async () => {
-      const res = await getAdSegments(episodeId).catch(() => null)
-      if (!alive || !res) return
-      if (res.status === 'ready') { setAdSegments(res.segments); return }
-      if (res.status === 'failed') return
-      if (res.status === 'none') {
-        try { await requestAdScan(episodeId) } catch { return }  // no transcript yet
-        if (!alive) return
+      // 1. Scan already done?
+      const scan = await getAdSegments(episodeId).catch(() => null)
+      if (!alive) return
+      if (scan?.status === 'ready') { setAdSegments(scan.segments); setAdStatus('ready'); return }
+      if (scan && (scan.status === 'pending' || scan.status === 'processing')) { setAdStatus('preparing'); poll(); return }
+
+      // 2. No scan yet: make sure the transcript it needs exists or is being made.
+      const t = await getEpisodeTranscript(episodeId).catch(() => null)
+      if (!alive) return
+      if (t?.status === 'ready') {
+        try { await requestAdScan(episodeId); setAdStatus('preparing'); poll() }
+        catch { setAdStatus('unavailable') }
+        return
       }
-      if (++tries <= 15) timer = window.setTimeout(() => { void check() }, 20_000)
+      if (t && (t.status === 'pending' || t.status === 'processing')) { setAdStatus('preparing'); poll(); return }
+
+      // 3. No transcript (never made, or a prior attempt failed): auto-start one,
+      //    but only once per episode per session so a broken sidecar is not hammered.
+      if (!preparedEpisodes.current.has(episodeId)) {
+        preparedEpisodes.current.add(episodeId)
+        try { await transcribeEpisode(episodeId); setAdStatus('preparing'); poll() }
+        catch { setAdStatus('unavailable') }
+        return
+      }
+      setAdStatus('unavailable')
     }
     void check()
     return () => { alive = false; if (timer) clearTimeout(timer) }
@@ -688,11 +725,11 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   }, [track])
 
   const value = useMemo<PodcastPlaybackCtx>(() => ({
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, sleep, audioRef, volume,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, sleep, audioRef, volume,
     play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
     next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
     refreshShowSettings, close, closeIfShow,
-  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, sleep, volume,
+  }), [track, playing, positionSec, duration, rate, autoplay, queue, chapters, showSettings, adSegments, adStatus, sleep, volume,
        play, playQueue, playAllIntoQueue, enqueue, playNextInQueue, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
        next, prev, nextChapter, prevChapter, pause, resume, toggle, seek, setVolume, setRate, setAutoplay, setSleep,
        refreshShowSettings, close, closeIfShow])

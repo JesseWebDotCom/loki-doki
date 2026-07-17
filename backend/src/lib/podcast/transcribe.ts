@@ -183,6 +183,30 @@ async function decodeChunkWav(ffmpeg: string, srcPath: string, offsetSec: number
   }
 }
 
+/** Retry one chunk's transcription a couple times before giving up. The Whisper
+ *  sidecar can 500 transiently on a single chunk (a decode hiccup, a momentary memory
+ *  spike); without this, one blip aborts an entire multi-chunk episode. Aborts and the
+ *  "unreachable" transport error are not retried here (the reachability wait already
+ *  handles a down sidecar; an aborted job should stop promptly). */
+async function withChunkRetries<T>(fn: () => Promise<T>, signal: AbortSignal, attempts = 3): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    if (signal.aborted) throw new Error('Aborted')
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      const msg = String(err)
+      if (msg.includes('unreachable') || msg.includes('Aborted')) throw err
+      if (i < attempts - 1) {
+        logger.warn(`[podcast-transcribe] chunk failed (attempt ${i + 1}/${attempts}), retrying: ${msg.slice(0, 160)}`)
+        await new Promise(r => setTimeout(r, 2000 * (i + 1)))
+      }
+    }
+  }
+  throw lastErr
+}
+
 /** The job runner. Chunks the audio, transcribes each chunk through the sidecar's
  *  timestamped mode (falling back to native-window chunks on old sidecars), offsets
  *  the timestamps, and lands the canonical transcript. */
@@ -239,7 +263,7 @@ export async function runPodcastTranscribeJob(
       if (wav.byteLength <= MIN_WAV_BYTES) break  // past the end of the audio
 
       if (timedMode) {
-        const { text, segments } = await transcribeWavTimed(wav)
+        const { text, segments } = await withChunkRetries(() => transcribeWavTimed(wav), signal)
         if (segments === null) {
           // Old sidecar: only the native 30s window per call is usable. Re-run this
           // span in 30s slices so nothing already decoded is wasted or skipped.
@@ -256,7 +280,7 @@ export async function runPodcastTranscribeJob(
           allSegments.push({ startSec: offset + s.start, endSec: offset + s.end, text: s.text })
         }
       } else {
-        const text = await transcribeWav(wav)
+        const text = await withChunkRetries(() => transcribeWav(wav), signal)
         if (text.trim()) {
           allSegments.push({ startSec: offset, endSec: offset + chunkSec, text: text.trim() })
         }
