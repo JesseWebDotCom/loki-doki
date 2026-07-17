@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -26,27 +26,29 @@ import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { getAppByPath } from '@/lib/appCategories'
 import { FamilyAudioBlockedCard } from '@/components/shared/FamilyAudioBlockedCard'
 import { JamBanner } from '@/components/music/JamBanner'
+import { cn } from '@/lib/cn'
 
 // (SongTile moved to components/music/SongTile - shared with Browse.)
 
-// The page's focal point: a full-width billboard for the day's featured station.
-// A real album cover from the station's queue anchors the right edge and DISSOLVES into
-// the station's accent color (mask fade + tint) - the Apple-Music editorial pattern -
-// with the banner art as the fallback when no cover resolves yet. Rotates daily.
-function StationBillboard({ stations }: { stations: Station[] }) {
+const BILLBOARD_ROTATE_MS = 7000
+
+// One billboard slide: a real album cover from the station's queue anchors the right edge and
+// DISSOLVES into the station's accent color (mask fade + tint) - the Apple-Music editorial
+// pattern - with the live StationArt look as the fallback when no cover resolves yet. The name
+// lives in the left column only (showName={false} on the fallback keeps it off the art tile).
+function BillboardSlide({ station, allStations }: { station: Station; allStations: Station[] }) {
   const radio = useRadio()
   const navigate = useNavigate()
-  const day = Math.floor(Date.now() / 86_400_000)
-  const station = stations.length ? stations[day % stations.length]! : null
-  const dj = station ? stationToDj(station) : null
+  const dj = stationToDj(station)
 
   // The station's stamped cover song - the SAME art its card shows (one source of truth),
   // and zero extra requests: it rides along on the stations list we already have.
-  const coverArt = useSongArt(station?.coverTrack?.videoId, station?.coverTrack?.title, station?.coverTrack?.artist)
+  const coverArt = useSongArt(station.coverTrack?.videoId, station.coverTrack?.title, station.coverTrack?.artist)
 
   // "Play Something": one tap, the server picks something appropriate (recent favorites,
   // one of your mixes, or a time-of-day station) and playback starts immediately.
   const [picking, setPicking] = useState(false)
+  const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
   const playAnything = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (picking) return
@@ -60,31 +62,27 @@ function StationBillboard({ stations }: { stations: Station[] }) {
         )
         toast.success(`${choice.name}: ${choice.reason}`)
       } else if (choice.kind === 'station') {
-        const st = stations.find(s => s.id === choice.stationId)
+        const st = allStations.find(s => s.id === choice.stationId)
           ?? (await getStation(choice.stationId)).station
         radio.start(stationToDj(st))
         toast.success(`${st.name}: ${choice.reason}`)
       }
       navigate('/music/now-playing')
     } catch {
-      // Built-in fallback: the featured station always exists.
-      if (station) { radio.start(stationToDj(station)); navigate('/music/now-playing') }
-      else toast.error('Could not pick something to play')
+      // Built-in fallback: this slide's station always exists.
+      radio.start(stationToDj(station)); navigate('/music/now-playing')
     } finally { setPicking(false) }
   }
 
-  if (!station || !dj) return null
-  const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
-
   return (
     <button onClick={() => navigate(`/music/station/${station.id}`)}
-      className="group relative mb-8 block w-full overflow-hidden rounded-sheet text-left shadow-xl">
+      className="group relative block w-full shrink-0 snap-center overflow-hidden text-left">
       <div className="relative aspect-[21/8] w-full overflow-hidden sm:aspect-auto sm:h-64 lg:h-72 xl:h-80">
         <BlendedHeroBackdrop art={coverArt} color={dj.color} colorDark={dj.colorDark}
-          fallback={<StationArt station={station} />} />
+          fallback={<StationArt station={station} showName={false} />} />
       </div>
       <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-6 sm:p-9">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">Station of the day</span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">Featured station</span>
         <span className="text-2xl font-extrabold tracking-tight text-white sm:text-4xl">{station.name}</span>
         {station.description && !station.description.startsWith('source:') && (
           <span className="line-clamp-2 max-w-md text-sm text-white/70">{station.description}</span>
@@ -102,6 +100,73 @@ function StationBillboard({ stations }: { stations: Station[] }) {
         </span>
       </div>
     </button>
+  )
+}
+
+// The page's focal point: a full-width editorial billboard, the same multi-page carousel as the
+// Videos hub (VideoBillboard). Up to six featured stations in a scroll-snap carousel that
+// auto-rotates (paused on hover, on a hidden tab, and under prefers-reduced-motion; a swipe/wheel
+// parks the timer for a couple cycles). The featured window rotates daily so it stays fresh.
+function StationBillboard({ stations }: { stations: Station[] }) {
+  const day = Math.floor(Date.now() / 86_400_000)
+  const count = Math.min(6, stations.length)
+  // Daily-rotated window of distinct stations (len < 6 still yields no repeats).
+  const featured = Array.from({ length: count }, (_, i) => stations[(day + i) % stations.length]!)
+
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [index, setIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  // A manual swipe/scroll parks the timer for one cycle so it doesn't fight the user.
+  const holdUntil = useRef(0)
+
+  const goTo = (i: number, smooth = true) => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ left: i * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  useEffect(() => {
+    if (count < 2) return
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) return
+    const iv = setInterval(() => {
+      if (paused || document.hidden || Date.now() < holdUntil.current) return
+      const el = scrollerRef.current
+      if (!el) return
+      const cur = Math.round(el.scrollLeft / el.clientWidth)
+      goTo((cur + 1) % count)
+    }, BILLBOARD_ROTATE_MS)
+    return () => clearInterval(iv)
+  }, [count, paused])
+
+  if (count === 0) return null
+
+  return (
+    <div className="group/billboard relative mb-8 overflow-hidden rounded-sheet shadow-xl"
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <div ref={scrollerRef}
+        className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
+        onScroll={(e) => {
+          const el = e.currentTarget
+          const i = Math.round(el.scrollLeft / el.clientWidth)
+          if (i !== index) setIndex(Math.max(0, Math.min(count - 1, i)))
+        }}
+        onTouchStart={() => { holdUntil.current = Date.now() + BILLBOARD_ROTATE_MS * 2 }}
+        onWheel={() => { holdUntil.current = Date.now() + BILLBOARD_ROTATE_MS * 2 }}>
+        {featured.map((s) => <BillboardSlide key={s.id} station={s} allStations={stations} />)}
+      </div>
+      {count > 1 && (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5">
+          {featured.map((s, i) => (
+            <button key={s.id} type="button"
+              aria-label={`Show slide ${i + 1} of ${count}`}
+              onClick={() => { holdUntil.current = Date.now() + BILLBOARD_ROTATE_MS * 2; goTo(i) }}
+              className={cn('h-1.5 rounded-full transition-all',
+                i === index ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70')} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

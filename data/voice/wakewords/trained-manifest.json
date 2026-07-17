@@ -42,13 +42,6 @@
         "accuracy": 0.985378493429576
     },
     {
-        "id": "trained_hey_ember_mqwtvyw6",
-        "phrase": "Hey Ember",
-        "file": "trained_hey_ember_mqwtvyw6.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.986059725158562
-    },
-    {
         "id": "trained_hey_indigo_mqx5hgf7",
         "phrase": "Hey Indigo",
         "file": "trained_hey_indigo_mqx5hgf7.onnx",
@@ -70,13 +63,6 @@
         "accuracy": 0.981923173487321
     },
     {
-        "id": "trained_hey_pixel_mqwo5x0o",
-        "phrase": "Hey Pixel",
-        "file": "trained_hey_pixel_mqwo5x0o.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.986223184412517
-    },
-    {
         "id": "trained_hey_quill_mqx6mppd",
         "phrase": "Hey Quill",
         "file": "trained_hey_quill_mqx6mppd.onnx",
@@ -96,20 +82,6 @@
         "file": "trained_hey_riff_mqx5vk5n.onnx",
         "threshold": 0.5,
         "accuracy": 0.986369999263243
-    },
-    {
-        "id": "trained_hey_sage_mqwmt9bs",
-        "phrase": "Hey Sage",
-        "file": "trained_hey_sage_mqwmt9bs.onnx",
-        "threshold": 0.47,
-        "accuracy": 0.984251474463546
-    },
-    {
-        "id": "trained_hey_sprout_mqwone9g",
-        "phrase": "Hey Sprout",
-        "file": "trained_hey_sprout_mqwone9g.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.986652570371349
     },
     {
         "id": "trained_hey_velvet_mqwvl6a5",
@@ -236,5 +208,33 @@
         "file": "trained_hey_rover_mrowxnj2.onnx",
         "threshold": 0.74,
         "accuracy": 0.97634292781202
+    },
+    {
+        "id": "trained_hey_sage_mrp53qf3",
+        "phrase": "Hey Sage",
+        "file": "trained_hey_sage_mrp53qf3.onnx",
+        "threshold": 0.72,
+        "accuracy": 0.9700528840241053
+    },
+    {
+        "id": "trained_hey_pixel_mrp5i1uj",
+        "phrase": "Hey Pixel",
+        "file": "trained_hey_pixel_mrp5i1uj.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.9819821782609643
+    },
+    {
+        "id": "trained_hey_sprout_mrp5waez",
+        "phrase": "Hey Sprout",
+        "file": "trained_hey_sprout_mrp5waez.onnx",
+        "threshold": 0.78,
+        "accuracy": 0.9859640591498862
+    },
+    {
+        "id": "trained_hey_ember_mrp6bnw8",
+        "phrase": "Hey Ember",
+        "file": "trained_hey_ember_mrp6bnw8.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.9885983615755808
     }
 ]

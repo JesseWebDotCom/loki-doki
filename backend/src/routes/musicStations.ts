@@ -10,6 +10,7 @@ import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDj
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
 import { itunesSongArt } from '@/lib/music/catalog'
+import { backfillCoverForStation } from '@/lib/music/coverBackfill'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
 import { AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { getEffectiveCap, getUserPreference } from '@/lib/youtube/quality'
@@ -462,6 +463,9 @@ export interface NewStationInput {
   /** Pre-existing art to reuse instead of generating (e.g. when cloning). */
   iconPath?: string | null
   bannerPath?: string | null
+  /** Pre-resolved cover song to inherit (clone) so it matches the source exactly instead of
+   *  the create-path backfill picking a fresh guess. */
+  coverTrackJson?: string | null
 }
 
 /**
@@ -491,6 +495,7 @@ export async function createStationRecord(input: NewStationInput): Promise<Stati
     accent,
     iconPath: input.iconPath ?? null,
     bannerPath: input.bannerPath ?? null,
+    coverTrackJson: input.coverTrackJson ?? null,
     visibility: input.visibility === 'shared' ? 'shared' : 'private',
     isBuiltin: false, isAdult: input.isAdult ?? false, createdAt: now, updatedAt: now,
   })
@@ -532,6 +537,10 @@ export async function createStationRecord(input: NewStationInput): Promise<Stati
   const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
   // Pre-generate this station's playful loading lines in the background, like the art.
   void ensureTuningMessages(row!).catch(() => {})
+  // A never-played station has no cover song yet, so its card + hero would sit on the plain
+  // gradient+glyph until the next boot backfill. Stamp real album art now (fire-and-forget;
+  // no-ops if the user tunes in first, whose real queue always wins the isNull re-check).
+  void backfillCoverForStation(id).catch(() => {})
   return row!
 }
 
@@ -623,9 +632,10 @@ musicStations_route.post('/:id/clone', async (c) => {
     djMode: row.djMode,
     accent: row.accent,
     isAdult: row.isAdult,
-    // Reuse the source station's art rather than regenerating it.
+    // Reuse the source station's art + cover song rather than regenerating them.
     iconPath: row.iconPath,
     bannerPath: row.bannerPath,
+    coverTrackJson: row.coverTrackJson,
   })
   return c.json({ station: serialize(created, user.id) })
 })
