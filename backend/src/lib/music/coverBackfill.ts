@@ -12,6 +12,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { musicStations } from '@/db/schema'
 import { itunesSongArt } from '@/lib/music/catalog'
+import { ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
@@ -90,15 +91,37 @@ export async function backfillStationCovers(limit?: number): Promise<void> {
   let stamped = 0
   for (const row of rows) {
     try {
-      for (const song of await candidateSongs(row)) {
-        // Only stamp when the art actually exists, so tiles never regress from
-        // the silhouette fallback to a broken image.
+      const candidates = await candidateSongs(row)
+      let cover: { videoId: string; title: string; artist: string | null } | null = null
+
+      // Tier 1: iTunes album art for an LLM-picked iconic song. Art-only stamp
+      // (empty videoId); only stamped when the art actually exists, so tiles
+      // never regress from the silhouette fallback to a broken image.
+      for (const song of candidates) {
         if (!(await itunesSongArt(song.artist, song.title))) continue
+        cover = { videoId: '', title: song.title, artist: song.artist }
+        break
+      }
+
+      // Tier 2: YouTube Music (instrumental/theme stations often miss on
+      // iTunes). A real videoId means the frontend resolver still tries iTunes
+      // with YT Music's cleaner metadata first, then falls back to the video
+      // thumbnail, so a stamp here always renders something.
+      if (!cover) {
+        const queries = [...candidates.slice(0, 2).map((c) => `${c.artist} ${c.title}`), row.name]
+        for (const q of queries) {
+          const [hit] = await ytmusicSearch(q, 1)
+          if (!hit?.videoId || !hit.title) continue
+          cover = { videoId: hit.videoId, title: hit.title, artist: hit.author ?? null }
+          break
+        }
+      }
+
+      if (cover) {
         await db.update(musicStations)
-          .set({ coverTrackJson: JSON.stringify({ videoId: '', title: song.title, artist: song.artist }) })
+          .set({ coverTrackJson: JSON.stringify(cover) })
           .where(and(eq(musicStations.id, row.id), isNull(musicStations.coverTrackJson)))
         stamped++
-        break
       }
     } catch (err) {
       logger.debug(`[station-covers] ${row.name}: ${String(err)}`)
