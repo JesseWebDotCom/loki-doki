@@ -136,6 +136,7 @@ export const devices = sqliteTable('devices', {
   pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
   capabilities: text('capabilities'),             // JSON: { screen, camera, sampleRate }
   groupId: text('group_id'),                       // device_groups.id; null → built-in Default
+  areaId: text('area_id'),                          // HA area id this device lives in → "here"/room-context resolution; null = unbound
   layoutTemplateId: text('layout_template_id'),    // device_layout_templates.id; null → built-in default layout
   layoutOverrides: text('layout_overrides'),       // JSON: per-device tweak { theme?, volume?, alarmVolume? }
   controllerLayoutTemplateId: text('controller_layout_template_id'), // → controller_layout_templates.id; null = builtin:blank

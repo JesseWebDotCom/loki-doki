@@ -8,8 +8,9 @@ export interface ServiceCall { domain: string; service: string; data: Record<str
 
 export const VALID_ACTIONS = new Set<HAAction>([
   'turn_on', 'turn_off', 'toggle', 'lock', 'unlock', 'open', 'close',
-  'set_brightness', 'activate_scene',
+  'set_brightness', 'set_color_temp', 'set_color', 'activate_scene',
   'set_temperature', 'set_hvac_mode',
+  'set_percentage',
   'media_play', 'media_pause', 'media_next', 'media_previous',
   'set_volume', 'volume_up', 'volume_down', 'mute', 'unmute',
   'set_position', 'stop',
@@ -18,10 +19,10 @@ export const VALID_ACTIONS = new Set<HAAction>([
 // Which actions make sense per entity domain — used to validate direct /entity
 // calls and to hint the frontend at each device's capabilities.
 export const ACTIONS_BY_DOMAIN: Record<string, HAAction[]> = {
-  light: ['turn_on', 'turn_off', 'toggle', 'set_brightness'],
+  light: ['turn_on', 'turn_off', 'toggle', 'set_brightness', 'set_color_temp', 'set_color'],
   switch: ['turn_on', 'turn_off', 'toggle'],
   input_boolean: ['turn_on', 'turn_off', 'toggle'],
-  fan: ['turn_on', 'turn_off', 'toggle'],
+  fan: ['turn_on', 'turn_off', 'toggle', 'set_percentage'],
   lock: ['lock', 'unlock'],
   cover: ['open', 'close', 'set_position', 'stop'],
   climate: ['turn_on', 'turn_off', 'set_temperature', 'set_hvac_mode'],
@@ -32,8 +33,10 @@ export const ACTIONS_BY_DOMAIN: Record<string, HAAction[]> = {
 
 export interface ActionOpts {
   brightnessPct?: number
-  value?: number      // set_temperature: °F · set_volume/set_position: 0–100
+  value?: number      // set_temperature: °F · set_volume/set_position/set_percentage: 0–100
   hvacMode?: string
+  kelvin?: number     // set_color_temp
+  colorName?: string  // set_color
 }
 
 export function serviceCallsFor(action: HAAction, ids: string[], opts: ActionOpts = {}): ServiceCall[] {
@@ -51,6 +54,12 @@ export function serviceCallsFor(action: HAAction, ids: string[], opts: ActionOpt
     case 'activate_scene': return [{ domain: 'scene', service: 'turn_on', data: { entity_id: ids } }]
     case 'set_brightness':
       return [{ domain: 'light', service: 'turn_on', data: { entity_id: ids, brightness_pct: clampPct(opts.brightnessPct ?? 50) } }]
+    case 'set_color_temp':
+      return [{ domain: 'light', service: 'turn_on', data: { entity_id: ids, color_temp_kelvin: opts.kelvin ?? 3000 } }]
+    case 'set_color':
+      return [{ domain: 'light', service: 'turn_on', data: { entity_id: ids, color_name: (opts.colorName ?? 'white').replace(/\s+/g, '') } }]
+    case 'set_percentage':
+      return [{ domain: 'fan', service: 'set_percentage', data: { entity_id: ids, percentage: clampPct(opts.value ?? 50) } }]
     case 'set_temperature':
       return [{ domain: 'climate', service: 'set_temperature', data: { entity_id: ids, temperature: opts.value ?? 70 } }]
     case 'set_hvac_mode':
@@ -76,7 +85,8 @@ export function actionTargetDomain(action: HAAction): string | null {
   switch (action) {
     case 'lock': case 'unlock': return 'lock'
     case 'open': case 'close': case 'set_position': case 'stop': return 'cover'
-    case 'set_brightness': return 'light'
+    case 'set_brightness': case 'set_color_temp': case 'set_color': return 'light'
+    case 'set_percentage': return 'fan'
     case 'set_temperature': case 'set_hvac_mode': return 'climate'
     case 'media_play': case 'media_pause': case 'media_next': case 'media_previous':
     case 'set_volume': case 'volume_up': case 'volume_down': case 'mute': case 'unmute':

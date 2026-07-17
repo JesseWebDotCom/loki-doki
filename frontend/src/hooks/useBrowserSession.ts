@@ -5,7 +5,7 @@ import { useRadio } from '@/context/RadioContext'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { useServerHealth } from '@/context/ServerHealthContext'
 import { djStationById } from '@/lib/music/catalogApi'
-import { dispatchTransport, hasActiveMedia } from '@/lib/mediaCoordinator'
+import { dispatchTransport, hasActiveMedia, hasLocalVolumeControl } from '@/lib/mediaCoordinator'
 import { manageEventSource } from '@/lib/managedEventSource'
 import { getDeviceLabel } from '@/lib/drop'
 import { setDockYieldFromServer } from '@/lib/voice/dockYield'
@@ -97,6 +97,12 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
                 if (cmd.action === 'play_pause') radioRef.current.togglePause()
                 else if (cmd.action === 'next_track') radioRef.current.skip()
                 else if (cmd.action === 'prev_track') radioRef.current.seek(0)
+                // Volume from a controller button or voice → drive whichever engine is
+                // active (radio/podcast/youtube), via the media coordinator.
+                else if (cmd.action === 'volume_up' || cmd.action === 'volume_down' || cmd.action === 'mute' || cmd.action === 'unmute') {
+                  if (hasLocalVolumeControl()) dispatchTransport(cmd.action)
+                  else handled = false
+                }
                 else if (cmd.action === 'play_station' && typeof payload.stationId === 'string') {
                   const dj = await djStationById(payload.stationId)
                   if (dj) { radioRef.current.start(dj); navigateRef.current('/music/now-playing') }

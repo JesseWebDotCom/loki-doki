@@ -193,12 +193,16 @@ async function _doWarmup(): Promise<void> {
   // whole prefix for their first turn. Memory/character sections vary per user and
   // can't be pre-warmed centrally. The old warmup primed a "Today is …" prefix the
   // real prompt no longer starts with, so turn 1 always paid full cold prefill.
-  let warmupSystem = ''
+  // The real chat prompt now begins with the static presentation policy, THEN the
+  // per-profile content block (see buildSystemParts in companionTurn.ts). Warm the
+  // same prefix in the same order, or turn 1 pays full prefill for both.
+  const { PRESENTATION_POLICY } = await import('@/lib/presentationPrompt')
+  let warmupSystem = PRESENTATION_POLICY
   try {
     const { buildContentPrompt, getProfile, getDefaultProfileSlug } = await import('@/lib/contentPolicy')
     const profile = await getProfile(await getDefaultProfileSlug())
-    if (profile) warmupSystem = buildContentPrompt(profile.dials)
-  } catch { /* fall back to a bare warmup below */ }
+    if (profile) warmupSystem = `${PRESENTATION_POLICY}\n\n${buildContentPrompt(profile.dials)}`
+  } catch { /* presentation policy alone is still a valid prefix of the real prompt */ }
   const warmupMessages = [
     ...(warmupSystem ? [{ role: 'system' as const, content: warmupSystem }] : []),
     { role: 'user' as const, content: 'hi' },

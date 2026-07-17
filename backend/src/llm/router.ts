@@ -615,6 +615,75 @@ export async function routePrompt(
   return tier2Call(model, prompt, history, candidates, chatNumCtx)
 }
 
+// ── Re-plan: bounded observe → re-plan (Phase 4) ─────────────────────────────
+// Fires ONLY when a routed tool hit a genuine dead end (no results / an error).
+// The happy path NEVER calls this, so a successful tool turn pays zero extra
+// latency — that's the whole reason this is a dead-end hook and not a general
+// agent loop wrapped around every turn.
+//
+// Candidate set is deliberately tiny (the dead tool + search): a re-plan is either
+// "same tool, better query" or "fall back to the web", and a 2-schema prompt keeps
+// the granite4.1:3b call near its floor instead of paying for 57 tool definitions.
+// The caller bounds this to ONE hop per turn.
+const REPLAN_TIMEOUT_MS = 8_000
+
+export async function replanAfterDeadEnd(
+  model: string,
+  prompt: string,
+  history: OllamaChatMessage[],
+  attempt: { toolName: string; args: unknown; outcome: 'empty' | 'error' },
+  candidates: Tool[],
+  chatNumCtx?: number,
+): Promise<RouteResult> {
+  if (candidates.length === 0) return { tool: null, args: {}, path: 'replan-no-candidates' }
+  const t0 = performance.now()
+  try {
+    const outcomeText = attempt.outcome === 'empty'
+      ? 'returned no results'
+      : 'failed with an error'
+    const system = [
+      tier2System(candidates),
+      `A previous attempt at this same message already called ${attempt.toolName} with arguments ${JSON.stringify(attempt.args ?? {})} and it ${outcomeText}. Do NOT repeat that exact call. Either call the same tool with a better-formed, corrected, or broader query (fixing a likely misspelling or misheard word), or call a more suitable tool. If no other approach could plausibly help, respond with empty content and no tool call.`,
+    ].join('\n\n')
+
+    const messages: OllamaChatMessage[] = [
+      { role: 'system', content: system },
+      ...history.slice(-TIER2_HISTORY_LIMIT),
+      { role: 'user', content: prompt },
+    ]
+
+    const routerModel = (await getRouterModel()) ?? model
+    const opts: Record<string, unknown> = { temperature: 0.1, num_predict: 200 }
+    if (routerModel === model) opts['num_ctx'] = chatNumCtx ?? 8192
+
+    const response = await ollamaChat(
+      routerModel,
+      messages,
+      candidates.map((t) => t.toolDefinition),
+      opts,
+      undefined,
+      REPLAN_TIMEOUT_MS,
+    )
+
+    const ms = (performance.now() - t0).toFixed(0)
+    const tc = (response.message.tool_calls ?? [])[0]
+    if (!tc) {
+      logger.info(`[ROUTER] replan result=no-tool-call ${ms}ms`)
+      return { tool: null, args: {}, path: 'replan-no-call' }
+    }
+    const m = candidates.find((t) => t.toolDefinition.function.name === tc.function.name)
+    if (!m) {
+      logger.info(`[ROUTER] replan result=off-candidate(${tc.function.name}) ${ms}ms`)
+      return { tool: null, args: {}, path: 'replan-unmatched' }
+    }
+    logger.info(`[ROUTER] replan result=tool(${m.id}) ${ms}ms model=${routerModel}`)
+    return { tool: m, args: tc.function.arguments, path: 'replan' }
+  } catch {
+    logger.info(`[ROUTER] replan result=error ${(performance.now() - t0).toFixed(0)}ms — falling back`)
+    return { tool: null, args: {}, path: 'replan-error' }
+  }
+}
+
 // Routing must never stall a turn: it fails open to plain conversation, so a wedged
 // router model should cost seconds, not the global 120s chat timeout of pre-stream silence.
 const TIER2_TIMEOUT_MS = 10_000

@@ -1323,6 +1323,12 @@ export class RadioEngine {
     if (this.built) this.applyAll()
   }
 
+  // Relative step for remote "volume up/down" (controller buttons, voice). Reads the
+  // engine's own master volume so callers never need the current level.
+  nudgeVolume(delta: number) {
+    this.setVolume(this.masterVol + delta)
+  }
+
   toggleMute() {
     this.muted = !this.muted
     this.set({ muted: this.muted })

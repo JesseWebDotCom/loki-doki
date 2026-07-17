@@ -77,7 +77,11 @@ function CaptionsOrStop({ busy, karaokeState, captions, setCaptions, onStop }: {
   )
 }
 
-function TypingIndicator() {
+// Two wordless states: idle `thinking` (turn started, nothing happening yet) is a
+// soft gray bounce; `working` (a tool is actively running) is an accent-tinted
+// left-to-right sweep that reads as "I'm on it / looking into this" — so a slow tool
+// turn feels attended-to, not ignored. No text is ever shown or spoken.
+function TypingIndicator({ working = false }: { working?: boolean }) {
   return (
     <>
       <style>{`
@@ -85,13 +89,21 @@ function TypingIndicator() {
           0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
           30% { transform: translateY(-5px); opacity: 1; }
         }
+        @keyframes ld-dot-scan {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
       `}</style>
       <span className="inline-flex items-center gap-[5px] py-0.5">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            style={{ animation: `ld-dot-bounce 1.1s ease-in-out ${i * 0.18}s infinite` }}
-            className="size-2 rounded-full bg-foreground/70"
+            style={{
+              animation: working
+                ? `ld-dot-scan 0.85s ease-in-out ${i * 0.22}s infinite`
+                : `ld-dot-bounce 1.1s ease-in-out ${i * 0.18}s infinite`,
+            }}
+            className={`size-2 rounded-full ${working ? 'bg-primary' : 'bg-foreground/70'}`}
           />
         ))}
       </span>
@@ -262,7 +274,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium text-foreground">{character?.name ?? 'Companion'}</span>
-                <StatusDot status={ledStatus} pulse={engine.streaming && !thinking} />
+                <StatusDot status={ledStatus} pulse={(engine.streaming && !thinking) || engine.working} />
               </div>
               <div className="mt-1.5 flex items-center gap-1">
                 <Indicator icon={Ear} label="Hands-free (wake word)" state={engine.listeningState} onClick={() => { const next = !engine.handsFreeOn; engine.setHandsFree(next); if (next) engine.setVoice(true) }} />
@@ -317,7 +329,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
           role="status"
           aria-label="Companion reply"
         >
-          {thinking ? <TypingIndicator /> : <Subtitle text={captionText || engine.pendingAction?.summary || ''} style={captionStyle} />}
+          {thinking ? <TypingIndicator working={engine.working} /> : <Subtitle text={captionText || engine.pendingAction?.summary || ''} style={captionStyle} />}
           {engine.pendingAction && (
             <PendingActionButtons
               action={engine.pendingAction}

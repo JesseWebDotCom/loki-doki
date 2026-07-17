@@ -16,7 +16,7 @@ import { useCompanionVoice } from '@/hooks/useCompanionVoice'
 import { useEmoteMood } from '@/hooks/useEmoteMood'
 import { useMood } from '@/lib/voice/moodStore'
 import { useHandsFree, isStopCommand } from '@/hooks/useHandsFree'
-import { useVoicePlaying, useCharacterCaption, useStreamingSentenceCaption, stopSpeech, getVoicePlayback } from '@/lib/voice/voicePlaybackStore'
+import { useVoicePlaying, useCharacterCaption, useStreamingSentenceCaption, stopSpeech, enqueueSpeech, getVoicePlayback, setVoicePitch } from '@/lib/voice/voicePlaybackStore'
 import { useVoiceOwner, setVoiceWants } from '@/lib/voice/voiceOwnership'
 import { useDockYield } from '@/lib/voice/dockYield'
 import { toast } from '@/lib/toast'
@@ -44,6 +44,9 @@ export type IndicatorState = 'off' | 'on-idle' | 'on-active' | 'on-followup'
 export interface CompanionAvatarProps {
   streaming: boolean
   thinking: boolean
+  /** A tool is actively running (distinct from idle `thinking`) — drives the calm,
+   *  wordless "on it" pose/affordance. Off-chat only. */
+  working: boolean
   sleeping: boolean
   listening: boolean
   mood: Mood
@@ -91,6 +94,9 @@ export interface CompanionEngine {
   replyText: string
   streaming: boolean
   thinking: boolean
+  /** A tool is actively running this turn (off-chat) — the wordless "working" cue is
+   *  active. Distinct from `thinking` (turn started, nothing happening yet). */
+  working: boolean
   /** True while the reply is audibly/visibly being delivered. */
   talkActive: boolean
   listeningState: IndicatorState
@@ -197,7 +203,20 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     },
     [youtube.playExpanded, radio.start, openPlaylist],
   )
-  const companion = useCompanionStream({ onDirective })
+  // Voice state for the spoken-cue callback. `voiceMode`/`voiceCharacter` are
+  // derived further down (they depend on the companion stream itself), so the
+  // callback reads them through a ref that's refreshed each render.
+  const voiceStateRef = useRef<{ on: boolean; characterId?: string }>({ on: false })
+  // The ONLY thing the companion says about its own processing, and only on a
+  // genuine change of approach after a dead end. Spoken once, on voice surfaces
+  // only — text surfaces already show the retry visually. It queues ahead of the
+  // reply chunks, so it fills the extra beat instead of leaving dead air.
+  const onSpokenCue = useCallback((text: string) => {
+    const v = voiceStateRef.current
+    if (!v.on || !v.characterId) return
+    void enqueueSpeech({ text, characterId: v.characterId, rateScale: 1, gain: 1 })
+  }, [])
+  const companion = useCompanionStream({ onDirective, onSpokenCue })
   const { companion: character, companions, isLoading } = useActiveCompanion()
   const { captions, captionStyle, voiceOn, handsFreeOn, setVoice, setHandsFree, setCaptions, setCaptionStyle } = useCompanionState()
 
@@ -208,6 +227,23 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   // explicitly selected, matching handleSend's behaviour so voice always has a
   // character to route to. Rendering (avatar, name) still uses the explicit selection.
   const voiceCharacter = character ?? companions[0] ?? null
+
+  // Apply the user's personal pitch-shift preference (design: keen-percolating-
+  // swan) for whichever companion is now active. Pitch is client-side-only DSP
+  // (Kokoro has no native pitch param), so unlike voice/speed/hushed, which the
+  // server resolves itself from the same table via applyUserVoicePrefs, this is
+  // the one setting that must be fetched and applied here on the client.
+  useEffect(() => {
+    if (!voiceCharacter?.id) { setVoicePitch(0); return }
+    let cancelled = false
+    fetch(`/api/companions/${voiceCharacter.id}/voice-prefs`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { effective?: { pitchSemitones?: number } } | null) => {
+        if (!cancelled) setVoicePitch(d?.effective?.pitchSemitones ?? 0)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [voiceCharacter?.id])
 
   // Cross-tab voice ownership (focus-follows-tab): only the tab the user is
   // looking at holds the mic + plays TTS. Declare this tab's intent, then gate
@@ -223,8 +259,18 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
 
   // Hands-free uses the latest handleSend (defined below) via a ref so the hook
   // can be declared here with a stable submit callback.
-  const handleSendRef = useRef<(text: string, attachments?: File[]) => void>(() => {})
-  const hfSubmit = useCallback((text: string) => handleSendRef.current(text), [])
+  const handleSendRef = useRef<(text: string, attachments?: File[], whispered?: boolean) => void>(() => {})
+  const hfSubmit = useCallback((text: string, whispered?: boolean) => handleSendRef.current(text, undefined, whispered), [])
+  // Auto whisper-match (design: keen-percolating-swan): set synchronously at the
+  // top of handleSend (before any awaits) so it reflects the MOST RECENTLY
+  // submitted turn by the time that turn's own reply starts streaming into
+  // useCompanionVoice below. Typed messages never set this (handleSend's public
+  // signature has no whispered param, only the internal hands-free path does),
+  // so a typed send always clears it. Known limitation: if a second submit could
+  // truly interleave on this same hook instance while a prior reply is still
+  // streaming, this ref could reflect the wrong turn, which isn't expected in the
+  // current single-active-voice-turn UI, but worth watching for in practice.
+  const lastWhisperedRef = useRef(false)
   const handsFree = useHandsFree({
     enabled: handsFreeOn && !!voiceCharacter && isVoiceOwner && !dockYield,
     characterId: voiceCharacter?.id,
@@ -278,12 +324,20 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const streaming = isOnChat ? chat.isGenerating : companion.streaming
   const speaking = streaming && replyText.length > 0
   const thinking = streaming && replyText.length === 0
+  // `working` is the subset of `thinking` where a tool is actually running (the
+  // backend `status` cue arrived): the companion is doing something, not just idling
+  // before it starts. Off-chat only — on-chat surfaces the per-tool label in the
+  // message stream instead. Drives the ambient, wordless "on it" affordance so a
+  // 5–8s tool turn doesn't read as being ignored. NEVER spoken.
+  const working = thinking && !isOnChat && companion.phase !== null
 
   // Read-aloud: stream completed sentences to TTS when Voice OR hands-free is on
   // (hands-free always speaks its replies so the loop can advance on playback end).
   // Only the owning tab speaks; a non-owner stays silent even if it generated text.
   const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner && !dockYield
-  useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode, expressiveness: voiceCharacter?.expressiveness })
+  // Keep the spoken-cue callback's view of voice state current (see onSpokenCue).
+  voiceStateRef.current = { on: voiceMode, characterId: voiceCharacter?.id }
+  useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode, expressiveness: voiceCharacter?.expressiveness, hushedThisTurn: lastWhisperedRef.current })
   // Losing ownership mid-utterance (user switched to another tab, or a Doki Dock
   // appeared on this machine) cuts the audio here so the handoff is clean and the
   // new owner is the only one talking.
@@ -410,7 +464,10 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('keydown', down)
   }, [])
 
-  const handleSend = useCallback(async (text: string, attachments?: File[]) => {
+  const handleSend = useCallback(async (text: string, attachments?: File[], whispered?: boolean) => {
+    // Auto whisper-match: record this turn's whispered status before anything
+    // else runs, so it's stable by the time this turn's reply starts speaking.
+    lastWhisperedRef.current = !!whispered
     // Any fresh user message supersedes an open confirmation offer's buttons
     // (the server-side staged action still expires on its own TTL; a typed
     // "yes" still resolves it via the turn re-route).
@@ -531,6 +588,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     avatarProps: {
       streaming: voiceMode ? (audioPlaying || speaking) : speaking,
       thinking,
+      working,
       sleeping: isActualSleeping,
       listening: isListening,
       mood,
@@ -542,6 +600,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
     replyText,
     streaming,
     thinking,
+    working,
     talkActive,
     listeningState,
     talkState,
