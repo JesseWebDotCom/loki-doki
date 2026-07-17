@@ -13,6 +13,7 @@ import { AdminAccordion } from '@/components/admin/AdminAccordion'
 import { AdminFeaturesTab } from '@/components/admin/AdminFeaturesTab'
 import { AdminAppsTab } from '@/components/admin/AdminAppsTab'
 import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
+import { AdminFamilyAudioTab } from '@/components/admin/AdminFamilyAudioTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
 import { AdminAiEngineTab } from '@/components/admin/AdminAiEngineTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
@@ -242,6 +243,7 @@ export function AdminPage() {
         {section === 'integrations' && ['sonarr', 'radarr', 'overseerr', 'sabnzbd'].includes(sub ?? '') && <AdminMediaServiceTab service={sub as MediaService} />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
+        {section === 'family-audio' && <AdminFamilyAudioTab />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
         {section === 'ai-engine' && sub === 'runtime' && (
           <div className="p-5"><AdminAiEngineTab /></div>

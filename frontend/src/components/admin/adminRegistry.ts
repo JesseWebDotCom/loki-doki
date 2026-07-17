@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Cpu, Plug2, BellRing, HardDrive, Headphones } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -38,7 +38,7 @@ export interface AdminSection {
 const SECTION_ORDER = [
   'overview',
   // Household
-  'users', 'apps', 'companions', 'security',
+  'users', 'family-audio', 'apps', 'companions', 'security',
   // Platform
   'features', 'integrations', 'ai-engine', 'storage',
   // Devices & Alerts
@@ -302,6 +302,12 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         keywords: ['profiles', 'content', 'ceiling', 'dials', 'profanity', 'sexual', 'violence', 'nsfw', 'adult', 'uncensored', 'unrestricted', 'censored'],
         description: 'Named per-category content ceilings assigned to users' },
     ],
+  },
+  {
+    id: 'family-audio', label: 'Family Audio', icon: Headphones, group: 'Household',
+    keywords: ['family', 'audio', 'kids', 'allowlist', 'blocklist', 'time budget', 'screen time', 'quiet hours', 'volume', 'parental', 'music', 'podcasts', 'digest'],
+    description: 'Kids and family listening guardrails: allowlists, time budgets, quiet hours, digests',
+    subsections: [],
   },
   {
     id: 'storage', label: 'Storage', icon: HardDrive, group: 'Platform',
