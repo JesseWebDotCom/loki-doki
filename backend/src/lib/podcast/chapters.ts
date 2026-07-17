@@ -1,9 +1,12 @@
-// Per-episode chapters, one shape for both worlds:
+// Per-episode chapters, one shape for all three worlds:
 //   - Generated episodes: the AI pipeline already writes chaptersJson at build time.
 //   - Subscribed RSS episodes: Podcasting 2.0 <podcast:chapters> points at a JSON
 //     document; we fetch it lazily on first request and cache the normalized result
 //     into the same chaptersJson column (chaptersFetchedAt marks the attempt so a
 //     chapterless or broken URL is not re-fetched on every open).
+//   - Episodes with a transcript but no chapters from either source: lib/podcast/ai.ts
+//     generates them and stores them here via saveEpisodeChapters, so every reader
+//     (GET /episodes/:id/chapters, the player, Now Playing) sees one shape.
 
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
@@ -88,4 +91,19 @@ export async function getEpisodeChapters(episodeId: string): Promise<EpisodeChap
   }).where(eq(podcastEpisodes.id, episodeId))
 
   return chapters
+}
+
+/** Store chapters for an episode in the one canonical column every reader already uses.
+ *  Sorts and drops malformed entries so callers (the AI generator) cannot write a shape
+ *  the readers would then have to defend against. */
+export async function saveEpisodeChapters(episodeId: string, chapters: EpisodeChapter[]): Promise<void> {
+  const clean = chapters
+    .filter(c => c.title?.trim() && Number.isFinite(c.startSec) && c.startSec >= 0)
+    .map(c => ({ title: c.title.trim().slice(0, 200), startSec: Math.round(c.startSec) }))
+    .sort((a, b) => a.startSec - b.startSec)
+    .slice(0, 400)
+  if (!clean.length) return
+  await db.update(podcastEpisodes)
+    .set({ chaptersJson: JSON.stringify(clean) })
+    .where(eq(podcastEpisodes.id, episodeId))
 }

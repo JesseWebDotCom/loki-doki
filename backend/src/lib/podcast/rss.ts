@@ -34,6 +34,8 @@ export interface ParsedPodcastEpisode {
   chaptersUrl: string | null   // Podcasting 2.0 <podcast:chapters url= /> JSON document
   persons: ParsedPodcastPerson[]        // Podcasting 2.0 <podcast:person> episode credits
   soundbites: ParsedPodcastSoundbite[]  // Podcasting 2.0 <podcast:soundbite> highlights
+  transcriptUrl: string | null // Podcasting 2.0 <podcast:transcript url= type= /> (best format wins)
+  transcriptType: string | null
 }
 
 export interface ParsedPodcastFunding {
@@ -158,6 +160,32 @@ function parseSoundbites(block: string): ParsedPodcastSoundbite[] {
   return out.sort((a, b) => a.startSec - b.startSec)
 }
 
+/** Rank a Podcasting 2.0 <podcast:transcript> type: timestamped formats we can
+ *  normalize score highest. 0 = unusable (html/plain text carry no timings). */
+function transcriptTypeRank(mime: string, url: string): number {
+  const m = mime.toLowerCase()
+  const u = url.toLowerCase()
+  if (m.includes('json') || u.endsWith('.json')) return 3
+  if (m.includes('vtt') || u.endsWith('.vtt')) return 2
+  if (m.includes('srt') || m.includes('subrip') || u.endsWith('.srt')) return 1
+  return 0
+}
+
+/** Pick the best usable <podcast:transcript> from an item block. An episode may list
+ *  several (html + vtt + json is common); prefer json > vtt > srt, skip the rest. */
+function pickTranscript(block: string): { url: string; type: string } | null {
+  let best: { url: string; type: string; rank: number } | null = null
+  for (const m of block.match(/<podcast:transcript\b[^>]*>/gi) ?? []) {
+    const url = decodeEntities(m.match(/\burl=["']([^"']+)["']/i)?.[1] ?? '')
+    const type = m.match(/\btype=["']([^"']+)["']/i)?.[1] ?? ''
+    if (!url || !/^https?:/i.test(url)) continue
+    const rank = transcriptTypeRank(type, url)
+    if (rank === 0) continue
+    if (!best || rank > best.rank) best = { url, type, rank }
+  }
+  return best ? { url: best.url, type: best.type } : null
+}
+
 /** True when an enclosure's MIME (or URL extension, when MIME is junk) looks like audio. */
 function isAudioEnclosure(url: string, mime: string): boolean {
   const m = mime.toLowerCase()
@@ -231,6 +259,10 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
       })(),
       persons: parsePersons(block),
       soundbites: parseSoundbites(block),
+      ...(() => {
+        const t = pickTranscript(block)
+        return { transcriptUrl: t?.url ?? null, transcriptType: t?.type ?? null }
+      })(),
     })
   }
 

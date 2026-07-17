@@ -124,6 +124,7 @@ import { podcastPortability } from '@/routes/podcastPortability'
 import { podcastRssOut } from '@/routes/podcastRssOut'
 import { gpodder } from '@/routes/gpodder'
 import { startScrobbleFlusher } from '@/lib/music/scrobble'
+import { podcastAiRoute } from '@/routes/podcastAi'
 import { music } from '@/routes/music'
 import { musicStudio } from '@/routes/musicStudio'
 import { musicInfo } from '@/routes/musicInfo'
@@ -692,6 +693,7 @@ app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
+app.route('/api/podcasts', podcastAiRoute)
 app.route('/api/podcasts', podcastPlayerRoute)
 app.route('/api/podcasts', podcastSubscriptionsRoute)
 app.route('/api/podcasts', podcastStats)

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Play, Pause,
   RotateCw, Rss, ExternalLink, ArrowDownToLine, AlertCircle, Check, ListPlus, ListStart,
-  Settings2, Trash2, SlidersHorizontal, Bookmark,
+  Settings2, Trash2, SlidersHorizontal, Bookmark, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
@@ -28,6 +28,7 @@ import {
   type Episode, type Show,
 } from '@/lib/podcast/api'
 import { getBookmarks } from '@/lib/podcast/playerApi'
+import { setAutoTranscribe } from '@/lib/podcast/aiApi'
 import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
 import { BookmarkRow } from '@/components/podcast/BookmarkRow'
 import { PodcastCredits, PodcastFundingLink, PodcastHighlights } from '@/components/podcast/PodcastCredits'
@@ -282,18 +283,32 @@ function ShowBookmarksSection({ showId }: { showId: string }) {
   )
 }
 
-/** Auto-download prefs, rendered inside the settings dropdown. */
+/** Auto-download + auto-transcribe prefs, rendered inside the settings dropdown. */
 function AutoDownloadSettings({ showId, subscription }: {
   showId: string
-  subscription: { autoDownload: boolean; autoDownloadKeep: number | null }
+  subscription: { autoDownload: boolean; autoDownloadKeep: number | null; autoTranscribe?: boolean }
 }) {
   const qc = useQueryClient()
   const [auto, setAuto] = useState(subscription.autoDownload)
   const [keep, setKeep] = useState(subscription.autoDownloadKeep ?? 3)
+  const [transcribe, setTranscribe] = useState(subscription.autoTranscribe ?? false)
   useEffect(() => {
     setAuto(subscription.autoDownload)
     setKeep(subscription.autoDownloadKeep ?? 3)
-  }, [subscription.autoDownload, subscription.autoDownloadKeep])
+    setTranscribe(subscription.autoTranscribe ?? false)
+  }, [subscription.autoDownload, subscription.autoDownloadKeep, subscription.autoTranscribe])
+
+  async function toggleTranscribe(v: boolean) {
+    setTranscribe(v)
+    try {
+      await setAutoTranscribe(showId, v)
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+      toast.success(v ? 'New episodes will be transcribed automatically.' : 'Auto-transcribe turned off.')
+    } catch {
+      setTranscribe(!v)
+      toast.error('Could not update auto-transcribe.')
+    }
+  }
 
   async function toggleAuto(v: boolean) {
     setAuto(v)
@@ -335,6 +350,10 @@ function AutoDownloadSettings({ showId, subscription }: {
           />
         </label>
       )}
+      <label className="flex cursor-pointer items-center justify-between gap-3 text-xs font-medium">
+        <span className="flex items-center gap-1.5"><FileText className="size-3.5" /> Auto-transcribe new episodes</span>
+        <Switch checked={transcribe} onCheckedChange={v => void toggleTranscribe(v)} className="scale-75" />
+      </label>
     </div>
   )
 }

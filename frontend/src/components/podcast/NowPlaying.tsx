@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X, Download,
   ChevronsLeft, ChevronsRight, BookmarkPlus, MoreHorizontal, Settings2, Trash2, TimerOff,
+  Scissors, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -20,13 +21,16 @@ import { usePodcastPlayback, type PodcastTrack } from '@/context/PodcastPlayback
 import { usePodcastDspPrefs, useTimeSaved, fmtTimeSaved } from '@/hooks/usePodcastPlayerPrefs'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'
+import { TranscriptPanel } from '@/components/podcast/TranscriptPanel'
 import { coverUrl, getEpisodeDetail, type EpisodeDetail } from '@/lib/podcast/api'
 import { createBookmark } from '@/lib/podcast/playerApi'
+import { createSnip } from '@/lib/podcast/aiApi'
 import { accentOf, DEFAULT_PALETTE, useArtPalette } from '@/lib/artPalette'
 import { accentVars } from '@/components/shared/ArtAccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
 import { SeekBar } from '@/components/shared/SeekBar'
 import { fmtTime, fmtDate } from '@/lib/podcast/format'
+import { Link as RouterLink } from 'react-router-dom'
 
 type Tab = 'chapters' | 'transcript' | 'details'
 const RATES = [0.75, 1, 1.25, 1.5, 2]
@@ -43,6 +47,7 @@ export function NowPlaying() {
   const [tab, setTab] = useState<Tab>('chapters')
   const [detail, setDetail] = useState<EpisodeDetail | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [snipping, setSnipping] = useState(false)
 
   // Immersive backdrop: the show cover through UltraBlur, with the whole panel's
   // chrome (play button, tabs, links) retinted to the cover palette. Always-dark,
@@ -86,6 +91,20 @@ export function NowPlaying() {
       toast.success(`Bookmarked at ${fmtTime(positionSec)}.`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not save the bookmark.')
+    }
+  }
+
+  // "Clip that": the transcript around this second, LLM-titled and filed as a snip.
+  async function handleSnip() {
+    if (!track || snipping) return
+    setSnipping(true)
+    try {
+      const snip = await createSnip(track.episodeId, positionSec)
+      toast.success(`Snipped "${snip.title}".`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save the snip.')
+    } finally {
+      setSnipping(false)
     }
   }
 
@@ -180,6 +199,11 @@ export function NowPlaying() {
           className="size-9 text-muted-foreground hover:text-foreground">
           <BookmarkPlus className="size-5" />
         </Button>
+        <Button type="button" variant="ghost" size="icon-sm" onClick={() => void handleSnip()} disabled={snipping}
+          title="Clip that (saves the transcript around this moment)" aria-label="Clip that"
+          className="size-9 text-muted-foreground hover:text-foreground">
+          <Scissors className="size-5" />
+        </Button>
         {chapters.length > 1 && (
           <Button type="button" variant="ghost" size="icon-sm" onClick={nextChapter} title="Next chapter" aria-label="Next chapter"
             className="size-9 text-muted-foreground hover:text-foreground">
@@ -244,9 +268,20 @@ export function NowPlaying() {
           ) : <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">No chapters.</p>
         )}
 
+        {/* Generated episodes carry their own script (speaker turns, no timings); everything
+            else gets the canonical timestamped transcript that follows playback. */}
         {tab === 'transcript' && (
           detail == null ? <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">Loading…</p>
-          : detail.transcript.length > 0 ? (
+          : detail.transcript.length === 0 ? (
+            <>
+              <TranscriptPanel episodeId={track.episodeId} positionSec={positionSec} onSeek={seek}
+                compact className="max-h-[46vh]" />
+              <RouterLink to={`/podcasts/episode/${track.episodeId}`}
+                className="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                Open the full episode page <ExternalLink className="size-3" />
+              </RouterLink>
+            </>
+          ) : (
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">{detail.transcript.length} turns</span>
@@ -284,7 +319,7 @@ export function NowPlaying() {
                 ))}
               </div>
             </div>
-          ) : <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">No transcript available.</p>
+          )
         )}
 
         {tab === 'details' && (

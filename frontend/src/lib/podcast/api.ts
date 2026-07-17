@@ -50,7 +50,7 @@ export interface Show {
   persons?: PodcastPerson[]
   funding?: PodcastFunding[]
   /** This user's subscription prefs — null unless they subscribe to this show. */
-  subscription?: { autoDownload: boolean; autoDownloadKeep: number | null } | null
+  subscription?: { autoDownload: boolean; autoDownloadKeep: number | null; autoTranscribe?: boolean } | null
 }
 
 export interface Episode {
@@ -126,6 +126,7 @@ export interface Subscription {
   showId: string
   autoDownload: boolean
   autoDownloadKeep: number | null
+  autoTranscribe?: boolean
   addedAt: string | number
   name: string
   feedUrl: string | null

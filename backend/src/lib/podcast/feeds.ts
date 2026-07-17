@@ -161,6 +161,8 @@ async function insertEpisodes(showId: string, episodes: ParsedEpisodes): Promise
       chaptersUrl: e.chaptersUrl,
       personsJson: e.persons.length ? JSON.stringify(e.persons) : null,
       soundbitesJson: e.soundbites.length ? JSON.stringify(e.soundbites) : null,
+      transcriptUrl: e.transcriptUrl,
+      transcriptType: e.transcriptType,
       createdAt: now,
     }))).onConflictDoNothing()
   }
@@ -223,8 +225,31 @@ export async function refreshPodcastFeed(showId: string): Promise<number> {
   }
 
   await runAutoDownloadPass(showId).catch(err => logger.warn(`[podcast-rss] auto-download pass failed for ${showId}: ${err}`))
-  if (added > 0) logger.info(`[podcast-rss] +${added} episode(s) for "${show.name}"`)
+  if (added > 0) {
+    logger.info(`[podcast-rss] +${added} episode(s) for "${show.name}"`)
+    await runAutoTranscribePass(showId, added).catch(err => logger.warn(`[podcast-rss] auto-transcribe pass failed for ${showId}: ${err}`))
+  }
   return added
+}
+
+/** When any subscriber opted into auto-transcribe, queue Whisper jobs for the freshly
+ *  landed episodes (newest first, small cap per refresh so a backlog import doesn't
+ *  swamp the compute lane). Episodes with a feed transcript resolve from the URL at
+ *  first open instead, so only URL-less ones get a Whisper job. */
+export async function runAutoTranscribePass(showId: string, added: number): Promise<void> {
+  const subs = await db.select({ userId: podcastSubscriptions.userId }).from(podcastSubscriptions)
+    .where(and(eq(podcastSubscriptions.showId, showId), eq(podcastSubscriptions.autoTranscribe, true)))
+  if (!subs.length) return
+  const fresh = await db.select({ id: podcastEpisodes.id, transcriptUrl: podcastEpisodes.transcriptUrl })
+    .from(podcastEpisodes)
+    .where(eq(podcastEpisodes.showId, showId))
+    .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
+    .limit(Math.min(Math.max(added, 1), 3))
+  const { enqueueEpisodeTranscription } = await import('@/lib/podcast/transcribe')
+  for (const ep of fresh) {
+    if (ep.transcriptUrl) continue
+    await enqueueEpisodeTranscription(ep.id, null).catch(() => {})
+  }
 }
 
 /** For every auto-download subscriber of this show: enqueue the newest-N episodes they

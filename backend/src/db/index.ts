@@ -3741,4 +3741,58 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS gpodder_episode_actions_user_at_idx ON gpodder_episode_actions(user_id, action_at);
   `)
+
+  // ── AI-native podcast listening: transcripts, AI insights, snips, search ──
+  // Podcasting 2.0 <podcast:transcript> URL + MIME from the feed (lazily fetched).
+  addColumn('podcast_episodes', 'transcript_url', 'TEXT')
+  addColumn('podcast_episodes', 'transcript_type', 'TEXT')
+  // Per-user "auto-transcribe new episodes" subscription pref.
+  addColumn('podcast_subscriptions', 'auto_transcribe', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS podcast_transcripts (
+      id TEXT NOT NULL PRIMARY KEY,
+      episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      format TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      segments_json TEXT,
+      segment_count INTEGER,
+      requested_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS podcast_episode_ai (
+      id TEXT NOT NULL PRIMARY KEY,
+      episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      summary TEXT,
+      takeaways_json TEXT,
+      chapters_generated INTEGER NOT NULL DEFAULT 0,
+      model TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS podcast_snips (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+      start_sec REAL NOT NULL DEFAULT 0,
+      end_sec REAL NOT NULL DEFAULT 0,
+      title TEXT NOT NULL,
+      summary TEXT,
+      transcript_text TEXT NOT NULL,
+      note_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS podcast_snips_user_idx ON podcast_snips(user_id);
+    CREATE INDEX IF NOT EXISTS podcast_snips_episode_idx ON podcast_snips(episode_id);
+
+    -- FTS5 over transcript windows (merged segments), maintained by lib/podcast/
+    -- transcripts.ts on every transcript save (delete-by-episode then insert). Not an
+    -- external-content mirror: the canonical segments live in podcast_transcripts'
+    -- segments_json, and search results re-join podcast_episodes so rows for deleted
+    -- episodes simply never surface.
+    CREATE VIRTUAL TABLE IF NOT EXISTS podcast_transcript_fts USING fts5(
+      text, episode_id UNINDEXED, show_id UNINDEXED, start_sec UNINDEXED, end_sec UNINDEXED
+    );
+  `)
 }
