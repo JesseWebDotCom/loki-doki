@@ -18,6 +18,8 @@ export interface ParsedPodcastEpisode {
   publishedAt: number | null   // Unix ms
   explicit: number | null      // <itunes:explicit>: 1=explicit, 0=clean, null=unknown (inherits channel)
   chaptersUrl: string | null   // Podcasting 2.0 <podcast:chapters url= /> JSON document
+  transcriptUrl: string | null // Podcasting 2.0 <podcast:transcript url= type= /> (best format wins)
+  transcriptType: string | null
 }
 
 export interface ParsedPodcastFeed {
@@ -70,6 +72,32 @@ export function parseItunesDuration(raw: string): number | null {
   let sec = 0
   for (const p of parts) sec = sec * 60 + p
   return sec > 0 ? sec : null
+}
+
+/** Rank a Podcasting 2.0 <podcast:transcript> type: timestamped formats we can
+ *  normalize score highest. 0 = unusable (html/plain text carry no timings). */
+function transcriptTypeRank(mime: string, url: string): number {
+  const m = mime.toLowerCase()
+  const u = url.toLowerCase()
+  if (m.includes('json') || u.endsWith('.json')) return 3
+  if (m.includes('vtt') || u.endsWith('.vtt')) return 2
+  if (m.includes('srt') || m.includes('subrip') || u.endsWith('.srt')) return 1
+  return 0
+}
+
+/** Pick the best usable <podcast:transcript> from an item block. An episode may list
+ *  several (html + vtt + json is common); prefer json > vtt > srt, skip the rest. */
+function pickTranscript(block: string): { url: string; type: string } | null {
+  let best: { url: string; type: string; rank: number } | null = null
+  for (const m of block.match(/<podcast:transcript\b[^>]*>/gi) ?? []) {
+    const url = decodeEntities(m.match(/\burl=["']([^"']+)["']/i)?.[1] ?? '')
+    const type = m.match(/\btype=["']([^"']+)["']/i)?.[1] ?? ''
+    if (!url || !/^https?:/i.test(url)) continue
+    const rank = transcriptTypeRank(type, url)
+    if (rank === 0) continue
+    if (!best || rank > best.rank) best = { url, type, rank }
+  }
+  return best ? { url: best.url, type: best.type } : null
 }
 
 /** True when an enclosure's MIME (or URL extension, when MIME is junk) looks like audio. */
@@ -140,6 +168,10 @@ export function parsePodcastFeed(xml: string): ParsedPodcastFeed {
       chaptersUrl: (() => {
         const url = decodeEntities(attr(block, 'podcast:chapters', 'url'))
         return url && /^https?:/i.test(url) ? url : null
+      })(),
+      ...(() => {
+        const t = pickTranscript(block)
+        return { transcriptUrl: t?.url ?? null, transcriptType: t?.type ?? null }
       })(),
     })
   }

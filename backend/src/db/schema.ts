@@ -1757,6 +1757,10 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
   // including empty/failed results, so a chapterless episode isn't re-fetched every open).
   chaptersUrl: text('chapters_url'),
   chaptersFetchedAt: integer('chapters_fetched_at', { mode: 'timestamp' }),
+  // Podcasting 2.0 <podcast:transcript> document URL + declared MIME from the feed.
+  // Fetched lazily on first transcript request and normalized into podcastTranscripts.
+  transcriptUrl: text('transcript_url'),
+  transcriptType: text('transcript_type'),
   // Shared media_assets rendition once any household member downloads this episode.
   assetId: text('asset_id'),
   // Episode-level parental advisory from <itunes:explicit>/trackExplicitness: null=unknown,
@@ -1813,6 +1817,8 @@ export const podcastSubscriptions = sqliteTable('podcast_subscriptions', {
   showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
   autoDownload: integer('auto_download', { mode: 'boolean' }).notNull().default(false),
   autoDownloadKeep: integer('auto_download_keep'),  // null → default 3
+  // Whisper-transcribe fresh episodes automatically as the feed poller lands them.
+  autoTranscribe: integer('auto_transcribe', { mode: 'boolean' }).notNull().default(false),
   notify: integer('notify', { mode: 'boolean' }).notNull().default(false),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
@@ -3564,4 +3570,62 @@ export const podcastEpisodeFilters = sqliteTable('podcast_episode_filters', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   userIdx: index('podcast_episode_filters_user_idx').on(t.userId),
+}))
+
+// ── AI-native podcast listening ─────────────────────────────────────────────────
+// One canonical timestamped transcript per episode. source 'feed' = normalized from a
+// Podcasting 2.0 <podcast:transcript> document (SRT/VTT/JSON); 'whisper' = produced by
+// the local Whisper job. segmentsJson holds the canonical
+// [{ startSec, endSec, text, speaker? }] array; a companion FTS5 index
+// (podcast_transcript_fts, created in db/index.ts) powers library-wide search.
+export const podcastTranscripts = sqliteTable('podcast_transcripts', {
+  id: text('id').primaryKey(),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  source: text('source', { enum: ['feed', 'whisper'] }).notNull(),
+  format: text('format'),               // original document format: 'vtt' | 'srt' | 'json' | 'whisper'
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'),
+  segmentsJson: text('segments_json'),
+  segmentCount: integer('segment_count'),
+  requestedBy: text('requested_by'),    // user who asked for a Whisper run (audit only, no FK)
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeUnique: unique().on(t.episodeId),
+}))
+
+// Per-episode AI insights generated from the transcript: a pre-listen summary plus
+// 3-5 takeaways. Auto-chapters generated alongside land in podcastEpisodes.chaptersJson
+// (via lib/podcast/chapters.ts) so the existing chapters endpoint/UI serves them;
+// chaptersGenerated just records that this episode's chapters are AI-made.
+export const podcastEpisodeAi = sqliteTable('podcast_episode_ai', {
+  id: text('id').primaryKey(),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  summary: text('summary'),
+  takeawaysJson: text('takeaways_json'),
+  chaptersGenerated: integer('chapters_generated', { mode: 'boolean' }).notNull().default(false),
+  model: text('model'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  episodeUnique: unique().on(t.episodeId),
+}))
+
+// Snips: "clip that" moments — the transcript around a playback position (snapped to
+// segment boundaries), LLM-titled and summarized. noteId links the snip to a Note when
+// the user saves it there (notes are the household knowledge store; snips stay the
+// structured, deep-linkable library entry).
+export const podcastSnips = sqliteTable('podcast_snips', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
+  startSec: real('start_sec').notNull().default(0),
+  endSec: real('end_sec').notNull().default(0),
+  title: text('title').notNull(),
+  summary: text('summary'),
+  transcriptText: text('transcript_text').notNull(),
+  noteId: text('note_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('podcast_snips_user_idx').on(t.userId),
+  episodeIdx: index('podcast_snips_episode_idx').on(t.episodeId),
 }))

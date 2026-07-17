@@ -54,3 +54,41 @@ export async function transcribeWav(wav: Uint8Array, _hotwords?: string): Promis
   const data = (await res.json()) as { text?: string }
   return (data.text ?? '').trim()
 }
+
+export interface WhisperTimedSegment {
+  start: number
+  end: number
+  text: string
+}
+
+/**
+ * Long-form transcription with per-segment timestamps (`/inference?timestamps=1`,
+ * the voice sidecar's chunked mode that handles audio beyond Whisper's 30s window).
+ * `segments: null` means the running sidecar predates the timestamped mode (or a
+ * non-sidecar whisper server is configured) — the caller falls back to plain text.
+ * Generous timeout: minutes of CPU decode per multi-minute WAV chunk is normal.
+ */
+export async function transcribeWavTimed(wav: Uint8Array, timeoutMs = 15 * 60_000): Promise<{ text: string; segments: WhisperTimedSegment[] | null }> {
+  const base = await whisperUrl()
+  let res: Response
+  try {
+    res = await fetch(`${base}/inference?timestamps=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'audio/wav' },
+      body: wav as unknown as BodyInit,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (e) {
+    logger.warn(`[whisper] timed transcribe transport error: ${(e as Error).message}`)
+    throw new Error(`whisper_unreachable: ${(e as Error).message}`)
+  }
+  if (!res.ok) {
+    res.body?.cancel().catch(() => {})
+    // Older sidecar builds 404 the query-string route: degrade to the plain call.
+    const text = await transcribeWav(wav)
+    return { text, segments: null }
+  }
+  const data = (await res.json()) as { text?: string; segments?: WhisperTimedSegment[] }
+  if (!Array.isArray(data.segments)) return { text: (data.text ?? '').trim(), segments: null }
+  return { text: (data.text ?? '').trim(), segments: data.segments }
+}
