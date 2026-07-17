@@ -63,13 +63,16 @@ export async function enqueueEpisodeTranscription(episodeId: string, requestedBy
     assetId: podcastEpisodes.assetId, durationSec: podcastEpisodes.durationSec,
   }).from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
   if (!episode) throw new Error('Unknown episode')
-  if (!episode.audioRelPath && !episode.enclosureUrl && !episode.assetId) throw new Error('Episode has no audio to transcribe')
-  if ((episode.durationSec ?? 0) > MAX_EPISODE_SECONDS) throw new Error('Episode is too long to transcribe')
 
-  // A ready transcript never gets silently re-run; processing/pending just reuses the job.
+  // A ready transcript never gets silently re-run (processing/pending just reuses the
+  // job). Checked BEFORE the audio guard: when there is already a transcript there is
+  // nothing to do, and whether the audio is still reachable is beside the point.
   const [existing] = await db.select({ status: podcastTranscripts.status }).from(podcastTranscripts)
     .where(eq(podcastTranscripts.episodeId, episodeId)).limit(1)
   if (existing?.status === 'ready') return
+
+  if (!episode.audioRelPath && !episode.enclosureUrl && !episode.assetId) throw new Error('Episode has no audio to transcribe')
+  if ((episode.durationSec ?? 0) > MAX_EPISODE_SECONDS) throw new Error('Episode is too long to transcribe')
 
   await setTranscriptStatus(episodeId, 'pending', { source: 'whisper', requestedBy })
 
