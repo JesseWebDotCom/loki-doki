@@ -3015,6 +3015,27 @@ export function runMigrations() {
     DROP TABLE IF EXISTS coding_projects;
   `)
 
+  // Network protection / DNS filtering (see schema.ts dnsDevices/dnsRules; lib/dns)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS dns_devices (
+      ip TEXT NOT NULL PRIMARY KEY,
+      label TEXT NOT NULL,
+      profile TEXT NOT NULL DEFAULT 'default',
+      last_seen_at INTEGER,
+      queries INTEGER NOT NULL DEFAULT 0,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS dns_rules (
+      id TEXT NOT NULL PRIMARY KEY,
+      domain TEXT NOT NULL,
+      action TEXT NOT NULL,
+      profile TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS dns_rules_domain_idx ON dns_rules(domain);
+  `)
+
   // Routines (see schema.ts routines/routineRuns; lib/routines/engine.ts)
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS routines (
