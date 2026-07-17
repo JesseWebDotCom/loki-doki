@@ -3036,6 +3036,25 @@ export const plexPathMappings = sqliteTable('plex_path_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Backups ───────────────────────────────────────────────────────────────────
+// One row per backup run (scheduled, manual, or the automatic pre-update snapshot).
+// The DB snapshot itself is a VACUUM INTO copy at <destinationPath>/db/<dbFileName>;
+// user files mirror to <destinationPath>/files/. destinationPath is captured at run
+// time so rows stay meaningful if the admin later changes the destination.
+export const backups = sqliteTable('backups', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull().default('manual'), // 'manual' | 'scheduled' | 'pre-update'
+  status: text('status').notNull().default('running'), // 'running' | 'complete' | 'failed'
+  destinationPath: text('destination_path').notNull(),
+  dbFileName: text('db_file_name'),
+  dbSizeBytes: integer('db_size_bytes'),
+  filesSynced: integer('files_synced'), // files copied by the mirror pass; null = mirror skipped
+  filesBytes: integer('files_bytes'), // bytes copied by the mirror pass
+  error: text('error'),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }),
+})
+
 // ─── Plex per-user library provisioning ────────────────────────────────────────
 // One row per (user, content type) once a private Plex "show" library has been
 // created and shared to only that user's Plex account. `sharedServerId` is the id

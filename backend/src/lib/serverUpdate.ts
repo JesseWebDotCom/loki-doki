@@ -399,6 +399,18 @@ async function runUpdatePipeline(): Promise<void> {
     }
     step('fetch', 'Fetching the latest code', 'ok', `${behind} commit${behind === 1 ? '' : 's'} to apply`)
 
+    // Snapshot the database before any code changes, so a bad update (or a schema
+    // migration in the new version) is recoverable from Admin → Storage → Backups.
+    // A failed snapshot aborts the update: the safety net is the whole point.
+    step('backup', 'Snapshotting the database', 'run')
+    const { runBackup } = await import('@/lib/backup')
+    const snapshot = await runBackup('pre-update', { includeFiles: false })
+    if (!snapshot.ok) {
+      step('backup', 'Snapshotting the database', 'fail')
+      throw new Error(`Pre-update backup failed, so the update was not applied: ${snapshot.error}`)
+    }
+    step('backup', 'Snapshotting the database', 'ok', snapshot.dbFileName)
+
     const beforeShort = await capture(['rev-parse', '--short', 'HEAD'])
     step('merge', 'Applying the update', 'run')
     await run(git, [...gitSafe(), 'merge', '--ff-only', '@{u}'], { cwd: REPO_ROOT, onLine })
