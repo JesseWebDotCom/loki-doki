@@ -80,7 +80,7 @@ export async function getEpisodeChapters(episodeId: string): Promise<EpisodeChap
     } else {
       res.body?.cancel().catch(() => {})
     }
-  } catch { /* unreachable host / SSRF-blocked / timeout — cache the miss below */ }
+  } catch { /* unreachable host / SSRF-blocked / timeout - cache the miss below */ }
 
   await db.update(podcastEpisodes).set({
     ...(chapters.length ? { chaptersJson: JSON.stringify(chapters) } : {}),
