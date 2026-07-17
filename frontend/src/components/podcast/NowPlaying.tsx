@@ -16,7 +16,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { usePodcastPlayback, type PodcastTrack, type SleepMode } from '@/context/PodcastPlaybackContext'
+import { usePodcastPlayback, type PodcastTrack } from '@/context/PodcastPlaybackContext'
 import { usePodcastDspPrefs, useTimeSaved, fmtTimeSaved } from '@/hooks/usePodcastPlayerPrefs'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { ShowPlaybackSettings } from '@/components/podcast/ShowPlaybackSettings'

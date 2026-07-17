@@ -1679,6 +1679,11 @@ export function runMigrations() {
   // settings, server-persisted Up Next queue, bookmarks, and saved episode filters.
   addColumn('podcast_episodes', 'chapters_url', 'TEXT')
   addColumn('podcast_episodes', 'chapters_fetched_at', 'INTEGER')
+  // The parental-advisory addColumns earlier in this function run BEFORE the podcast
+  // tables' CREATEs, so on a fresh DB they no-op and the columns end up missing (any
+  // select of episode.explicit then fails). Re-run them here, after the CREATEs.
+  addColumn('podcast_shows', 'explicit', 'INTEGER')
+  addColumn('podcast_episodes', 'explicit', 'INTEGER')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS podcast_show_settings (
       id TEXT NOT NULL PRIMARY KEY,
