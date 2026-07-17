@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, videoFolders, videoFolderMembers, videoFollows, videoItems, videoSaves, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
+import { mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
@@ -749,6 +749,142 @@ videosRoute.put('/watch-state', async (c) => {
   })
   const timeGate = await checkVideoTime(user.id)
   return c.json({ ok: true, timeLimit: timeGate.remainingSec != null || !timeGate.allowed ? timeGate : undefined })
+})
+
+// ── Family social layer: moments, timed reactions, movie-night votes, Blend ───────
+// All household-visible on purpose: leaving a reaction for the rest of the family IS the
+// feature. None of it leaves the server, which is exactly what nobody else can offer.
+
+videosRoute.get('/:source/moments/:id', async (c) => {
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const rows = await db.select({
+    id: videoMoments.id, userId: videoMoments.userId, atSec: videoMoments.atSec,
+    emoji: videoMoments.emoji, note: videoMoments.note, createdAt: videoMoments.createdAt,
+    name: users.nickname, firstName: users.firstName,
+  })
+    .from(videoMoments)
+    .leftJoin(users, eq(users.id, videoMoments.userId))
+    .where(and(eq(videoMoments.source, source), eq(videoMoments.videoId, videoId)))
+    .orderBy(asc(videoMoments.atSec))
+  return c.json({
+    moments: rows.map((r) => ({
+      id: r.id, userId: r.userId, atSec: r.atSec, emoji: r.emoji, note: r.note,
+      by: r.name || r.firstName || 'Someone',
+      mine: r.userId === c.get('user').id,
+      createdAt: r.createdAt?.getTime() ?? 0,
+    })),
+  })
+})
+
+videosRoute.post('/:source/moments/:id', async (c) => {
+  const user = c.get('user')
+  const source = c.req.param('source')
+  const videoId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { atSec?: number; emoji?: string; note?: string }
+  if (!Number.isFinite(body.atSec)) return c.json({ error: 'atSec required' }, 400)
+  const emoji = body.emoji?.trim().slice(0, 8) || null
+  const note = body.note?.trim().slice(0, 300) || null
+  if (!emoji && !note) return c.json({ error: 'emoji or note required' }, 400)
+  const id = randomUUID()
+  await db.insert(videoMoments).values({
+    id, userId: user.id, source, videoId,
+    atSec: Math.max(0, Math.floor(body.atSec as number)), emoji, note, createdAt: new Date(),
+  })
+  return c.json({ id })
+})
+
+// Only the author may remove their own reaction.
+videosRoute.delete('/moments/:momentId', async (c) => {
+  const user = c.get('user')
+  await db.delete(videoMoments).where(and(
+    eq(videoMoments.id, c.req.param('momentId')),
+    eq(videoMoments.userId, user.id),
+  ))
+  return c.json({ ok: true })
+})
+
+// Movie-night voting over a shared playlist: tallies are household-wide, one vote per
+// person per entry, toggled off by voting again.
+videosRoute.get('/playlists/:playlistId/votes', async (c) => {
+  const user = c.get('user')
+  const playlistId = c.req.param('playlistId')
+  const rows = await db.select().from(videoVotes).where(eq(videoVotes.playlistId, playlistId))
+  const tally = new Map<string, { source: string; videoId: string; count: number; mine: boolean }>()
+  for (const r of rows) {
+    const key = `${r.source}:${r.videoId}`
+    const cur = tally.get(key) ?? { source: r.source, videoId: r.videoId, count: 0, mine: false }
+    cur.count += 1
+    if (r.userId === user.id) cur.mine = true
+    tally.set(key, cur)
+  }
+  const votes = Array.from(tally.values()).sort((a, b) => b.count - a.count)
+  return c.json({ votes, total: rows.length })
+})
+
+videosRoute.post('/playlists/:playlistId/votes', async (c) => {
+  const user = c.get('user')
+  const playlistId = c.req.param('playlistId')
+  const body = await c.req.json().catch(() => ({})) as { source?: string; videoId?: string; vote?: boolean }
+  const source = body.source?.trim()
+  const videoId = body.videoId?.trim()
+  if (!source || !videoId) return c.json({ error: 'source and videoId required' }, 400)
+  if (body.vote === false) {
+    await db.delete(videoVotes).where(and(
+      eq(videoVotes.userId, user.id), eq(videoVotes.playlistId, playlistId),
+      eq(videoVotes.source, source), eq(videoVotes.videoId, videoId),
+    ))
+  } else {
+    await db.insert(videoVotes)
+      .values({ id: randomUUID(), userId: user.id, playlistId, source, videoId, createdAt: new Date() })
+      .onConflictDoNothing()
+  }
+  return c.json({ ok: true })
+})
+
+// ── Family Blend: things more than one of you would like ─────────────────────────
+// Instagram ships Blend as a shared feed inside a DM group; ours is the household one,
+// computed locally and transparently: videos from creators that MULTIPLE family members
+// follow, that the asker has not watched. No profiling, no model, just the overlap.
+
+videosRoute.get('/blend', async (c) => {
+  const user = c.get('user')
+  // Creators followed by more than one person, with who follows them.
+  const allFollows = await db.select({
+    userId: videoFollows.userId, id: videoFollows.id,
+    source: videoFollows.source, externalId: videoFollows.externalId, title: videoFollows.title,
+  }).from(videoFollows)
+  const byCreator = new Map<string, { followIds: string[]; users: Set<string>; title: string }>()
+  for (const f of allFollows) {
+    const key = `${f.source}:${f.externalId.toLowerCase()}`
+    const cur = byCreator.get(key) ?? { followIds: [], users: new Set<string>(), title: f.title }
+    cur.followIds.push(f.id)
+    cur.users.add(f.userId)
+    byCreator.set(key, cur)
+  }
+  const shared = Array.from(byCreator.values()).filter((v) => v.users.size > 1 && v.users.has(user.id))
+  if (shared.length === 0) return c.json({ items: [], sharedCreators: 0 })
+
+  const followIds = shared.flatMap((s) => s.followIds)
+  const rows = await db.select().from(videoItems)
+    .where(inArray(videoItems.followId, followIds))
+    .orderBy(desc(videoItems.publishedAt))
+    .limit(120)
+  const watched = new Set(
+    (await db.select({ source: videoWatchState.source, videoId: videoWatchState.videoId })
+      .from(videoWatchState).where(eq(videoWatchState.userId, user.id)))
+      .map((w) => `${w.source}:${w.videoId}`),
+  )
+  const items: VideoItem[] = rows
+    .filter((r) => !watched.has(`${r.source}:${r.externalId}`))
+    .map((r) => ({
+      source: r.source as VideoSource, id: r.externalId, url: '', title: r.title,
+      creator: r.creatorId ? { id: r.creatorId, name: r.creatorName ?? '' } : null,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, isAdult: r.isAdult ?? false,
+      publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
+    }))
+  const allowed = await filterVideosForUser(user.id, items)
+  return c.json({ items: allowed.slice(0, 24), sharedCreators: shared.length })
 })
 
 // ── Trickplay sheets ─────────────────────────────────────────────────────────────

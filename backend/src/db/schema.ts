@@ -2345,6 +2345,37 @@ export const mediaProgress = sqliteTable('media_progress', {
   userAssetUnique: uniqueIndex('media_progress_user_asset').on(t.userId, t.assetType, t.assetId),
 }))
 
+// The family social layer: private, household-only reactions to video. Netflix has
+// Moments, niconico has timed comments, YouTube has neither privately; the point here is
+// that a family can leave things for each other on a video without any of it leaving the
+// house. Household-visible by design (that IS the feature), so no per-user scoping on read.
+//
+// One row is both a bookmark and a timed reaction: `note` present = a saved Moment worth
+// a card, `emoji` present = a scrubber pin. Either or both.
+export const videoMoments = sqliteTable('video_moments', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  atSec: integer('at_sec').notNull(),
+  emoji: text('emoji'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Movie-night voting over a shared playlist: one row per person per entry. The winner is
+// simply the entry with the most votes (ties break by earliest vote).
+export const videoVotes = sqliteTable('video_votes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  playlistId: text('playlist_id').notNull(),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (t) => ({
+  voteUnique: uniqueIndex('video_votes_unique').on(t.userId, t.playlistId, t.source, t.videoId),
+}))
+
 // Media segments (lib/videos/mediaSegments.ts): typed time-spans a player can act on
 // (intro/credits/recap/preview), so skip affordances have ONE model across SponsorBlock
 // and locally detected intros. A single row with type 'none' is the "checked, found

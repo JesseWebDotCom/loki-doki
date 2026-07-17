@@ -26,7 +26,7 @@ import { MINE_META } from '@/lib/videos/sources'
 import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem } from '@/lib/youtube/types'
-import { getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { getBlend, getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 import { PlaySomethingButton } from '@/components/videos/PlaySomethingButton'
@@ -79,6 +79,10 @@ function HubLanding() {
 
   const { data: history = [], isLoading: ytHistoryLoading } = useQuery({ queryKey: ['yt-history'], queryFn: getHistory })
   const { data: hubHistoryData, isLoading: hubHistoryLoading } = useQuery({ queryKey: ['videos-history'], queryFn: getHubHistory })
+
+  // Family Blend: what more than one of you follows, minus what you've watched.
+  const { data: blendData } = useQuery({ queryKey: ['videos-blend'], queryFn: getBlend, staleTime: 5 * 60_000 })
+  const blend = blendData?.items ?? []
 
   // Live Watch Together rooms: anyone in the household can hop in from here.
   const { data: wtData } = useQuery({
@@ -229,6 +233,18 @@ function HubLanding() {
           {railContinue.length > 0 ? (
             <HubMediaShelf title="Continue watching" items={railContinue} view={view} />
           ) : historyLoading ? <ShelfSkeleton /> : null}
+
+          {/* Family Blend: fresh videos from creators more than one of you follows,
+              computed from the plain overlap (no profiling). Shown even in approved-only
+              mode: it is your household's own shared taste, not algorithmic discovery. */}
+          {blend.length > 0 && (
+            <HubMediaShelf
+              title="Your family also watches"
+              items={blend}
+              view={view}
+              showSource
+            />
+          )}
 
           {!hideDiscovery && (
             <HubMediaShelf

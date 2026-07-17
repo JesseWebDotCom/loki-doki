@@ -288,6 +288,43 @@ export interface WatchStateSnapshot {
  *  aren't in a followed creator's feed cache (direct links, search, browsing without
  *  following): pass the item you already have in hand rather than making history depend
  *  on a separate cache table that only the followed-feed poller populates. */
+// ── Family social layer ──────────────────────────────────────────────────────────
+
+export interface VideoMoment {
+  id: string
+  userId: string
+  atSec: number
+  emoji: string | null
+  note: string | null
+  by: string
+  mine: boolean
+  createdAt: number
+}
+
+export function listMoments(source: VideoSource | 'youtube', videoId: string): Promise<{ moments: VideoMoment[] }> {
+  return getJson(`/api/videos/${source}/moments/${encodeURIComponent(videoId)}`)
+}
+export function addMoment(source: VideoSource | 'youtube', videoId: string, atSec: number, body: { emoji?: string; note?: string }): Promise<{ id: string }> {
+  return sendJson(`/api/videos/${source}/moments/${encodeURIComponent(videoId)}`, 'POST', { atSec, ...body })
+}
+export function removeMoment(momentId: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/moments/${momentId}`, 'DELETE', {})
+}
+
+export interface VoteTally { source: VideoSource; videoId: string; count: number; mine: boolean }
+
+export function listVotes(playlistId: string): Promise<{ votes: VoteTally[]; total: number }> {
+  return getJson(`/api/videos/playlists/${playlistId}/votes`)
+}
+export function castVote(playlistId: string, source: VideoSource, videoId: string, vote: boolean): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/playlists/${playlistId}/votes`, 'POST', { source, videoId, vote })
+}
+
+/** Family Blend: fresh videos from creators more than one of you follows. */
+export function getBlend(): Promise<{ items: HubVideoItem[]; sharedCreators: number }> {
+  return getJson('/api/videos/blend')
+}
+
 // ── Subscription folders ─────────────────────────────────────────────────────────
 
 export interface FolderMember { source: VideoSource; externalId: string }

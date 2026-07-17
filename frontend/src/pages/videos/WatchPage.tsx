@@ -65,6 +65,7 @@ import { useWatchTogether, type WtPlayerControls } from '@/hooks/useWatchTogethe
 import { WatchTogetherPill } from '@/components/videos/WatchTogetherPill'
 import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
+import { MomentsPanel } from '@/components/videos/MomentsPanel'
 import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
 /** A feed/related item → a mini-player queue entry. */
@@ -79,7 +80,7 @@ const watchSnapshot = (it: HubVideoItem) => ({
   creatorName: it.creator?.name ?? null, durationSec: it.durationSec, isAdult: it.isAdult,
 })
 
-type SideTab = 'upnext' | 'transcript' | 'ask' | 'comments'
+type SideTab = 'upnext' | 'transcript' | 'ask' | 'moments' | 'comments'
 
 /** Compact like/dislike counts (1234 → "1.2K"). */
 function fmtCount(n: number): string {
@@ -512,6 +513,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
             { key: 'upnext' as SideTab, label: pq.active && pq.playlistId ? 'Queue' : 'Up next' },
             { key: 'transcript' as SideTab, label: 'Transcript' },
             { key: 'ask' as SideTab, label: 'Ask' },
+            { key: 'moments' as SideTab, label: 'Moments' },
             { key: 'comments' as SideTab, label: 'Comments' },
           ]}
           active={tab} onChange={setTab}
@@ -538,6 +540,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           )}
           {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} currentSec={currentSec} />}
           {tab === 'ask' && <AskVideoPanel source="youtube" videoId={videoId} onSeek={(sec) => playerRef.current?.seek(sec)} />}
+          {tab === 'moments' && <MomentsPanel source="youtube" videoId={videoId} currentSec={currentSec} onSeek={(sec) => playerRef.current?.seek(sec)} />}
           {tab === 'comments' && <YoutubeCommentsTab videoId={videoId} />}
         </SidePanelShell>
       </aside>
@@ -1372,6 +1375,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     tabs.push({ key: 'transcript', label: 'Transcript' })
     tabs.push({ key: 'ask', label: 'Ask' })
   }
+  // Moments are ours, not the platform's, so every source gets them.
+  tabs.push({ key: 'moments', label: 'Moments' })
   if (capabilities?.comments) tabs.push({ key: 'comments', label: item.commentsCount ? `Comments (${item.commentsCount})` : 'Comments' })
 
   return (
@@ -1621,6 +1626,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
           )}
           {tab === 'transcript' && <TranscriptTab videoId={id} source={source} onSeek={seekTo} currentSec={currentSec} />}
           {tab === 'ask' && <AskVideoPanel source={source} videoId={id} onSeek={seekTo} />}
+          {tab === 'moments' && <MomentsPanel source={source} videoId={id} currentSec={currentSec < 0 ? 0 : currentSec} onSeek={seekTo} />}
           {tab === 'comments' && <GenericCommentsTab source={source} id={id} />}
         </SidePanelShell>
       </aside>
