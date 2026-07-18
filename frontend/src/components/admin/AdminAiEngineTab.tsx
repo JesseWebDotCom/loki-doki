@@ -31,6 +31,7 @@ interface AutotuneInfo {
   pinnedModel: string | null
   effectiveModel: string
   pinnedFit: { fits: boolean; willSpill: boolean; sizeBytes: number } | null
+  sharedGpu: boolean
 }
 
 function post(path: string, body?: unknown) {
@@ -224,7 +225,10 @@ export function AdminAiEngineTab() {
               </Button>
             </div>
           ) : autotune.auto ? (
-            <p className="text-[11px] text-muted-foreground">Managed for best performance: the model and context are fitted to your hardware automatically.</p>
+            <p className="text-[11px] text-muted-foreground">
+              Managed for best performance: the model and context are fitted to your hardware automatically.
+              {autotune.sharedGpu && ' Image and video generation briefly pause the chat model to free VRAM, so nothing oversubscribes the GPU (it reloads on your next message).'}
+            </p>
           ) : (
             <div className="flex items-center gap-2">
               <p className="flex-1 text-[11px] text-muted-foreground">A model is pinned. It fits, but auto-management adapts if your hardware changes.</p>

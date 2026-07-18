@@ -44,6 +44,7 @@ import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
 import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel, autotunedNumCtx } from '@/lib/models'
+import { isAutomatic } from '@/lib/resourceMode'
 import { maybeStageLearnedAnswer, type LearnCandidate } from '@/lib/notes/learnedAnswer'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
@@ -1351,7 +1352,11 @@ export async function resolveTurnContext(
   }
   const options: Record<string, unknown> = {
     temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? autotunedNumCtx(),
+    // Automatic owns the context window (fitted to VRAM); a user pref can't raise it
+    // past the budget and force a spill. Manual honours the pref.
+    num_ctx: isAutomatic()
+      ? autotunedNumCtx()
+      : ((prefs['ctx_limit'] as number | undefined) ?? autotunedNumCtx()),
     // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
     // per-inference parameters. Setting them here would let Ollama trigger a full
     // model reload on any options mismatch. They belong only in warmupModel().

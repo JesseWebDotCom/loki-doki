@@ -10,6 +10,7 @@ import {
 import { getCachedEngineGuards, saveEngineGuards, type EngineGuards } from '@/lib/engineGuards'
 import { getCachedAutotune, resolveEngineAutotune, checkFit } from '@/lib/engineAutotune'
 import { getCachedResourceMode, setResourceMode, type ResourceMode } from '@/lib/resourceMode'
+import { sharesGpuWithLlm } from '@/lib/vramLedger'
 import { getModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
@@ -82,7 +83,9 @@ adminGpu.get('/engine-autotune', async (c) => {
   const auto = getCachedResourceMode() === 'automatic' || !setting || setting === 'auto'
   const effectiveModel = await getModel()
   const pinnedFit = auto ? null : checkFit(effectiveModel, fit.vramBytes)
-  return c.json({ fit, auto, mode: getCachedResourceMode(), pinnedModel: auto ? null : setting, effectiveModel, pinnedFit })
+  // On a shared card, automatic evicts the LLM during heavy image/video generation.
+  const sharedGpu = sharesGpuWithLlm()
+  return c.json({ fit, auto, mode: getCachedResourceMode(), pinnedModel: auto ? null : setting, effectiveModel, pinnedFit, sharedGpu })
 })
 
 // Hand the model choice back to the auto-manager (unpins any explicit model). Takes
