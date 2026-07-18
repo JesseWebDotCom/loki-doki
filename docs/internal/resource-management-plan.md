@@ -79,6 +79,11 @@ sysmem spill is the freeze/lag failure mode); prefer CPU for work CPU does well
 
 ### Phase 2: stability guardrails (the "no freezes, no lags" phase)
 
+**Landed 2026-07-18:** the shared-GPU freeze fix (`lib/vramLedger.ts` +
+`runGpuHeavyJob` wrapping heavy image/video pipelines) and the automatic `num_ctx`
+clamp. Still open in this phase: items 6 (full ledger/admission API), 7 (spill
+auto-remediation), 8 (CPU discipline + p95 probe), 9 (multi-GPU verification).
+
 6. **VRAM ledger + admission control.** One module that knows, per GPU: total,
    used (nvidia-smi), and what WE placed there (LLM, router, embeds, Kokoro, image
    gen). Any subsystem starting GPU work asks the ledger first; if the work does not
