@@ -371,6 +371,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          reason: 'wake', // gated server-side by voice.wake_prime_enabled (default off)
           conversationId: isOnChat ? (chat.conversationId ?? undefined) : undefined,
           characterId: charId,
           uiContext: getContextBlock(),

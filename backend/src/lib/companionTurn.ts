@@ -34,6 +34,7 @@ import {
 import { hasPendingCompanionAction, isConfirmationReply } from '@/lib/companionActions'
 import { getActiveCuration, isCurationFollowUp } from '@/lib/music/curationSession'
 import { isOffline } from '@/lib/connectivity'
+import { getAppSetting } from '@/lib/settings'
 import { friendshipLine } from '@/lib/friendshipMemory'
 import { buildLocalePrompt, getLocaleSettings } from '@/routes/adminLocale'
 import { buildContentPrompt, getUserCeiling, clampDials, parseCharacterContent, characterGate } from '@/lib/contentPolicy'
@@ -666,8 +667,10 @@ export async function runCompanionTurn(
     // queues AHEAD of the reply chunks (client enqueueSpeech), so it fills the beat
     // and the answer follows. Voice-only (chat shows the wordless status label);
     // skipped when this online tool can't run offline (that branch just explains it).
+    // OFF by default (`voice.tool_ack_enabled`): the filler delays the actual answer,
+    // which some find slower than a moment of silence. Opt in per taste.
     const isVoiceSurface = p.surface === 'overlay' || p.surface === 'pod'
-    if (isVoiceSurface && !(!tool.offline && offlineMode)) {
+    if (isVoiceSurface && !(!tool.offline && offlineMode) && (await getAppSetting('voice.tool_ack_enabled')) === true) {
       emitEvent('spoken_cue', JSON.stringify({ text: toolAckCue(p.convId, p.message) }))
     }
 
