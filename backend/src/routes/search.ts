@@ -7,6 +7,7 @@ import {
   feedItems, feeds, podcastEpisodes, podcastShows, clips,
   videoSaves, videoItems, videoFollows,
   books, bookLibrary,
+  musicStations, musicPlaylists,
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
@@ -22,7 +23,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note' | 'book'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note' | 'book' | 'music'
   id: string
   title: string
   subtitle: string | null
@@ -409,6 +410,39 @@ const booksProvider: Provider = async (userId, q) => {
   }))
 }
 
+// Music stations (built-in + the user's own) and playlists, matched by name.
+// Individual songs are skipped: music plays via the mini-player, not a standalone
+// page, unlike videos/podcasts which have somewhere to route to.
+const musicProvider: Provider = async (userId, q) => {
+  const pattern = likePattern(q)
+  const [stations, playlists] = await Promise.all([
+    db.select().from(musicStations)
+      .where(and(
+        or(isNull(musicStations.userId), eq(musicStations.userId, userId)),
+        like(musicStations.name, pattern),
+      ))
+      .orderBy(desc(musicStations.updatedAt))
+      .limit(PER_PROVIDER),
+    db.select().from(musicPlaylists)
+      .where(and(eq(musicPlaylists.userId, userId), like(musicPlaylists.name, pattern)))
+      .orderBy(desc(musicPlaylists.updatedAt))
+      .limit(PER_PROVIDER),
+  ])
+  const hits: SearchHit[] = [
+    ...stations.map((r) => ({
+      type: 'music' as const, id: r.id, title: r.name,
+      subtitle: r.description || 'Station', icon: null,
+      route: `/music/station/${r.id}`, group: 'Music',
+    })),
+    ...playlists.map((r) => ({
+      type: 'music' as const, id: r.id, title: r.name,
+      subtitle: r.description || 'Playlist', icon: null,
+      route: `/music/playlist/${r.id}`, group: 'Music',
+    })),
+  ]
+  return hits.slice(0, PER_PROVIDER)
+}
+
 const PROVIDERS: Provider[] = [
   bookmarksProvider,
   booksProvider,
@@ -418,6 +452,7 @@ const PROVIDERS: Provider[] = [
   youtubeProvider,
   videosProvider,
   podcastProvider,
+  musicProvider,
   clipperProvider,
   companionProvider,
   deviceProvider,

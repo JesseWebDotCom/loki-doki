@@ -13,6 +13,7 @@ import {
   Mic,
   StickyNote,
   BookMarked,
+  Music,
   Globe,
   ArrowRight,
   type LucideIcon,
@@ -48,7 +49,7 @@ interface LibraryItem {
 // Mirrors backend SearchHit (routes/search.ts).
 interface ContentHit {
   kind: "content";
-  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast" | "clip" | "video" | "note" | "book";
+  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast" | "clip" | "video" | "note" | "book" | "music";
   id: string;
   title: string;
   subtitle: string | null;
@@ -107,6 +108,7 @@ const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
   video: Play,
   note: StickyNote,
   book: BookMarked,
+  music: Music,
 };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);

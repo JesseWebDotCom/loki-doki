@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Globe, SearchIcon, Play, Mic, BookMarked, type LucideIcon } from 'lucide-react'
+import { Globe, SearchIcon, Play, Mic, BookMarked, Music, type LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -38,12 +38,12 @@ async function fetchWebSearch(query: string): Promise<WebSearchResponse> {
   return r.json() as Promise<WebSearchResponse>
 }
 
-// "From Loki Doki" rail: your own library (videos/podcasts/books today, the local
-// content index has no music provider yet) related to the query, via the existing
-// local-content search (routes/search.ts, the same endpoint Spotlight already uses).
-// Fetched as its own independent query so a slow/absent match here never holds up
-// the web results or the AI Overview.
-type RelatedType = 'youtube' | 'video' | 'podcast' | 'book'
+// "From Loki Doki" rail: your own library (videos/podcasts/books/music stations +
+// playlists) related to the query, via the existing local-content search
+// (routes/search.ts, the same endpoint Spotlight already uses). Fetched as its own
+// independent query so a slow/absent match here never holds up the web results or
+// the AI Overview.
+type RelatedType = 'youtube' | 'video' | 'podcast' | 'book' | 'music'
 interface RelatedHit {
   type: RelatedType | string
   id: string
@@ -53,8 +53,8 @@ interface RelatedHit {
   route: string
   group: string
 }
-const RELATED_TYPES = new Set<string>(['youtube', 'video', 'podcast', 'book'])
-const RELATED_ICON: Record<RelatedType, LucideIcon> = { youtube: Play, video: Play, podcast: Mic, book: BookMarked }
+const RELATED_TYPES = new Set<string>(['youtube', 'video', 'podcast', 'book', 'music'])
+const RELATED_ICON: Record<RelatedType, LucideIcon> = { youtube: Play, video: Play, podcast: Mic, book: BookMarked, music: Music }
 
 async function fetchRelated(query: string): Promise<RelatedHit[]> {
   const r = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { credentials: 'include' })
