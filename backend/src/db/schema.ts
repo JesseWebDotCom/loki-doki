@@ -3278,7 +3278,7 @@ export const routines = sqliteTable('routines', {
 export const routineRuns = sqliteTable('routine_runs', {
   id: text('id').primaryKey(),
   routineId: text('routine_id').notNull().references(() => routines.id, { onDelete: 'cascade' }),
-  firedBy: text('fired_by').notNull(), // 'time' | 'ha-state' | 'frigate' | 'service' | 'webhook' | 'manual'
+  firedBy: text('fired_by').notNull(), // 'time' | 'ha-state' | 'frigate' | 'service' | 'webhook' | 'folder' | 'manual'
   status: text('status').notNull(), // 'ok' | 'error'
   detail: text('detail'), // per-action outcome summary or error text
   startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
@@ -3994,6 +3994,21 @@ export const podcastAdScans = sqliteTable('podcast_ad_scans', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
   episodeUnique: unique().on(t.episodeId),
+}))
+
+// Cross-episode sponsor memory (MinusPod-style, but text): the brands a show is seen to
+// advertise. Once "Apple Card" is learned from one episode, its read is caught in every
+// future episode by a deterministic name match, without re-querying the LLM. Per show.
+export const podcastShowSponsors = sqliteTable('podcast_show_sponsors', {
+  id: text('id').primaryKey(),
+  showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),               // lowercased brand phrase, e.g. "apple card"
+  hits: integer('hits').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  showIdx: index('podcast_show_sponsors_show_idx').on(t.showId),
+  showNameUnique: unique().on(t.showId, t.name),
 }))
 
 // ChromaPrint-style ad memory: the acoustic fingerprint of a confirmed ad (from the

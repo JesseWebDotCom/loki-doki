@@ -5,9 +5,9 @@
 // seeks past the stored ranges client-side, so a wrong detection is always reversible
 // (podcast_ad_reports 'not_ad' rows suppress ranges at serve time).
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings, podcastTranscripts, userPreferences } from '@/db/schema'
+import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings, podcastShowSponsors, podcastTranscripts, userPreferences } from '@/db/schema'
 import { getScriptModel } from '@/lib/models'
 import { structuredCall } from '@/llm/structured'
 import { fmtStamp, resolveEpisodeTranscript, type TranscriptSegment } from '@/lib/podcast/transcripts'
@@ -304,6 +304,64 @@ function heuristicAdRanges(segments: TranscriptSegment[]): RawRange[] {
   return out
 }
 
+// ── Cross-episode sponsor memory ────────────────────────────────────────────────────
+// Lines of read to include around a known-sponsor mention (the brand appears once, but
+// the whole read is the ad).
+const SPONSOR_REACH_LINES = 8
+// Never store these as "sponsors" (generic ad-speak, not a brand).
+const GENERIC_SPONSOR = new Set(['the show', 'this show', 'this podcast', 'the podcast', 'our sponsor', 'our sponsors',
+  'this episode', 'the episode', 'sponsor', 'sponsors', 'advertisement', 'promo code', 'the company', 'the brand'])
+
+const SPONSOR_EXTRACT_SYSTEM =
+  'You are given excerpts of podcast ADVERTISING copy. List the distinct brands, products, or companies being ' +
+  'advertised. Return JSON {"sponsors": [array of short brand names as strings]}. Use the brand name only ' +
+  '(for example "Apple Card", "BetterHelp", "ZipRecruiter"), never a description or sentence. Return ' +
+  '{"sponsors": []} if none are clear. Do not use em dashes.'
+
+/** Brands this show is known to advertise (lowercased phrases), for the deterministic
+ *  recurring-ad pass. */
+async function loadShowSponsors(showId: string | null): Promise<string[]> {
+  if (!showId) return []
+  const rows = await db.select({ name: podcastShowSponsors.name }).from(podcastShowSponsors)
+    .where(eq(podcastShowSponsors.showId, showId)).limit(200).catch(() => [])
+  return rows.map(r => r.name).filter(n => n.length >= 4)
+}
+
+/** Flag lines that mention a known sponsor of this show, plus the surrounding read. This
+ *  is MinusPod's cross-episode catch: a recurring sponsor is found without the LLM. */
+function flagKnownSponsorLines(segments: TranscriptSegment[], sponsors: string[], into: Set<number>): number {
+  if (!sponsors.length) return 0
+  let hits = 0
+  for (let i = 0; i < segments.length; i++) {
+    const text = segments[i]!.text.toLowerCase()
+    if (!sponsors.some(s => text.includes(s))) continue
+    hits++
+    for (let k = Math.max(0, i - SPONSOR_REACH_LINES); k <= Math.min(segments.length - 1, i + SPONSOR_REACH_LINES); k++) into.add(k)
+  }
+  return hits
+}
+
+/** Learn the brands advertised in this episode's ads, so future episodes catch them for
+ *  free. Best-effort (one small LLM call). */
+async function extractAndStoreSponsors(showId: string | null, adText: string, model: string): Promise<void> {
+  if (!showId || adText.trim().length < 20) return
+  try {
+    const res = await structuredCall<{ sponsors?: unknown }>(
+      model, `Advertising excerpts:\n${adText.slice(0, 8000)}`, SPONSOR_EXTRACT_SYSTEM, { num_predict: 200 }, 'json')
+    const names = new Set((Array.isArray(res.sponsors) ? res.sponsors : [])
+      .map(s => String(s).toLowerCase().replace(/[^\w &'-]/g, '').replace(/\s+/g, ' ').trim())
+      .filter(s => s.length >= 4 && s.length <= 60 && !GENERIC_SPONSOR.has(s)))
+    const now = new Date()
+    for (const name of names) {
+      await db.insert(podcastShowSponsors)
+        .values({ id: crypto.randomUUID(), showId, name, hits: 1, createdAt: now, updatedAt: now })
+        .onConflictDoUpdate({ target: [podcastShowSponsors.showId, podcastShowSponsors.name], set: { hits: sql`${podcastShowSponsors.hits} + 1`, updatedAt: now } })
+        .catch(() => {})
+    }
+    if (names.size) logger.info(`[podcast-ad-scan] learned ${names.size} sponsor(s) for show ${showId}`)
+  } catch { /* best-effort */ }
+}
+
 function mergeRanges(ranges: RawRange[]): RawRange[] {
   const sorted = [...ranges].sort((a, b) => a.startSec - b.startSec)
   const merged: RawRange[] = []
@@ -347,10 +405,15 @@ export async function runPodcastAdScanJob(
     const total = fmtStamp(episode.durationSec ?? segs[segs.length - 1]!.endSec)
     const ranges: RawRange[] = []
 
+    // ── Cross-episode memory: flag lines mentioning a known sponsor of this show ───
+    const adLines = new Set<number>()
+    const knownSponsors = await loadShowSponsors(episode.showId)
+    const sponsorHits = flagKnownSponsorLines(segs, knownSponsors, adLines)
+    if (sponsorHits) logger.info(`[podcast-ad-scan] ${sponsorHits} known-sponsor mention(s) pre-flagged`)
+
     // ── Per-line ad classification over each window ────────────────────────────────
     // The boundaries fall out of the contiguous ad-labeled lines, so the model never has
     // to judge where a topic changes (which it is bad at) - only "is THIS line an ad".
-    const adLines = new Set<number>()
     let failedWindows = 0
     for (let w = 0; w < windows.length; w++) {
       if (signal.aborted) throw new Error('Aborted')
@@ -403,6 +466,14 @@ export async function runPodcastAdScanJob(
     })
     onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Ad scan ready' })
     logger.info(`[podcast-ad-scan] "${episode.title}": ${segments.length} ad segment(s) across ${windows.length} window(s)`)
+
+    // Learn this episode's sponsors so future episodes of the show catch them for free.
+    if (segments.length) {
+      const adText = segments
+        .map(seg => segs.filter(s => s.endSec > seg.startSec && s.startSec < seg.endSec).map(s => s.text).join(' '))
+        .join('\n\n')
+      await extractAndStoreSponsors(episode.showId, adText, model)
+    }
   } catch (err) {
     // Retries re-enter through the scheduler; the terminal-failure hook flips the row
     // to 'failed'. Reset to 'pending' here so the UI shows "queued" between attempts.
