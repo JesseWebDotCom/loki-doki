@@ -12,12 +12,14 @@ import {
 import { ChannelsSection } from './notifications/ChannelsSection'
 import { DeliveryMatrixSection } from './notifications/DeliveryMatrixSection'
 import { TimingSection, type MorningReportPref, type QuietHoursPref } from './notifications/TimingSection'
+import { ToggleRow } from '@/components/shared/ToggleRow'
 
 const MUTED_KEY = 'notifications.muted'
 const MATRIX_KEY = 'notifications.delivery'
 const QUIET_KEY = 'notifications.quiet'
 const DIGEST_TIME_KEY = 'notifications.digest_time'
 const MORNING_REPORT_KEY = 'notifications.morning_report'
+const AI_DIGEST_KEY = 'notifications.aiDigest'
 
 export function SettingsNotificationsTab() {
   const { user } = useAuth()
@@ -29,6 +31,7 @@ export function SettingsNotificationsTab() {
   const [quiet, setQuiet] = useState<QuietHoursPref>({ enabled: false, start: '22:00', end: '07:00' })
   const [digestTime, setDigestTime] = useState('18:00')
   const [morningReport, setMorningReport] = useState<MorningReportPref>({ enabled: false, time: '07:30', channels: ['push'] })
+  const [aiDigest, setAiDigest] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const refreshChannels = useCallback(() => {
@@ -57,6 +60,7 @@ export function SettingsNotificationsTab() {
         }
         const savedDigest = data[DIGEST_TIME_KEY]
         if (typeof savedDigest === 'string') setDigestTime(savedDigest)
+        setAiDigest(data[AI_DIGEST_KEY] === true)
         const savedReport = data[MORNING_REPORT_KEY] as Partial<MorningReportPref> | undefined
         if (savedReport && typeof savedReport === 'object') {
           setMorningReport({
@@ -101,6 +105,7 @@ export function SettingsNotificationsTab() {
   const changeQuiet = (q: QuietHoursPref) => { setQuiet(q); persist(QUIET_KEY, q) }
   const changeDigestTime = (t: string) => { setDigestTime(t); persist(DIGEST_TIME_KEY, t) }
   const changeMorningReport = (m: MorningReportPref) => { setMorningReport(m); persist(MORNING_REPORT_KEY, m) }
+  const changeAiDigest = () => { const next = !aiDigest; setAiDigest(next); persist(AI_DIGEST_KEY, next, () => void loadNotifications()) }
 
   const availableChannels: ('push' | 'telegram' | 'email')[] = [
     ...(channels && channels.push.subscriptions > 0 ? (['push'] as const) : []),
@@ -129,6 +134,13 @@ export function SettingsNotificationsTab() {
         onQuietChange={changeQuiet}
         onDigestTimeChange={changeDigestTime}
         onMorningReportChange={changeMorningReport}
+      />
+
+      <ToggleRow
+        title="Summarize my notifications"
+        description="Show a one-line AI summary of your unread notifications at the top of the bell. Camera and service alerts are always shown in full, never summarized."
+        checked={aiDigest}
+        onCheckedChange={changeAiDigest}
       />
     </div>
   )

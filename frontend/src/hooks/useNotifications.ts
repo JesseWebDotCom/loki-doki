@@ -13,6 +13,8 @@ export interface AppNotification {
 interface UseNotificationsReturn {
   unreadCount: number;
   notifications: AppNotification[];
+  /** Opt-in AI one-line summary of unread notifications (null when disabled/empty). */
+  digest: string | null;
   loadNotifications: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
@@ -22,7 +24,19 @@ interface UseNotificationsReturn {
 export function useNotifications(): UseNotificationsReturn {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [digest, setDigest] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadDigest = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications/digest", { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { enabled?: boolean; digest?: string | null };
+      setDigest(data.enabled ? (data.digest ?? null) : null);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   async function fetchUnreadCount() {
     try {
@@ -42,10 +56,11 @@ export function useNotifications(): UseNotificationsReturn {
       const data = (await res.json()) as { notifications: AppNotification[]; unreadCount: number };
       setNotifications(data.notifications);
       setUnreadCount(data.unreadCount);
+      void loadDigest();
     } catch {
       // ignore
     }
-  }, []);
+  }, [loadDigest]);
 
   async function markRead(id: string) {
     try {
@@ -100,5 +115,5 @@ export function useNotifications(): UseNotificationsReturn {
     };
   }, []);
 
-  return { unreadCount, notifications, loadNotifications, markRead, markAllRead, clearAll };
+  return { unreadCount, notifications, digest, loadNotifications, markRead, markAllRead, clearAll };
 }

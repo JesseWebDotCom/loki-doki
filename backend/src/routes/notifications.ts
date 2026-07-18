@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { notifications, userPreferences } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { emitNotification } from '@/lib/notify'
+import { buildNotificationDigest, invalidateDigest } from '@/lib/notifications/digest'
 import type { AppEnv } from '@/types'
 
 const notificationsRoute = new Hono<AppEnv>()
@@ -67,6 +68,40 @@ notificationsRoute.get('/', requireAuth, async (c) => {
   return c.json({ notifications: serialized, unreadCount })
 })
 
+// ── GET /api/notifications/digest ─────────────────────────────────────────────
+// Opt-in AI one-line summary of the current unread notifications for the bell
+// dropdown. Off unless the user set notifications.aiDigest = true. Camera and
+// service/resource alerts are never summarized (shown verbatim in the list).
+
+async function digestEnabled(userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: userPreferences.value })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, 'notifications.aiDigest')))
+    .limit(1)
+  if (!row) return false
+  try { return JSON.parse(row.value) === true } catch { return false }
+}
+
+notificationsRoute.get('/digest', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (!(await digestEnabled(user.id))) return c.json({ enabled: false, digest: null })
+  const muted = await mutedTypes(user.id)
+  const rows = await db
+    .select({ id: notifications.id, type: notifications.type, payload: notifications.payload })
+    .from(notifications)
+    .where(and(whereFor(user, muted), isNull(notifications.readAt)))
+    .orderBy(desc(notifications.createdAt))
+    .limit(30)
+  const unread = rows.map((r) => {
+    let payload: Record<string, unknown> = {}
+    try { payload = JSON.parse(r.payload) as Record<string, unknown> } catch { /* keep {} */ }
+    return { id: r.id, type: r.type, payload }
+  })
+  const digest = await buildNotificationDigest(user.id, unread)
+  return c.json({ enabled: true, ...digest })
+})
+
 // ── GET /api/notifications/unread-count ───────────────────────────────────────
 
 notificationsRoute.get('/unread-count', requireAuth, async (c) => {
@@ -88,6 +123,7 @@ notificationsRoute.patch('/:id/read', requireAuth, async (c) => {
     .update(notifications)
     .set({ readAt: new Date() })
     .where(and(eq(notifications.id, id), visibleTo(user)))
+  invalidateDigest(user.id)
   return c.json({ ok: true })
 })
 
@@ -99,6 +135,7 @@ notificationsRoute.post('/read-all', requireAuth, async (c) => {
     .update(notifications)
     .set({ readAt: new Date() })
     .where(and(visibleTo(user), isNull(notifications.readAt)))
+  invalidateDigest(user.id)
   return c.json({ ok: true })
 })
 
@@ -109,6 +146,7 @@ notificationsRoute.post('/read-all', requireAuth, async (c) => {
 notificationsRoute.delete('/', requireAuth, async (c) => {
   const user = c.get('user')
   await db.delete(notifications).where(visibleTo(user))
+  invalidateDigest(user.id)
   return c.json({ ok: true })
 })
 

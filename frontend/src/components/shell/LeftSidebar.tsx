@@ -42,6 +42,7 @@ import { useInstalledArchives } from "@/hooks/useInstalledArchives";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import { STATUS_PRESETS } from "@/lib/presence";
 import { AppIconTile } from "@/components/shared/AppIconTile";
+import { AiGeneratedBadge } from "@/components/shared/AiGeneratedBadge";
 import { ArchiveIcon } from "@/components/shared/ArchiveIcon";
 import { BrandMark } from "@/components/shared/BrandMark";
 import { StatusDot } from "@/components/shared/StatusDot";
@@ -373,7 +374,7 @@ export function LeftSidebar() {
   const [launcherOpen, setLauncherOpen] = useState(false)
   const [testerOpen, setTesterOpen] = useState(false)
   const [desktopAppOpen, setDesktopAppOpen] = useState(false)
-  const { unreadCount, notifications, loadNotifications, markRead, markAllRead } = useNotifications()
+  const { unreadCount, notifications, digest, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
   const presence = usePresenceStatus(user?.id)
   const currentStatusPreset = STATUS_PRESETS.find((p) => p.state === presence.current)
@@ -629,6 +630,12 @@ export function LeftSidebar() {
                     </button>
                   )}
                 </div>
+                {digest && (
+                  <div className="mx-2 mb-1 rounded-control bg-brand/5 px-2 py-1.5">
+                    <AiGeneratedBadge label="Summarized by Loki" tone="brand" className="mb-1" />
+                    <p className="text-xs leading-snug text-foreground">{digest}</p>
+                  </div>
+                )}
                 {notifications.length === 0 ? (
                   <div className="px-2 py-3 text-xs text-muted-foreground text-center">
                     No notifications
