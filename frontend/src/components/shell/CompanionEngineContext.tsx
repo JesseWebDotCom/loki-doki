@@ -21,6 +21,8 @@ import { useVoiceOwner, setVoiceWants } from '@/lib/voice/voiceOwnership'
 import { useDockYield } from '@/lib/voice/dockYield'
 import { toast } from '@/lib/toast'
 import { matchesScreenIntent } from '@/lib/screenIntent'
+import { markVoice } from '@/lib/voice/voice-timing'
+import { onWakeDetected } from '@/lib/voice/wake-word-events'
 import { fetchVisionStatus } from '@/hooks/useVisionStatus'
 import type { LucideIcon } from 'lucide-react'
 
@@ -338,10 +340,45 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   // Keep the spoken-cue callback's view of voice state current (see onSpokenCue).
   voiceStateRef.current = { on: voiceMode, characterId: voiceCharacter?.id }
   useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode, expressiveness: voiceCharacter?.expressiveness, hushedThisTurn: lastWhisperedRef.current })
+  // First reply token → close the LLM leg of the voice-to-voice timeline (Phase 0,
+  // see docs/internal/voice-latency.md). markVoice self-guards non-voice/typed turns.
+  const sawFirstTokenRef = useRef(false)
+  useEffect(() => {
+    if (!streaming) { sawFirstTokenRef.current = false; return }
+    if (!sawFirstTokenRef.current && replyText.length > 0) {
+      sawFirstTokenRef.current = true
+      markVoice('firstToken')
+    }
+  }, [streaming, replyText])
   // Losing ownership mid-utterance (user switched to another tab, or a Doki Dock
   // appeared on this machine) cuts the audio here so the handoff is clean and the
   // new owner is the only one talking.
   useEffect(() => { if (!isVoiceOwner || dockYield) stopSpeech() }, [isVoiceOwner, dockYield])
+
+  // Wake-time KV prime (P1.2, see docs/internal/voice-latency.md): the instant the
+  // wake word fires, before the spoken command is even captured, ask the server to
+  // prefill the LLM prompt prefix (system prompt + history). By the time STT delivers
+  // the transcript ~1–2s later, first-token lands near its floor instead of paying
+  // full prefill. Best-effort: the server dedupes to one prime per user and the real
+  // turn cancels it, so a redundant or mismatched prime only costs the optimization.
+  useEffect(() => {
+    if (!voiceMode) return
+    return onWakeDetected(() => {
+      const charId = voiceCharacter?.id
+      if (!charId) return
+      fetch('/api/chat/prime', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: isOnChat ? (chat.conversationId ?? undefined) : undefined,
+          characterId: charId,
+          uiContext: getContextBlock(),
+          clientTz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      }).catch(() => { /* best-effort warmup */ })
+    })
+  }, [voiceMode, isOnChat, voiceCharacter?.id, chat, getContextBlock])
   // Emote > mood overlay (animates eyes/brows while speaking). Visual only, so it
   // runs regardless of whether voice is on.
   useEmoteMood({ text: replyText, streaming })

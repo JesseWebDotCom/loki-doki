@@ -15,6 +15,7 @@
 
 import { transcribeWav } from '@/lib/whisper'
 import { getSileroStream, type SileroVadStream } from '@/lib/voice/sileroVad'
+import { logger } from '@/lib/logger'
 
 export interface SttSessionConfig {
   sampleRate: number
@@ -92,6 +93,16 @@ export class SttSession {
   private sileroVoiced = false
   private preroll: Float32Array[] = []
   private prerollLen = 0
+  // Phase 1.1 (voice-latency): running length (samples) at the most recent VOICED
+  // frame, and the last still-valid partial transcription tagged with the voiced
+  // length it captured. If no voiced audio arrives after that snapshot (only
+  // trailing silence, which whisper ignores), the partial already transcribes the
+  // whole utterance and finalize() can skip a redundant full re-decode.
+  private lastVoicedLen = 0
+  private reusablePartial: { text: string; voicedLen: number } | null = null
+  // Set when the voiced→silence edge wanted a full-buffer decode but a periodic
+  // partial was still in flight; the partial's `finally` runs the deferred decode.
+  private redecodeAtEdge = false
   // Accumulated only over genuine-speech frames (the `voiced` branch below); see
   // WHISPER_RMS_THRESHOLD's comment for why preroll/trailing-silence are excluded.
   private speechRmsSum = 0
@@ -165,6 +176,7 @@ export class SttSession {
       this.silenceSamples = 0
       this.speech.push(samples.slice())
       this.speechLen += samples.length
+      this.lastVoicedLen = this.speechLen
       this.speechRmsSum += rms
       this.speechRmsCount++
       this.samplesSincePartial += samples.length
@@ -174,9 +186,21 @@ export class SttSession {
       }
     } else if (this.speaking) {
       // Keep trailing silence in the buffer so the word tail isn't clipped.
+      const firstSilenceFrame = this.silenceSamples === 0
       this.speech.push(samples.slice())
       this.speechLen += samples.length
       this.silenceSamples += samples.length
+      // Voiced→silence edge (P1.1): kick a decode of the COMPLETE speech buffer NOW
+      // so it overlaps the silence-timeout wait instead of starting cold at finalize.
+      // If the user really stopped, finalize() reuses this result (no voiced audio
+      // arrives after, so its coverage still matches). If a periodic partial is
+      // mid-flight, defer via redecodeAtEdge so a full-coverage decode still runs
+      // the moment the sidecar frees up. If speech resumes, coverage won't match and
+      // finalize falls back to a fresh decode: never wrong, at worst today's cost.
+      if (firstSilenceFrame) {
+        if (this.partialInFlight) this.redecodeAtEdge = true
+        else void this.emitPartial()
+      }
       if (this.silenceSamples >= this.cfg.silenceTimeoutS * this.cfg.sampleRate) {
         void this.finalize()
       }
@@ -216,19 +240,33 @@ export class SttSession {
     if (this.partialInFlight || this.speechLen === 0) return Promise.resolve()
     this.partialInFlight = true
     const run = async () => {
+      // Snapshot the voiced length at the audio we're about to transcribe, so
+      // finalize() can tell whether this partial covered the whole utterance.
+      const capturedVoicedLen = this.lastVoicedLen
       try {
         const wav = encodeWav(this.flatten(), this.cfg.sampleRate)
         const text = await transcribeWav(wav, this.cfg.hotwords)
-        // Re-check state after the await: never emit a partial once the session
-        // is closing or has already started finalizing (would race a `final`).
-        if (!this.closed && !this.finalizing && text && isLikelySpeech(text)) {
-          this.send({ t: 'partial', v: text })
+        if (text && isLikelySpeech(text)) {
+          // Store for possible reuse at finalize even while finalizing (finalize
+          // awaits this partial); only the live wire emit is gated on state, since
+          // emitting a `partial` after `final`/close would race the FSM.
+          this.reusablePartial = { text, voicedLen: capturedVoicedLen }
+          if (!this.closed && !this.finalizing) this.send({ t: 'partial', v: text })
         }
       } catch {
         // whisper down: let finalize surface it; partials stay silent
       } finally {
         this.partialInFlight = false
         this.partialPromise = null
+        // A silence-edge decode was requested while this one ran (P1.1). Now that the
+        // sidecar is free, run the full-coverage decode, but only if we're still in
+        // the trailing-silence hangover (speech didn't resume, finalize hasn't fired).
+        if (this.redecodeAtEdge && !this.finalizing && !this.closed && this.speaking && this.silenceSamples > 0) {
+          this.redecodeAtEdge = false
+          void this.emitPartial()
+        } else {
+          this.redecodeAtEdge = false
+        }
       }
     }
     this.partialPromise = run()
@@ -257,17 +295,30 @@ export class SttSession {
     // Captured before reset() clears the accumulators below.
     const whispered = this.speechRmsCount > 0 && (this.speechRmsSum / this.speechRmsCount) < WHISPER_RMS_THRESHOLD
 
-    const wav = encodeWav(this.flatten(), this.cfg.sampleRate)
+    const _t0 = performance.now()
     let text = ''
-    try {
-      text = await transcribeWav(wav, this.cfg.hotwords)
-    } catch (e) {
-      // Transport/HTTP failure: surface as an error so the FSM can tell "STT
-      // down" from "no speech" instead of silently swallowing the utterance.
-      this.reset()
-      if (!this.closed) this.send({ t: 'error', v: (e as Error).message })
-      return
+    let reused = false
+    const rp = this.reusablePartial
+    if (rp && rp.voicedLen > 0 && rp.voicedLen === this.lastVoicedLen) {
+      // No voiced audio arrived after this partial's snapshot: everything since
+      // was trailing silence, which whisper ignores. The partial already
+      // transcribes the whole utterance, so skip a redundant full re-decode
+      // (~0.6–0.8s off the critical path). Phase 1.1, see docs/internal/voice-latency.md.
+      text = rp.text
+      reused = true
+    } else {
+      const wav = encodeWav(this.flatten(), this.cfg.sampleRate)
+      try {
+        text = await transcribeWav(wav, this.cfg.hotwords)
+      } catch (e) {
+        // Transport/HTTP failure: surface as an error so the FSM can tell "STT
+        // down" from "no speech" instead of silently swallowing the utterance.
+        this.reset()
+        if (!this.closed) this.send({ t: 'error', v: (e as Error).message })
+        return
+      }
     }
+    logger.info(`[VOICE-STT] final decode=${(performance.now() - _t0).toFixed(0)}ms reused=${reused} len=${(this.speechLen / this.cfg.sampleRate).toFixed(1)}s`)
     this.reset()
     if (this.closed) return
     // Only real speech becomes a turn — non-speech annotations (typing, music,
@@ -296,6 +347,9 @@ export class SttSession {
     this.sileroVoiced = false
     this.preroll = []
     this.prerollLen = 0
+    this.lastVoicedLen = 0
+    this.reusablePartial = null
+    this.redecodeAtEdge = false
     this.speechRmsSum = 0
     this.speechRmsCount = 0
     // Fresh RNN state for the next utterance in this WS session.

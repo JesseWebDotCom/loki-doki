@@ -97,6 +97,29 @@ function replanCue(convId: string): string {
   return REPLAN_CUES[h % REPLAN_CUES.length]!
 }
 
+// Spoken ack for the START of a (multi-second) tool turn on VOICE surfaces (P1.5,
+// see docs/internal/voice-latency.md). Like REPLAN_CUES these are deliberately
+// content-free continuers, NOT task announcements ("Checking the weather…"): a
+// brief "one sec" before a 5–8s search is what a person does and fills the dead
+// air; naming the task is what makes an assistant feel like a phone tree. Kept
+// short so that even on a faster-than-expected tool turn the ack doesn't crowd the
+// answer. Varied per (conversation, message) so repeated tool use doesn't repeat
+// the same line back to back.
+const TOOL_ACK_CUES = [
+  'One sec.',
+  'Let me check.',
+  'On it.',
+  'Let me look that up.',
+  'Give me a moment.',
+]
+
+function toolAckCue(convId: string, message: string): string {
+  const s = `${convId}|${message}`
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return TOOL_ACK_CUES[h % TOOL_ACK_CUES.length]!
+}
+
 export interface CompanionTurnParams {
   userId: string
   userRole: string
@@ -632,6 +655,16 @@ export async function runCompanionTurn(
     // Companion-facing wordless "I'm on it" cue — shown while the tool runs, so a
     // voice/overlay turn looks actively engaged instead of idly "thinking".
     emitEvent('status', JSON.stringify({ phase: statusPhaseFor(tool.id), toolId: tool.id }))
+
+    // Spoken ack (P1.5): on voice surfaces, say a short continuer the instant we
+    // commit to a tool turn so a multi-second lookup doesn't play as dead air. It
+    // queues AHEAD of the reply chunks (client enqueueSpeech), so it fills the beat
+    // and the answer follows. Voice-only (chat shows the wordless status label);
+    // skipped when this online tool can't run offline (that branch just explains it).
+    const isVoiceSurface = p.surface === 'overlay' || p.surface === 'pod'
+    if (isVoiceSurface && !(!tool.offline && offlineMode)) {
+      emitEvent('spoken_cue', JSON.stringify({ text: toolAckCue(p.convId, p.message) }))
+    }
 
     if (!tool.offline && offlineMode) {
       emitEvent('offline', JSON.stringify({ tool: tool.id }))

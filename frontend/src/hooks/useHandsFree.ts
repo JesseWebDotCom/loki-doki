@@ -9,6 +9,7 @@ import { transition, type HandsFreeState } from '@/lib/voice/handsfree-state-mac
 import { getVoicePlayback, stopSpeech } from '@/lib/voice/voicePlaybackStore'
 import { getSileroVad, type SileroVadStream } from '@/lib/voice/silero-vad'
 import { cleanTranscript } from '@/lib/voice/cleanTranscript'
+import { markVoice, resetVoiceTiming } from '@/lib/voice/voice-timing'
 
 // Hands-free conversation loop:
 //   idle → (wake word) → capturing → (whisper final) → submit → replying →
@@ -29,7 +30,14 @@ import { cleanTranscript } from '@/lib/voice/cleanTranscript'
 // usable model is assigned; so any arbitrary text can be a wake word with no
 // training, but a leftover phrase can never shadow a trained model.
 
-const TTS_MUTE_GRACE_MS = 400
+// After TTS ends, the mic stays muted this long before the STT socket reopens for a
+// wake-word-free follow-up. Trimmed 400→250 (P3.10) so continuation turns re-listen
+// sooner and the exchange feels more like a back-and-forth with a person. Kept above
+// ~150 as a margin for the audio tail to fully drain after playbackEnd (browser AEC
+// residual is ~0.01–0.02 RMS, well under the barge-in floor); can go lower once
+// verified on the prod box with echo cancellation on. Skipped entirely after barge-in
+// (the user is already speaking → 0ms). See docs/internal/voice-latency.md.
+const TTS_MUTE_GRACE_MS = 250
 // Dead-reply guard only (a reply that NEVER produces audio). Cancelled the moment
 // audio starts, so it can't truncate a working reply — generous enough to outlast a
 // cold model load (20–30s to first token) before any audio has played.
@@ -200,6 +208,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           if (isStopCommand(text)) {
             const wasTalking = getVoicePlayback().isPlaying
             stopSpeech()
+            resetVoiceTiming() // no reply is coming, abandon the timeline
             continuationCountRef.current = 0
             dispatch({ type: 'stop_command' })
             onStopCommandRef.current?.(wasTalking)
@@ -213,6 +222,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           }
           if (text) {
             dispatch({ type: 'stt_final' })
+            // Final transcript in hand → close the STT leg of the timeline; first
+            // audio (playback start, below) closes the whole turn. (Phase 0.)
+            markVoice('final')
             // Clean disfluencies (um/uh, false starts) before the text is shown and sent.
             // isStopCommand above deliberately ran on the raw text.
             submitRef.current(cleanTranscript(text), whispered)
@@ -221,6 +233,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           }
         },
         onVad: (speaking) => {
+          // End-of-speech during active capture: the server just hit the silence
+          // timeout and is about to decode. Anchor the timeline here (Phase 0).
+          if (!speaking && stateRef.current === 'capturing') markVoice('speechEnd')
           if (speaking && stateRef.current === 'post-reply-listen') {
             if (postReplyRef.current) clearTimeout(postReplyRef.current)
             // Bound auto-continuation so a background voice can't loop forever.
@@ -329,6 +344,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         if (isStopCommand(cmd)) {
           const wasTalking = getVoicePlayback().isPlaying
           stopSpeech()
+          resetVoiceTiming()
           continuationCountRef.current = 0
           dispatch({ type: 'stop_command' })
           onStopCommandRef.current?.(wasTalking)
@@ -336,6 +352,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         }
         if (st === 'wake-detected') dispatch({ type: 'capture_open' })
         dispatch({ type: 'stt_final' })
+        // Phrase-wake carries the command in its own transcript, so there's no
+        // separate VAD-offset for this turn; anchor on `final` alone (Phase 0).
+        markVoice('final')
         submitRef.current(cleanTranscript(cmd), whispered)
       }
       wakeLoop = wl
@@ -369,18 +388,25 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
             }
           }
 
-          // Buffer mic audio we want but can't send yet, so barge-in never clips the
-          // user's opening words. Two parts: a short rolling pre-roll DURING the reply
-          // (the word onset), PLUS everything in the gap between barge-in firing and the
-          // STT socket actually opening — that gap was silently dropping whole words.
-          // Once barge-in has fired (st==='capturing') the TTS is stopped, so this audio
-          // is clean (no echo). Flushed into STT in openStt's onReady.
-          if (!sttRef.current?.isOpen && (st === 'replying' || st === 'capturing')) {
+          // Buffer mic audio we want but can't send yet, so neither barge-in NOR a
+          // run-on wake command ("hey jarvis what's the weather") clips the user's
+          // opening words. Covered states:
+          //   idle          : short rolling window; the ONNX detector fires ~200-300ms
+          //                    AFTER the wake word, by which point the command has
+          //                    started, so this holds that onset (P1.4).
+          //   wake-detected : keep everything up to the hard cap. The gap between the
+          //                   fire and the STT socket opening was silently dropping the
+          //                   first command word.
+          //   replying      : short rolling pre-roll of a barge-in word onset.
+          //   capturing     : post-barge-in gap until the socket opens (TTS stopped, so
+          //                   this audio is clean).
+          // All of it is flushed into STT in openStt's onReady, then cleared.
+          if (!sttRef.current?.isOpen && (st === 'idle' || st === 'wake-detected' || st === 'replying' || st === 'capturing')) {
             prerollRef.current.push(samples.slice())
             prerollLenRef.current += samples.length
-            // Trim to a short rolling window WHILE PLAYING; once capturing, keep all
-            // frames (up to a hard cap) so nothing in the gap is lost.
-            const cap = st === 'replying' ? PREROLL_SAMPLES : PREROLL_MAX_SAMPLES
+            // Short rolling window while idle/playing; once a turn is committed
+            // (wake-detected/capturing) keep all frames so nothing in the gap is lost.
+            const cap = (st === 'idle' || st === 'replying') ? PREROLL_SAMPLES : PREROLL_MAX_SAMPLES
             while (prerollLenRef.current > cap && prerollRef.current.length > 1) {
               prerollLenRef.current -= prerollRef.current.shift()!.length
             }
@@ -495,7 +521,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           }
         }, WAKE_CAPTURE_TIMEOUT_MS)
       } else {
-        openStt()
+        // Replay the wake-window pre-roll (P1.4) so a run-on command spoken in the
+        // same breath as the wake word isn't clipped while the socket opens.
+        openStt(true)
         // Watchdog: if the STT socket never opens/readies (so we never reach 'capturing'),
         // don't strand the FSM in 'wake-detected' — the wake loop is disabled outside 'idle',
         // so the assistant would go permanently deaf until a manual toggle.
@@ -535,6 +563,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   useEffect(() => {
     const pb = getVoicePlayback()
     const offStart = pb.onPlaybackStart(() => {
+      // First real audio of the reply closes the voice-to-voice timeline (Phase 0).
+      // Self-guards against typed turns (no `final` mark → nothing logged).
+      markVoice('firstAudio')
       ttsMutedRef.current = true
       bargeInCountRef.current = 0
       bargeInPeakRef.current = 0

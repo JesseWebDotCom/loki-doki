@@ -23,6 +23,16 @@ const SENTENCE_BOUNDARY = /[.!?]+(?=\s+[A-Z0-9]|\s*$)|\n{2,}/g
 const CLAUSE_BOUNDARY = /[,;:](?=\s)|\s[—–-](?=\s)/g
 const WHOLE_SENTENCE_MAX = 130 // sentences up to this length play whole (no splitting)
 const CLAUSE_FLUSH_MIN = 50    // never flush a clause shorter than this
+// Run-on clause-flush trigger. A sentence with no terminator in sight past this
+// length flushes at its last in-range clause boundary so a long opener doesn't
+// block the first audio. The FIRST chunk of a reply uses a slightly lower gate
+// (P1.3): time-to-first-audio matters most on the opener, and CLAUSE_FLUSH_MIN
+// still guarantees we never emit a jarring sub-50-char fragment ("Oh no,"). We do
+// NOT lower it further: the team already reverted aggressive first-clause
+// splitting (see the header note) because mid-phrase chops sounded worse than a
+// brief wait. Later chunks keep the higher gate for natural whole-sentence prosody.
+const CLAUSE_GATE_DEFAULT = WHOLE_SENTENCE_MAX - 20 // 110
+const CLAUSE_GATE_FIRST_CHUNK = 90
 
 // Fenced code blocks (```…```) must never be read aloud. The backend TTS strip only
 // drops COMPLETE fences, but we chunk the reply into sentences as it streams — so a code
@@ -52,12 +62,13 @@ function dropFencedCode(chunk: string, inFence: boolean): { text: string; inFenc
 // end; but if a sentence is running long with no terminator in sight, flush at the
 // last clause boundary so a 200-char run-on doesn't block the first audio. Short
 // sentences are never clause-split (avoids "Oh no," / "that's" fragments).
-function nextBoundary(sub: string): number {
+function nextBoundary(sub: string, firstChunk = false): number {
   SENTENCE_BOUNDARY.lastIndex = 0
   const term = SENTENCE_BOUNDARY.exec(sub)
   const termEnd = term ? term.index + term[0].length : -1
   if (termEnd >= 0 && termEnd <= WHOLE_SENTENCE_MAX) return termEnd // whole sentence wins
-  if (sub.length >= WHOLE_SENTENCE_MAX - 20) {
+  const clauseGate = firstChunk ? CLAUSE_GATE_FIRST_CHUNK : CLAUSE_GATE_DEFAULT
+  if (sub.length >= clauseGate) {
     CLAUSE_BOUNDARY.lastIndex = 0
     let clauseEnd = -1
     let m: RegExpExecArray | null
@@ -137,11 +148,14 @@ export function useCompanionVoice(opts: {
     }
     prevText.current = text
     const pending = text.slice(consumed.current)
+    // The opener is the single most latency-sensitive chunk, so flush it at a clause
+    // a bit sooner (P1.3). Only the very first boundary of a fresh reply qualifies.
+    const replyStart = consumed.current === 0
     let localConsumed = 0
     let inFence = fenceOpenAt(text.slice(0, consumed.current))
     for (;;) {
       const sub = pending.slice(localConsumed)
-      const end = nextBoundary(sub)
+      const end = nextBoundary(sub, replyStart && localConsumed === 0)
       if (end < 0) break
       const raw = sub.slice(0, end)
       const despoked = dropFencedCode(raw, inFence)

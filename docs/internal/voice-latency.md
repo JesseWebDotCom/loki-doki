@@ -63,6 +63,41 @@ Secondary findings:
 
 ---
 
+## Implementation Status (2026-07-18)
+
+Phase 0 and all of Phase 1 are **implemented and building clean** on the `media-compat`
+branch, plus the Phase 3 mute-grace trim. Everything below the line is code-only against
+the existing stack (no new deps, no new binaries), so it runs on both the dev Mac and the
+Windows/NVIDIA prod box as-is.
+
+| Item | Status | Where |
+|---|---|---|
+| 0. `[VOICE-TIMING]` + `[VOICE-STT]` instrumentation | DONE | `lib/voice/voice-timing.ts`, `useHandsFree.ts`, `CompanionEngineContext.tsx`, backend `sttSession.ts` |
+| 1.1 Reuse partial at finalize (+ silence-edge pre-decode) | DONE | backend `sttSession.ts` |
+| 1.2 Wake-time KV prime | DONE | `CompanionEngineContext.tsx` → `/api/chat/prime` |
+| 1.3 First-clause TTS flush (conservative: gate 110→90 first chunk only) | DONE | `useCompanionVoice.ts` |
+| 1.4 Wake-window pre-roll replay on ONNX wake | DONE | `useHandsFree.ts` |
+| 1.5 Spoken ack on tool turns (voice surfaces) | DONE | backend `companionTurn.ts` |
+| 3.10 Trim `TTS_MUTE_GRACE_MS` 400→250 | DONE | `useHandsFree.ts` |
+| 6. Smart Turn v3 semantic endpointing | PENDING (needs model + prod validation) | — |
+| 7. Native whisper.cpp / GPU STT sidecar | PENDING (needs Windows CUDA binary + VRAM measurement) | — |
+| 8. Speculative generation on partial transcript | DEFERRED (gated behind item 6; blind abort rates too high) | — |
+| 9. Kokoro on GPU (CUDA/DML sidecar) | PENDING (needs prod validation; DML needs opset-22 re-export) | — |
+
+Notes on the deltas from the original plan:
+- **1.3 was scaled back on purpose.** `useCompanionVoice.ts` documents that aggressive
+  first-clause splitting was already tried and reverted (it chopped openers into jarring
+  "Oh no," fragments). We only lowered the run-on clause gate for the very first chunk
+  (110→90), with the ≥50-char `CLAUSE_FLUSH_MIN` still guaranteeing no tiny fragments.
+- **1.1 does more than "reuse the last partial."** It kicks a full-buffer decode at the
+  exact voiced→silence edge so the STT decode overlaps the silence-timeout wait; finalize
+  then reuses it when no voiced audio followed. Worst case (speech resumed, or a periodic
+  partial was mid-flight at the timeout) it falls back to a fresh decode: never wrong.
+- **8 (speculative generation) is deferred by design,** not skipped for time. It only pays
+  off once endpointing is semantic (item 6); firing the LLM on a raw VAD-candidate endpoint
+  today would abort and re-fire too often, and a spoken reply that then gets aborted is
+  worse than the latency it saves. Revisit immediately after item 6 lands.
+
 ## The Plan
 
 Ordered by payoff per effort. Phase 0 first so every later change is measurable.
