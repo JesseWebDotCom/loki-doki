@@ -15,7 +15,6 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { cn } from '@/lib/cn'
 import { runWritingTool, REWRITE_ACTIONS, type WritingAction } from '@/lib/writingTools'
 
 const ACTIONS: { action: WritingAction; label: string; icon: typeof Text }[] = [
