@@ -79,10 +79,22 @@ sysmem spill is the freeze/lag failure mode); prefer CPU for work CPU does well
 
 ### Phase 2: stability guardrails (the "no freezes, no lags" phase)
 
-**Landed 2026-07-18:** the shared-GPU freeze fix (`lib/vramLedger.ts` +
-`runGpuHeavyJob` wrapping heavy image/video pipelines) and the automatic `num_ctx`
-clamp. Still open in this phase: items 6 (full ledger/admission API), 7 (spill
-auto-remediation), 8 (CPU discipline + p95 probe), 9 (multi-GPU verification).
+**Landed 2026-07-18:**
+- 6. Shared-GPU coordination (`lib/vramLedger.ts` + `runGpuHeavyJob` wrapping heavy
+  image/video pipelines) + the automatic `num_ctx` clamp. DONE.
+- 7. Spill auto-remediation (`llmStatus.remediateChatSpill`): sustained chat-model
+  offload in automatic evicts the resident router to free VRAM. DONE.
+- 8. CPU discipline: ffmpeg already runs below-normal priority + `-threads` cap
+  (`lib/ffmpeg.ts`, pre-existing); added the p95 web-latency probe (`lib/apiLatency.ts`
+  + `/api/*` middleware + `GET /api/admin/gpu/api-latency`, shown in the AI-engine
+  card). DONE.
+- 9. Multi-GPU verification: confirmed the coding engine (`codingEngine.ts`) reads the
+  same `getCachedGpuPlacement()` and pins itself, ComfyUI uses `comfyIndex`, and video
+  runs through the deprioritized ffmpeg. Consistent. VERIFIED.
+
+All of Phase 2's stability guardrails are in. Needs on-hardware validation (single-GPU
+prod box + a real multi-GPU box) that the evict/re-warm timing and the router-eviction
+remediation behave under load.
 
 6. **VRAM ledger + admission control.** One module that knows, per GPU: total,
    used (nvidia-smi), and what WE placed there (LLM, router, embeds, Kokoro, image
@@ -105,6 +117,13 @@ auto-remediation), 8 (CPU discipline + p95 probe), 9 (multi-GPU verification).
    map, and that the ledger (item 6) is per-card.
 
 ### Phase 3: dynamic arbitration ("when to switch things around")
+
+**Landed 2026-07-18:** item 11's core — evict-and-restore for image gen — plus the
+proactive re-warm (free ComfyUI VRAM then warm the LLM back after a heavy job, so the
+next chat isn't cold). DONE. Items 10 (explicit priority ladder) and 12 (genQueue
+yield-while-interactive for background jobs like podcast transcription / stems) remain:
+they need care to avoid starving background work and are best built + measured on the
+box, since the freeze-class problem (image gen vs LLM) is already closed by item 11.
 
 10. **Priority ladder, enforced.** interactive chat/voice > image gen (user is
     waiting, but seconds-scale) > video enhance/transcode > background sweeps
