@@ -9,7 +9,43 @@ import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
 import { getRemoteModelOverride } from '@/lib/remoteEngine'
 import { resolveEngineAutotune, getCachedAutotune } from '@/lib/engineAutotune'
-import { isAutomatic } from '@/lib/resourceMode'
+import { isAutomatic, resolveResourceMode } from '@/lib/resourceMode'
+
+// ── Installed-model guard for automatic mode ──────────────────────────────────
+// The autotune recommendation comes from the CATALOG, but nothing guarantees that
+// model has actually been pulled on this box (e.g. an apple-36-tier install may only
+// have the 12B). Serving a not-installed tag would 404 every chat request, so the
+// automatic pick is validated against Ollama's installed list (cached, short TTL)
+// and falls back to the best model that actually exists.
+const INSTALLED_TTL_MS = 60_000
+let _installedCache: { tags: Set<string>; at: number } | null = null
+
+async function installedTags(): Promise<Set<string> | null> {
+  if (_installedCache && Date.now() - _installedCache.at < INSTALLED_TTL_MS) return _installedCache.tags
+  try {
+    const list = await ollamaList()
+    _installedCache = { tags: new Set(list.map((m) => normTag(m.name))), at: Date.now() }
+    return _installedCache.tags
+  } catch {
+    // Ollama unreachable (e.g. during early boot): use the last-known list if any;
+    // otherwise report unknown and let the caller trust its candidate.
+    return _installedCache?.tags ?? null
+  }
+}
+
+/** Best AVAILABLE model for automatic mode: the recommendation if installed (or if
+ *  the installed set is unknown), else the pinned model if installed, else the
+ *  smallest installed catalog chat LLM, else the recommendation (fresh install;
+ *  setup pulls it before first chat). */
+async function pickAvailableModel(recommended: string, pinned: string | null): Promise<string> {
+  const tags = await installedTags()
+  if (!tags || tags.has(normTag(recommended))) return recommended
+  if (pinned && pinned !== 'auto' && tags.has(normTag(pinned))) return pinned
+  const installedChat = CATALOG
+    .filter((m) => (m.role === 'uncensored_llm' || m.role === 'llm') && m.ollamaTag && tags.has(normTag(m.ollamaTag)))
+    .sort((a, b) => (a.approxBytes ?? 0) - (b.approxBytes ?? 0))[0]
+  return installedChat?.ollamaTag ?? recommended
+}
 
 // The chat context window, auto-fitted to VRAM by the engine autotuner (see
 // engineAutotune.ts). Read by BOTH the warmup and the real chat turn so their
@@ -74,7 +110,10 @@ export async function getModel(): Promise<string> {
   // still means "fit it for me"). See lib/resourceMode.ts.
   let model: string
   if (isAutomatic() || !setting || setting === 'auto') {
-    model = getCachedAutotune()?.recommendedModel ?? 'llama3.1:8b'
+    const recommended = getCachedAutotune()?.recommendedModel ?? 'llama3.1:8b'
+    // Never serve a tag that isn't pulled: an installed pinned model beats a
+    // missing recommendation (slower is better than broken).
+    model = await pickAvailableModel(recommended, setting ?? null)
   } else {
     model = setting
   }
@@ -204,9 +243,12 @@ export function warmupModel(): Promise<void> {
 }
 
 async function _doWarmup(): Promise<void> {
-  // Fit the model + context to VRAM BEFORE resolving either, so getModel() and
-  // autotunedNumCtx() both see the same recommendation and the warmup matches the
-  // real turn's KV layout. Cheap + cached; no-ops if already resolved at boot.
+  // Resolve the resource mode AND the VRAM fit BEFORE picking the model, so warmup
+  // warms exactly what the first real turn will use (index.ts can fire warmup before
+  // system.ts's boot reconcile has cached either). A manual-mode user must get their
+  // pinned model warmed, not the auto recommendation; and warmup's num_ctx must match
+  // the real turn's KV layout. Cheap + cached; no-ops if already resolved.
+  await resolveResourceMode()
   await resolveEngineAutotune()
   const model = await getModel()
 
