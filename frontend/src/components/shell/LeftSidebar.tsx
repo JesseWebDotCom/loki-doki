@@ -382,10 +382,40 @@ export function LeftSidebar() {
   const { unreadCount, notifications, digest, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
   const isAdmin = user?.role === "admin"
-  const { status: serverUpdateStatus } = useServerUpdateStatus()
+  const { status: serverUpdateStatus, refresh: refreshServerUpdateStatus } = useServerUpdateStatus()
   const updatesAvailable = isAdmin ? (serverUpdateStatus?.behind ?? 0) : 0
   const serverMaintenance = useServerMaintenance()
   const [confirmUpdate, setConfirmUpdate] = useState(false)
+  const [updateRechecking, setUpdateRechecking] = useState(false)
+  // Fresh count from the on-click double check; the polled context value can lag
+  // it by one fetch roundtrip, so the dialog prefers this while it's set.
+  const [checkedBehind, setCheckedBehind] = useState<number | null>(null)
+
+  // The badge count comes from a 30s poll, so it can lag the remote. Opening the
+  // confirm dialog triggers a fresh server-side check (git fetch + recount) and the
+  // Update button stays disabled until it settles: confirming mid-check would 409
+  // against the backend's phase guard and silently not start. The pipeline itself
+  // always fetches and fast-forwards to the latest upstream, so whatever count is
+  // shown, every available update gets installed.
+  async function openUpdateConfirm() {
+    setConfirmUpdate(true)
+    setCheckedBehind(null)
+    setUpdateRechecking(true)
+    try {
+      const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
+      if (r.ok) {
+        const { behind } = (await r.json()) as { behind: number }
+        setCheckedBehind(behind)
+        refreshServerUpdateStatus()
+        if (behind === 0) {
+          setConfirmUpdate(false)
+          toast.success('Already up to date')
+        }
+      }
+      // Busy/failed check: keep the polled count; the update itself re-fetches anyway.
+    } catch { /* offline: keep the polled count */ }
+    finally { setUpdateRechecking(false) }
+  }
 
   // An update kicked off elsewhere (Admin > Server, another admin, auto mode) is
   // still running: attach so the shared progress dialog shows up here too, not
@@ -580,7 +610,7 @@ export function LeftSidebar() {
           {isAdmin && updatesAvailable > 0 ? (
             <button
               type="button"
-              onClick={() => setConfirmUpdate(true)}
+              onClick={() => void openUpdateConfirm()}
               title={`${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} available: click to update and restart`}
               className="relative shrink-0 rounded-control transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -915,8 +945,13 @@ export function LeftSidebar() {
             open={confirmUpdate}
             onOpenChange={setConfirmUpdate}
             title="Update and restart?"
-            description={`${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} ready. The server pulls the latest code, refreshes dependencies, rebuilds the app, and restarts. This can take a few minutes; the app keeps running until the restart at the end.`}
+            description={
+              updateRechecking
+                ? "Double-checking for the latest updates…"
+                : `${checkedBehind ?? updatesAvailable} update${(checkedBehind ?? updatesAvailable) === 1 ? "" : "s"} ready. The server pulls the latest code, refreshes dependencies, rebuilds the app, and restarts. This can take a few minutes; the app keeps running until the restart at the end.`
+            }
             confirmLabel="Update"
+            confirmDisabled={updateRechecking}
             onConfirm={() => { setConfirmUpdate(false); void serverMaintenance.startUpdate() }}
           />
           <ServerMaintenanceDialog

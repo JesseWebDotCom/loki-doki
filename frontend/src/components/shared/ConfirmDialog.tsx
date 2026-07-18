@@ -16,6 +16,8 @@ export interface ConfirmDialogProps {
   confirmLabel?: string
   cancelLabel?: string
   destructive?: boolean
+  /** Disable the confirm button (e.g. while a prerequisite check is running). */
+  confirmDisabled?: boolean
   onConfirm: () => void
 }
 
@@ -27,6 +29,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   destructive = false,
+  confirmDisabled = false,
   onConfirm,
 }: ConfirmDialogProps) {
   function handleConfirm() {
@@ -45,7 +48,7 @@ export function ConfirmDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {cancelLabel}
           </Button>
-          <Button variant={destructive ? 'destructive' : 'default'} onClick={handleConfirm}>
+          <Button variant={destructive ? 'destructive' : 'default'} disabled={confirmDisabled} onClick={handleConfirm}>
             {confirmLabel}
           </Button>
         </DialogFooter>
