@@ -9,6 +9,7 @@ import {
 } from '@/lib/gpuMonitor'
 import { getCachedEngineGuards, saveEngineGuards, type EngineGuards } from '@/lib/engineGuards'
 import { getCachedAutotune, resolveEngineAutotune, checkFit } from '@/lib/engineAutotune'
+import { getCachedResourceMode, setResourceMode, type ResourceMode } from '@/lib/resourceMode'
 import { getModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
@@ -55,16 +56,33 @@ adminGpu.post('/reset-baseline', async (c) => {
 
 adminGpu.get('/engine-guards', (c) => c.json(getCachedEngineGuards()))
 
+// ── Resource management: the one automatic|manual switch ─────────────────────
+// Automatic mode owns every subsystem's placement (LLM model+ctx fit, voice/image
+// device, GPU assignment) and ignores per-subsystem manual overrides. Manual honours
+// the operator's explicit picks. This is the master control the UI collapses to.
+adminGpu.get('/resource-mode', (c) => c.json({ mode: getCachedResourceMode() }))
+
+adminGpu.put('/resource-mode', async (c) => {
+  const { mode } = (await c.req.json().catch(() => ({}))) as { mode?: ResourceMode }
+  const next = mode === 'manual' ? 'manual' : 'automatic'
+  await setResourceMode(next)
+  await audit(c.get('user').id, 'engine_guards_update', { resourceMode: next })
+  // A model/device change takes effect on the next load; a restart applies it now.
+  return c.json({ ok: true, mode: next, needsRestart: true })
+})
+
 // ── Engine auto-tune (VRAM-fit model + context) ──────────────────────────────
 // Reports the detected VRAM, the auto-managed recommendation, the effective model,
 // and, when the operator has pinned a model, whether it fits or spills to CPU.
 adminGpu.get('/engine-autotune', async (c) => {
   const fit = getCachedAutotune() ?? await resolveEngineAutotune()
   const setting = (await getAppSetting('model')) as string | null
-  const auto = !setting || setting === 'auto'
+  // Effective "auto" = the master resource mode is automatic (which overrides any
+  // pin), or no model is pinned. A pin only takes effect (and can spill) in manual.
+  const auto = getCachedResourceMode() === 'automatic' || !setting || setting === 'auto'
   const effectiveModel = await getModel()
   const pinnedFit = auto ? null : checkFit(effectiveModel, fit.vramBytes)
-  return c.json({ fit, auto, pinnedModel: auto ? null : setting, effectiveModel, pinnedFit })
+  return c.json({ fit, auto, mode: getCachedResourceMode(), pinnedModel: auto ? null : setting, effectiveModel, pinnedFit })
 })
 
 // Hand the model choice back to the auto-manager (unpins any explicit model). Takes

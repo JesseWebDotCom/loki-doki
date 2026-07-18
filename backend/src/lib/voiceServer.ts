@@ -7,6 +7,7 @@ import { ensureNode } from '@/lib/node'
 import { spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { isAutomatic } from '@/lib/resourceMode'
 
 // Voice compute backend for the sidecar, chosen by the admin (or 'auto' = let the
 // sidecar detect). 'auto'/'cpu'/'cuda'/'dml' — see scripts/voice-server.ts for
@@ -18,6 +19,9 @@ export const VOICE_DEVICE_SETTING_KEY = 'voice.device'
  *  (or unset) leaves VOICE_DEVICE off so the sidecar auto-detects; any explicit
  *  choice is forwarded and honored (still with a CPU fallback if it fails to load). */
 async function sidecarDeviceEnv(): Promise<Record<string, string>> {
+  // Automatic mode owns device placement: let the sidecar auto-detect (see
+  // scripts/voice-server.ts) and ignore any forced voice.device.
+  if (isAutomatic()) return {}
   const raw = await getAppSetting(VOICE_DEVICE_SETTING_KEY)
   const device = (typeof raw === 'string' ? raw : 'auto') as VoiceDeviceSetting
   return device && device !== 'auto' ? { VOICE_DEVICE: device } : {}
