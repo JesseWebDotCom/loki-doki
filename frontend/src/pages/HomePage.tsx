@@ -32,6 +32,7 @@ import {
 } from "@dnd-kit/core";
 import { NewsRow, NewsLink, type NewsItem } from "@/components/shared/NewsCard";
 import { SectionHeader } from "@/components/shared/SectionHeader";
+import { ArtBillboard, type ArtBillboardItem } from "@/components/shared/ArtBillboard";
 import { useNewsReaderMode } from "@/hooks/useNewsReaderMode";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -57,7 +58,7 @@ import { getFollowingFeed, getHubHistory, type HubVideoItem } from "@/lib/videos
 import { getHistory as getYtHistory } from "@/lib/youtube/api";
 import { getHistory, getFavorites, listStations, stationToDj, type Station } from "@/lib/music/catalogApi";
 import { useRadio } from "@/context/RadioContext";
-import { usePodcastFeed, continueListening, newEpisodes } from "@/lib/podcast/useFeed";
+import { usePodcastFeed, continueListening, newEpisodes, type FeedEpisode } from "@/lib/podcast/useFeed";
 import { coverUrl } from "@/lib/podcast/api";
 import { usePodcastPlayback } from "@/context/PodcastPlaybackContext";
 import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
@@ -2453,6 +2454,73 @@ function Canvas({
 }
 
 
+// ── Featured hero billboard ───────────────────────────────────────────────────
+// The editorial lead moment, mirroring the Music/Podcasts/Videos hubs: an
+// auto-rotating billboard of the few highest-signal things to resume or read,
+// each slide dissolving into an accent extracted from its own artwork. Renders
+// nothing until it has at least one art-backed item, so it never shows an empty
+// frame on a fresh household.
+function HomeBillboard() {
+  const { data } = usePodcastFeed();
+  const podcastPb = usePodcastPlayback();
+  const navigate = useNavigate();
+  const [readerMode] = useNewsReaderMode();
+  const [news, setNews] = useState<NewsItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/news?limit=8", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { items?: NewsItem[] } | null) => { setNews(d?.items ?? []); })
+      .catch(() => {});
+  }, []);
+
+  const items = useMemo<ArtBillboardItem[]>(() => {
+    const all = data?.all ?? [];
+    const cont = continueListening(all).slice(0, 2);
+    const contIds = new Set(cont.map(x => x.episode.id));
+    const fresh = newEpisodes(all).filter(x => !contIds.has(x.episode.id)).slice(0, 2);
+    const newsWithArt = news.filter(n => n.imageUrl && n.url).slice(0, 2);
+
+    const playEpisode = (x: FeedEpisode) => () =>
+      podcastPb.play({
+        episodeId: x.episode.id, showId: x.show.id, showName: x.show.name,
+        title: x.episode.title, coverUrl: coverUrl(x.show.id),
+        durationSec: x.episode.durationSec ?? undefined, chapters: x.episode.chapters ?? [],
+      });
+    const openNews = (url: string) => () => {
+      if (readerMode === "reader") navigate(`/news/reader?url=${encodeURIComponent(url)}`);
+      else window.open(url, "_blank", "noopener,noreferrer");
+    };
+
+    // Best-first: resume where you left off, then a top story with art, then the
+    // newest episode. Capped so the carousel stays short and premium.
+    const out: ArtBillboardItem[] = [];
+    for (const x of cont) out.push({
+      key: `resume:${x.episode.id}`, title: x.episode.title, subtitle: x.show.name,
+      art: coverUrl(x.show.id), onClick: playEpisode(x), pillLabel: "Resume", PillIcon: Play,
+    });
+    for (const n of newsWithArt) out.push({
+      key: `news:${n.url}`, title: n.title, subtitle: n.source ?? "Top story",
+      art: proxyImg(n.imageUrl!), onClick: openNews(n.url!), pillLabel: "Read", PillIcon: Newspaper,
+    });
+    for (const x of fresh) out.push({
+      key: `new:${x.episode.id}`, title: x.episode.title, subtitle: x.show.name,
+      art: coverUrl(x.show.id), onClick: playEpisode(x), pillLabel: "Play", PillIcon: Play,
+    });
+    return out.slice(0, 5);
+  }, [data, news, podcastPb, navigate, readerMode]);
+
+  if (items.length === 0) return null;
+
+  const eyebrow = items[0]!.key.startsWith("resume:") ? "Continue listening" : "Featured for you";
+
+  return (
+    <div className="px-5 pt-5">
+      <ArtBillboard eyebrow={eyebrow} items={items} />
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function HomePage() {
@@ -2632,6 +2700,9 @@ export function HomePage() {
 
       {/* ── Ticker ── */}
       {showTicker && <HomeTicker config={tickerCfg} />}
+
+      {/* ── Featured hero ── */}
+      <HomeBillboard />
 
       {/* ── Canvas zone ── */}
       <div className={cn(
