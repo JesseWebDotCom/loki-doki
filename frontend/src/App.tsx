@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
+import { ViewTransitionProvider } from '@/components/shell/ViewTransitionProvider'
 import { ThemeProvider } from '@/context/ThemeContext'
 import { AppToaster } from '@/components/shared/AppToaster'
 import { UIContextProvider } from '@/context/UIContextProvider'
@@ -365,6 +366,7 @@ function GlobalSetupWidget() {
 
 export default function App() {
   return (
+    <ViewTransitionProvider>
     <ServerHealthProvider>
     <SetupProgressProvider>
     <AuthProvider>
@@ -702,5 +704,6 @@ export default function App() {
     </AuthProvider>
     </SetupProgressProvider>
     </ServerHealthProvider>
+    </ViewTransitionProvider>
   )
 }

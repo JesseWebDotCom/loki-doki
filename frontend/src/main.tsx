@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, keepPreviousData } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import './index.css'
 import 'katex/dist/katex.min.css'
@@ -58,8 +58,17 @@ if ('serviceWorker' in navigator) {
 // 5-min gcTime a boot-time/idle warm would be garbage-collected before the user clicks
 // the app. 30 min keeps warmed pinned-app data alive until it's needed. Per-query
 // staleTime still governs freshness (most warmed queries set their own).
+//
+// placeholderData: keepPreviousData is the app-wide no-flash contract: when a query key
+// changes under a mounted page (channel A -> channel B, tab switches, search terms), the
+// previous data stays on screen until the new data lands instead of blanking to a
+// skeleton/spinner. It is observer-scoped, so a freshly mounted page still gets a real
+// first-load state, and logout unmounts the tree so nothing leaks across profiles.
+// Full-page `isLoading` early-returns therefore only fire on true first loads.
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000, gcTime: 30 * 60_000 } },
+  defaultOptions: {
+    queries: { retry: 1, staleTime: 30_000, gcTime: 30 * 60_000, placeholderData: keepPreviousData },
+  },
 })
 
 createRoot(document.getElementById('root')!).render(

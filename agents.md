@@ -110,6 +110,23 @@ It greps the diff's files for the mechanical Visual Language violations (em dash
 - On generation end: smooth-scroll to bottom to reveal the full response.
 - On conversation load: instant-jump to bottom.
 
+**Flash-free navigation contract** (app-wide; do not undo any piece of it per-page):
+- The QueryClient default (`main.tsx`) sets `placeholderData: keepPreviousData`. When a
+  mounted page's query key changes (channel A to channel B, tab or search-term changes),
+  the previous data stays on screen until the new data lands, so full-page
+  `isLoading`/skeleton early-returns only fire on true first loads. Never add a per-query
+  `placeholderData` just to get this (it's the default); use `isPlaceholderData` if a
+  surface should dim while stale data shows.
+- `ViewTransitionProvider` (`components/shell/ViewTransitionProvider.tsx`, mounted once in
+  `App.tsx`) wraps the router's navigator so EVERY `Link` click and `useNavigate()` call
+  runs inside a browser View Transition (crossfade). There is no per-link opt-in and
+  nothing to wire per page. Same-pathname navigations (URL-synced search params, tabs,
+  pagination) intentionally skip the transition.
+- Images that swap `src` across navigations (avatars, banners) must NOT force a remount
+  with `key={src}`: keeping the element alive keeps the old bitmap painted until the new
+  one decodes. Add `decoding="async"`. (`MediaArt`'s `key={src}` is the sanctioned
+  exception: it separates fallback stages for the same album, never navigation.)
+
 **Voice / TTS** - see `docs/internal/subsystems.md`
 - **Kokoro-82M TTS + Whisper STT**, both via ONE bundled Bun **voice-server sidecar** (`backend/scripts/voice-server.ts`). NOT XTTS/Piper/F5 (cloning deferred; Qwen3-TTS banned - Chinese-origin).
 - Pluggable engine registry (`backend/src/lib/voice/`) - `kokoro` only for now.
