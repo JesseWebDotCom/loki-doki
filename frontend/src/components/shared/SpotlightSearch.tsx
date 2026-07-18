@@ -408,7 +408,10 @@ export function SpotlightSearch() {
           setWebLoading(false);
         })
         .catch(() => { if (!ctrl.signal.aborted) setWebLoading(false); });
-    }, 180);
+      // Longer debounce than the local-content search above (180ms): every fire here
+      // is a real engine fan-out, and rapid-fire prefix queries from mid-word pauses
+      // get a home IP throttled by the upstream engines, killing the final query.
+    }, 500);
     return () => {
       clearTimeout(t);
       ctrl.abort();

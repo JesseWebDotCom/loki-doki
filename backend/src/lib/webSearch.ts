@@ -163,12 +163,50 @@ async function marginalia(query: string, limit: number, timeoutMs: number): Prom
 
 // ── Merge ────────────────────────────────────────────────────────────────────────
 
+async function runEngines(q: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
+  const perEngine = Math.max(limit, 10)
+  const lists = await Promise.all([
+    searxng(q, perEngine, timeoutMs, safesearch),
+    safesearch > 0 ? Promise.resolve([]) : google(q, perEngine, timeoutMs),
+    ddg(q, perEngine, timeoutMs, safesearch),
+    safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
+    safesearch > 0 ? Promise.resolve([]) : marginalia(q, perEngine, timeoutMs),
+  ])
+
+  // Merge the FULL fan-out (no early cap): the merged list is cached below and
+  // served to callers with different limits, so trimming happens per-caller.
+  const merged: WebResult[] = []
+  const seen = new Set<string>()
+  for (const list of lists) {
+    for (const r of list) {
+      const key = urlKey(r.url)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      merged.push(r)
+    }
+  }
+  return merged
+}
+
+// ── In-flight dedupe + short cache ───────────────────────────────────────────────
+// One user action triggers several IDENTICAL searches within seconds: the Spotlight
+// typeahead, then the /search page, then the AI Overview grounding the same query.
+// Upstream engines throttle/captcha a home IP that repeats a query in a tight burst,
+// and SearXNG suspends engines that error — which manifested as "images load but web
+// results are empty" on exactly the popular queries that fan out widest. Sharing one
+// in-flight fan-out per (query, safesearch) and caching the merged list for a few
+// minutes collapses a whole search-page visit into a single upstream hit.
+const CACHE_TTL_MS = 5 * 60_000
+const cache = new Map<string, { at: number; results: WebResult[] }>()
+const inflight = new Map<string, Promise<WebResult[]>>()
+
 /**
  * Run a web search across all keyless engines and return up to `limit` deduped
  * results, or [] on total failure (never throws). Engines run concurrently; results
- * are merged in priority order (Google → DuckDuckGo → Mojeek → Marginalia), so the
- * big indexes lead when available and the independent crawlers backfill when those
- * are blocked or thin.
+ * are merged in priority order (SearXNG → Google → DuckDuckGo → Mojeek → Marginalia),
+ * so the big indexes lead when available and the independent crawlers backfill when
+ * those are blocked or thin. Identical concurrent/recent queries share one fan-out
+ * (see cache note above).
  *
  * `safesearch` (0=off, 1=moderate, 2=strict) is passed to the engines that support
  * it (SearXNG, DuckDuckGo). Google/Mojeek/Marginalia have no safe-search knob, so for
@@ -178,25 +216,29 @@ async function marginalia(query: string, limit: number, timeoutMs: number): Prom
 export async function webSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0): Promise<WebResult[]> {
   const q = query.trim()
   if (!q) return []
+  const key = `${safesearch}|${q.toLowerCase()}`
 
-  const lists = await Promise.all([
-    searxng(q, Math.max(limit, 5), timeoutMs, safesearch),
-    safesearch > 0 ? Promise.resolve([]) : google(q, Math.max(limit, 5), timeoutMs),
-    ddg(q, Math.max(limit, 5), timeoutMs, safesearch),
-    safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
-    safesearch > 0 ? Promise.resolve([]) : marginalia(q, Math.max(limit, 5), timeoutMs),
-  ])
+  const cached = cache.get(key)
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.results.slice(0, limit)
 
-  const merged: WebResult[] = []
-  const seen = new Set<string>()
-  for (const list of lists) {
-    for (const r of list) {
-      const key = urlKey(r.url)
-      if (!key || seen.has(key)) continue
-      seen.add(key)
-      merged.push(r)
-      if (merged.length >= limit) return merged
-    }
+  let flight = inflight.get(key)
+  if (!flight) {
+    flight = runEngines(q, limit, timeoutMs, safesearch)
+      .then((results) => {
+        // Only cache success — an empty merge usually means throttled/offline
+        // engines, and pinning that for 5 minutes would turn a transient blip
+        // into "search is broken until you wait it out".
+        if (results.length > 0) {
+          cache.set(key, { at: Date.now(), results })
+          if (cache.size > 200) {
+            const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+            if (oldest) cache.delete(oldest[0])
+          }
+        }
+        return results
+      })
+      .finally(() => inflight.delete(key))
+    inflight.set(key, flight)
   }
-  return merged
+  return (await flight).slice(0, limit)
 }
