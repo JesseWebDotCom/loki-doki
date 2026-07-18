@@ -18,6 +18,7 @@ import { requireAuth } from '@/middleware/auth'
 import { dataDir, isEsrganInstalled, isCodeFormerInstalled, isGFPGANInstalled, isFaceRestoreNodeInstalled, isBiRefNetNodeInstalled } from '@/lib/download'
 import { userPath } from '@/lib/storage/paths'
 import { comfyUrl, restartComfyUI, isComfyUIInstalled, getComfyUIState, markComfyUIReady, maybeSpawnComfyUI } from '@/lib/comfyui'
+import { runGpuHeavyJob } from '@/lib/vramLedger'
 import { traceToSvg } from '@/lib/vtracer'
 import { logger } from '@/lib/logger'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
@@ -527,7 +528,12 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
       let prompt_id = ''
       let submitMs  = 0
 
-      await new Promise<void>((resolve, reject) => {
+      // Heavy generative pipelines (a full SDXL/video pass) can't share an 8GB card with
+      // a resident LLM without spilling to system RAM and stuttering the box. On a shared
+      // card in automatic mode, runGpuHeavyJob evicts the LLM first (it reloads on the next
+      // chat); light touch-ups (upscale/facerestore/cleanup) are small and run inline.
+      const heavyGen = !payload.pipeline || payload.pipeline === 'video' || payload.pipeline === 'i2v'
+      const runGeneration = () => new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(wsUrl)
         // Force binary messages to arrive as ArrayBuffer (Bun's global WebSocket
         // defaults binaryType to 'blob', which the binary-frame handler can't detect).
@@ -696,6 +702,9 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
           if (event.code !== 1000) done(new Error(`ComfyUI websocket closed unexpectedly: ${event.code}`))
         })
       })
+
+      if (heavyGen) await runGpuHeavyJob(`image:${payload.pipeline ?? 'txt2img'}`, runGeneration)
+      else await runGeneration()
 
       if (!imageFile) throw new Error('ComfyUI completed but produced no output images')
 
