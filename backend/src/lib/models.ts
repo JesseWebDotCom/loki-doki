@@ -8,6 +8,15 @@ import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
 import { getRemoteModelOverride } from '@/lib/remoteEngine'
+import { resolveEngineAutotune, getCachedAutotune } from '@/lib/engineAutotune'
+
+// The chat context window, auto-fitted to VRAM by the engine autotuner (see
+// engineAutotune.ts). Read by BOTH the warmup and the real chat turn so their
+// num_ctx always matches — a mismatch forces a runner re-init on the first turn.
+// Falls back to 8192 until the autotune has resolved.
+export function autotunedNumCtx(): number {
+  return getCachedAutotune()?.recommendedNumCtx ?? 8192
+}
 
 async function getSetting(key: string): Promise<string | null> {
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
@@ -57,7 +66,16 @@ export async function getModel(): Promise<string> {
   // A paired remote engine supplies its own model name (the local one may not exist there).
   const remote = getRemoteModelOverride()
   if (remote) return remote
-  const model = (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
+  const setting = (await getSetting('model')) ?? process.env.MODEL
+  // Auto-manage by default: no explicit pick (or 'auto') → the VRAM-fitted
+  // recommendation, so an oversized model never silently spills to CPU. An explicit
+  // model always wins (the operator pinned it on purpose).
+  let model: string
+  if (!setting || setting === 'auto') {
+    model = getCachedAutotune()?.recommendedModel ?? 'llama3.1:8b'
+  } else {
+    model = setting
+  }
   roleTags.chat = model
   return model
 }
@@ -184,6 +202,10 @@ export function warmupModel(): Promise<void> {
 }
 
 async function _doWarmup(): Promise<void> {
+  // Fit the model + context to VRAM BEFORE resolving either, so getModel() and
+  // autotunedNumCtx() both see the same recommendation and the warmup matches the
+  // real turn's KV layout. Cheap + cached; no-ops if already resolved at boot.
+  await resolveEngineAutotune()
   const model = await getModel()
 
   // Pre-warm with the stable system prompt PREFIX that real chat turns share.
@@ -216,10 +238,10 @@ async function _doWarmup(): Promise<void> {
   // user reach a usable app the moment they can chat. Loading the chat model on its
   // own also avoids the VRAM/PCIe contention of pulling 3-4 models into the GPU at
   // once (the old parallel warmup), which was a big chunk of the cold-start time.
-  // num_ctx matches the chat default (8192) — a mismatched warmup context would
-  // itself force a runner re-init on the first real turn.
+  // num_ctx matches the chat default — a mismatched warmup context would itself
+  // force a runner re-init on the first real turn. Both read autotunedNumCtx().
   await ollamaChat(model, warmupMessages, [], {
-    temperature: 0, num_predict: 1, num_ctx: 8192,
+    temperature: 0, num_predict: 1, num_ctx: autotunedNumCtx(),
   })
     .then(() => logger.info(`[warmup] ${model} ready`))
     .catch(() => {})
