@@ -7,6 +7,7 @@
 //        temperature=0, [prompt=<hotwords>]  →  { text: "..." }
 
 import { whisperUrl } from '@/lib/voice/config'
+import { waitForInteractiveIdle } from '@/lib/activityGate'
 import { logger } from '@/lib/logger'
 
 export async function whisperHealth(): Promise<boolean> {
@@ -72,6 +73,10 @@ export interface WhisperTimedSegment {
  * Generous timeout: minutes of CPU decode per multi-minute WAV chunk is normal.
  */
 export async function transcribeWavTimed(wav: Uint8Array, timeoutMs = 15 * 60_000): Promise<{ text: string; segments: WhisperTimedSegment[] | null }> {
+  // Long-form podcast transcription hammers the SAME Whisper sidecar as live voice.
+  // Yield to any active conversation first so hands-free STT never queues behind a
+  // multi-minute episode decode. Bounded so a busy household can't starve the job.
+  await waitForInteractiveIdle({ quietMs: 1500, maxWaitMs: 30_000, label: 'podcast-transcribe' })
   const base = await whisperUrl()
   let res: Response
   try {

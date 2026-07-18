@@ -15,6 +15,7 @@
 
 import { transcribeWav } from '@/lib/whisper'
 import { getSileroStream, type SileroVadStream } from '@/lib/voice/sileroVad'
+import { markInteractive } from '@/lib/activityGate'
 import { logger } from '@/lib/logger'
 
 export interface SttSessionConfig {
@@ -160,6 +161,9 @@ export class SttSession {
     if (voiced) {
       if (!this.speaking) {
         this.speaking = true
+        // Live voice capture is interactive: background jobs sharing the Whisper
+        // sidecar (podcast transcription) yield so live STT stays responsive.
+        markInteractive()
         // Prepend the pre-onset window so Silero's chunk-granular decision
         // latency doesn't clip the first phoneme. (Silero path only — preroll
         // is never buffered on the RMS fallback, keeping it identical to the

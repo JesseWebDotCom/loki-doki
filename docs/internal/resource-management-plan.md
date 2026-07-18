@@ -118,12 +118,21 @@ remediation behave under load.
 
 ### Phase 3: dynamic arbitration ("when to switch things around")
 
-**Landed 2026-07-18:** item 11's core (evict-and-restore for image gen) plus the
-proactive re-warm (free ComfyUI VRAM then warm the LLM back after a heavy job, so the
-next chat isn't cold). DONE. Items 10 (explicit priority ladder) and 12 (genQueue
-yield-while-interactive for background jobs like podcast transcription / stems) remain:
-they need care to avoid starving background work and are best built + measured on the
-box, since the freeze-class problem (image gen vs LLM) is already closed by item 11.
+**Landed 2026-07-18 (all of Phase 3):**
+- 11. Evict-and-restore for image gen + proactive re-warm (free ComfyUI VRAM then warm
+  the LLM back after a heavy job). DONE.
+- 10 + 12. Priority ladder via `lib/activityGate.ts`: `markInteractive()` fires at the
+  start of every chat/voice turn (`companionTurn`, and on live STT onset in
+  `sttSession`); background GPU/CPU hogs call `waitForInteractiveIdle()` before heavy
+  work so they never lag a conversation. Wired at the three worst offenders: podcast
+  long-form transcription (`whisper.ts`, shares the Whisper sidecar with live voice),
+  the memory-judge sweep (`memory/sweep.ts`, shares Ollama with chat), and stems
+  separation (`stems/analyzeJob.ts`). Every wait is BOUNDED (`maxWaitMs`) so a chatty
+  household can never starve background work. DONE.
+
+Needs on-hardware validation that the deferral windows feel right (start a podcast
+transcription, then talk to the companion, and confirm live voice stays snappy while
+the transcription waits it out).
 
 10. **Priority ladder, enforced.** interactive chat/voice > image gen (user is
     waiting, but seconds-scale) > video enhance/transcode > background sweeps

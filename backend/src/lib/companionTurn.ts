@@ -45,6 +45,7 @@ import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh
 import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel, autotunedNumCtx } from '@/lib/models'
 import { isAutomatic } from '@/lib/resourceMode'
+import { markInteractive } from '@/lib/activityGate'
 import { maybeStageLearnedAnswer, type LearnCandidate } from '@/lib/notes/learnedAnswer'
 import { CATALOG } from '@/lib/catalog'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
@@ -344,6 +345,11 @@ export async function runCompanionTurn(
   h: CompanionTurnHandlers,
 ): Promise<CompanionTurnResult> {
   const emitEvent = (type: CompanionTurnEvent, data: string) => h.onEvent?.(type, data)
+
+  // Mark the conversation live so background jobs (podcast transcription, stems,
+  // memory sweep) yield to it and never lag the reply. Primes excluded — a KV prime
+  // is not a live turn. (Phase 3 priority ladder, lib/activityGate.ts.)
+  if (!p.primeOnly) markInteractive()
 
   // ── Latency instrumentation ───────────────────────────────────────────────
   const _t0 = performance.now()

@@ -27,6 +27,7 @@ import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from './bloc
 import { invalidateEntityCache } from './recall'
 import { getModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
+import { waitForInteractiveIdle } from '@/lib/activityGate'
 
 // ─── Tuning ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,10 @@ async function runJudgeSweep(): Promise<void> {
   if (sweeping) return
   sweeping = true
   try {
+    // The judge runs on the same Ollama the family chats with. Defer to any live
+    // conversation so a background memory pass never slows a reply. Bounded (the
+    // sweep is idle-triggered and not urgent, so it can wait a while for quiet).
+    await waitForInteractiveIdle({ quietMs: 2000, maxWaitMs: 60_000, label: 'memory-judge' })
     await doJudgeSweep()
   } finally {
     sweeping = false

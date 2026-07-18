@@ -18,6 +18,7 @@ import { dataDir } from '@/lib/download'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
+import { waitForInteractiveIdle } from '@/lib/activityGate'
 
 const execFileAsync = promisify(execFile)
 
@@ -57,6 +58,9 @@ export async function runAnalyzeJob(
   onProgress?: (p: DownloadProgress & { note?: string }) => void,
 ): Promise<void> {
   const { studioTrackId } = payload
+  // Stems separation is a CPU/GPU-heavy Python job; yield to any live conversation
+  // first so it never lags a reply. Bounded so it still runs on a busy box.
+  await waitForInteractiveIdle({ quietMs: 1500, maxWaitMs: 30_000, label: 'stems-separate' })
   const [row] = await db.select().from(musicStudioTracks).where(eq(musicStudioTracks.id, studioTrackId)).limit(1)
   if (!row) { logger.info(`[analyze] studio track ${studioTrackId} gone — skipping`); return }
   if (!row.sourceRelPath) { logger.info(`[analyze] studio track ${studioTrackId} has no source — skipping`); return }
