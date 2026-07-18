@@ -43,6 +43,16 @@ webSearchRouter.get('/', requireAuth, async (c) => {
   const tier = await searchTierFor(user.id)
   const safesearch = safesearchFor(tier)
 
+  // Typeahead mode for the Spotlight preview: a few results on a tight budget,
+  // and no image fetch (Spotlight never shows them). The full-page search keeps
+  // the deep multi-engine merge below; a preview that takes 9 seconds while the
+  // user is mid-keystroke reads as "web search is broken", so this path trades
+  // depth for immediacy.
+  if (c.req.query('quick') === '1') {
+    const web = await webSearch(q, 3, 3000, safesearch)
+    return c.json({ web, images: [], tier })
+  }
+
   const [web, images] = await Promise.all([
     // Longer budget than images below: SearXNG's general category aggregates across
     // ~20 upstream engines (the heavier of the two categories), so a broad/popular

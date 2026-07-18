@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/cn";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
@@ -316,6 +317,7 @@ export function SpotlightSearch() {
   const [archives, setArchives] = useState<LibraryItem[]>([]);
   const [content, setContent] = useState<ContentHit[]>([]);
   const [webResults, setWebResults] = useState<WebHit[]>([]);
+  const [webLoading, setWebLoading] = useState(false);
   const navigate = useNavigate();
   // On phones this dialog is the Search TAB: full screen, and its empty state is the
   // app launcher grid (recents + categories) instead of a flat list. The single shared
@@ -374,21 +376,25 @@ export function SpotlightSearch() {
     };
   }, [q, open]);
 
-  // Same debounce/abort pattern as above, for a live web-search preview
-  // (routes/webSearch.ts), a separate request/endpoint from local-content search.
+  // Same debounce/abort pattern as above, for a live web-search preview. Uses the
+  // endpoint's `quick=1` typeahead mode (3 results, tight timeout, no image fetch),
+  // the full-page search's deep multi-engine merge takes long enough that a preview
+  // waiting on it reads as "no web results at all".
   const webAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     if (!open) return;
     if (q.length < 2) {
       setWebResults([]);
+      setWebLoading(false);
       webAbortRef.current?.abort();
       return;
     }
     const ctrl = new AbortController();
     webAbortRef.current?.abort();
     webAbortRef.current = ctrl;
+    setWebLoading(true);
     const t = setTimeout(() => {
-      fetch(`/api/search/web?q=${encodeURIComponent(q)}`, { credentials: "include", signal: ctrl.signal })
+      fetch(`/api/search/web?q=${encodeURIComponent(q)}&quick=1`, { credentials: "include", signal: ctrl.signal })
         .then((r) => r.json())
         .then((d) => {
           setWebResults(
@@ -399,8 +405,9 @@ export function SpotlightSearch() {
               snippet: r.snippet as string,
             }))
           );
+          setWebLoading(false);
         })
-        .catch(() => {});
+        .catch(() => { if (!ctrl.signal.aborted) setWebLoading(false); });
     }, 180);
     return () => {
       clearTimeout(t);
@@ -422,13 +429,17 @@ export function SpotlightSearch() {
         )
         .slice(0, 8);
 
-  // Group content hits by their backend `group`, preserving first-seen (provider) order.
+  // Group content hits by their backend `group`, preserving first-seen (provider)
+  // order. Each group is capped to 3 rows in this preview surface, since uncapped groups
+  // (6 per provider × many providers) pushed the Web section below the fold of the
+  // scroller, which read as "web search shows nothing".
   const contentGroups: { group: string; hits: ContentHit[] }[] = [];
   for (const hit of content) {
     let g = contentGroups.find((x) => x.group === hit.group);
     if (!g) { g = { group: hit.group, hits: [] }; contentGroups.push(g); }
-    g.hits.push(hit);
+    if (g.hits.length < 3) g.hits.push(hit);
   }
+  const displayedContentCount = contentGroups.reduce((n, g) => n + g.hits.length, 0);
 
   // Flat list drives keyboard navigation; section render walks the same order.
   const allResults: SearchResult[] = [
@@ -437,7 +448,7 @@ export function SpotlightSearch() {
     ...webResults,
     ...filteredLibraries,
   ];
-  const isEmpty = allResults.length === 0;
+  const isEmpty = allResults.length === 0 && !webLoading;
 
   // Keyboard global toggle
   useEffect(() => {
@@ -457,6 +468,7 @@ export function SpotlightSearch() {
     setSelectedIndex(0);
     setContent([]);
     setWebResults([]);
+    setWebLoading(false);
   }, [open]);
 
   useEffect(() => {
@@ -601,13 +613,19 @@ export function SpotlightSearch() {
                 })}
 
                 {/* Web section: live search preview, links out to the full /search page */}
-                {webResults.length > 0 && (
+                {(webResults.length > 0 || webLoading) && (
                   <>
                     <p className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-foreground/25">
                       Web
                     </p>
+                    {webResults.length === 0 && webLoading && (
+                      <p className="flex items-center gap-2 px-4 py-2 text-sm text-foreground/35">
+                        <Spinner size="sm" className="text-foreground/35" />
+                        Searching the web…
+                      </p>
+                    )}
                     {webResults.map((item, i) => {
-                      const idx = filteredNav.length + content.length + i;
+                      const idx = filteredNav.length + displayedContentCount + i;
                       return (
                         <WebRow
                           key={item.url}
@@ -636,7 +654,7 @@ export function SpotlightSearch() {
                       Libraries
                     </p>
                     {filteredLibraries.map((item, i) => {
-                      const idx = filteredNav.length + content.length + webResults.length + i;
+                      const idx = filteredNav.length + displayedContentCount + webResults.length + i;
                       return (
                         <LibraryRow
                           key={item.sourceId}
