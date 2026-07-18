@@ -46,7 +46,7 @@ export type IndicatorState = 'off' | 'on-idle' | 'on-active' | 'on-followup'
 export interface CompanionAvatarProps {
   streaming: boolean
   thinking: boolean
-  /** A tool is actively running (distinct from idle `thinking`) — drives the calm,
+  /** A tool is actively running (distinct from idle `thinking`), drives the calm,
    *  wordless "on it" pose/affordance. Off-chat only. */
   working: boolean
   sleeping: boolean
@@ -96,7 +96,7 @@ export interface CompanionEngine {
   replyText: string
   streaming: boolean
   thinking: boolean
-  /** A tool is actively running this turn (off-chat) — the wordless "working" cue is
+  /** A tool is actively running this turn (off-chat), the wordless "working" cue is
    *  active. Distinct from `thinking` (turn started, nothing happening yet). */
   working: boolean
   /** True while the reply is audibly/visibly being delivered. */
@@ -211,7 +211,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const voiceStateRef = useRef<{ on: boolean; characterId?: string }>({ on: false })
   // The ONLY thing the companion says about its own processing, and only on a
   // genuine change of approach after a dead end. Spoken once, on voice surfaces
-  // only — text surfaces already show the retry visually. It queues ahead of the
+  // only, text surfaces already show the retry visually. It queues ahead of the
   // reply chunks, so it fills the extra beat instead of leaving dead air.
   const onSpokenCue = useCallback((text: string) => {
     const v = voiceStateRef.current
@@ -328,7 +328,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const thinking = streaming && replyText.length === 0
   // `working` is the subset of `thinking` where a tool is actually running (the
   // backend `status` cue arrived): the companion is doing something, not just idling
-  // before it starts. Off-chat only — on-chat surfaces the per-tool label in the
+  // before it starts. Off-chat only, on-chat surfaces the per-tool label in the
   // message stream instead. Drives the ambient, wordless "on it" affordance so a
   // 5–8s tool turn doesn't read as being ignored. NEVER spoken.
   const working = thinking && !isOnChat && companion.phase !== null

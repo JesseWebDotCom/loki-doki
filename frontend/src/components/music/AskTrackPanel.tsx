@@ -7,7 +7,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { askTrack, type AskTrackMessage } from '@/lib/music/catalogApi'
 
 /**
- * Ask-the-song: the Now Playing overlay's grounded Q&A tab, for music — the video watch
+ * Ask-the-song: the Now Playing overlay's grounded Q&A tab, for music, the video watch
  * page's Ask-the-video, scoped to lyrics + artist/song background instead of a transcript.
  * Session-only: the thread lives in component state and is replayed to the backend, so
  * nothing is persisted. Streams token-by-token over SSE (lib/music/catalogApi.ts's
@@ -54,7 +54,7 @@ export function AskTrackPanel({ artist, title, className }: { artist: string; ti
     <div className={cn('flex min-h-0 flex-col', className)}>
       {messages.length === 0 ? (
         <p className="px-2 py-6 text-center text-sm text-white/60">
-          Ask about this song — what it's about, who wrote it, why it matters. Answers draw
+          Ask about this song, what it's about, who wrote it, why it matters. Answers draw
           on the lyrics and background, never leave your home server.
         </p>
       ) : (
@@ -65,6 +65,7 @@ export function AskTrackPanel({ artist, title, className }: { artist: string; ti
         </div>
       )}
 
+      {/* design-ok(raw-palette-semantic): error text sits on the album-art Now Playing overlay, same white-on-art surface as NowPlayingOverlay */}
       {error && <p className="pb-2 text-xs text-red-300">{error}</p>}
 
       <div className="flex gap-2">
@@ -95,6 +96,7 @@ const AskMessageRow = memo(function AskMessageRow({ message, pending }: { messag
   }
   return (
     <div className="flex">
+      {/* design-ok(glass-on-plain-bg): assistant bubble floats over album art in the Now Playing overlay */}
       <div className="max-w-[92%] rounded-card bg-white/10 px-3 py-2 text-sm leading-relaxed text-white/90">
         {pending ? <Spinner size="sm" className="text-white/60" /> : message.content}
       </div>

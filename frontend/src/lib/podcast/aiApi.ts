@@ -157,7 +157,7 @@ export async function deleteSnip(id: string): Promise<void> {
 }
 
 // ── Moments ──────────────────────────────────────────────────────────────────────
-// The household social layer for an episode — same shape as Video's/Music's Moments.
+// The household social layer for an episode, same shape as Video's/Music's Moments.
 export interface EpisodeMoment {
   id: string; userId: string; atSec: number; emoji: string | null; note: string | null
   by: string; mine: boolean; createdAt: number

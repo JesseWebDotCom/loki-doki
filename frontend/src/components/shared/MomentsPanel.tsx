@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 // the rest of the household ("Dad at 12:31"). Netflix ships Moments and niconico ships
 // timed comments; neither is private, and nobody offers this scoped to one family.
 // Everything stays on the home server. Media-agnostic: the caller injects its own
-// list/add/remove calls (each media type keys moments differently — source+videoId for
+// list/add/remove calls (each media type keys moments differently, source+videoId for
 // video, a unified track ref for music, episodeId for podcasts) so this component owns
 // only the shared UI, not any one backend's shape.
 
@@ -31,7 +31,7 @@ function fmtAt(sec: number): string {
 }
 
 export function MomentsPanel({ queryKey, currentSec, onSeek, listMoments, addMoment, removeMoment, emptyHint }: {
-  /** react-query cache key for this item's moments — must be stable/unique per item. */
+  /** react-query cache key for this item's moments, must be stable/unique per item. */
   queryKey: readonly unknown[]
   /** Live playhead: where a new moment lands. */
   currentSec: number

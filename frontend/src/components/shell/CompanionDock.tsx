@@ -54,7 +54,7 @@ export function Indicator({ icon: Icon, label, state, onClick }: { icon: typeof 
 
 // Rightmost indicator doubles as Stop while the companion is generating or
 // speaking. Always renders the same <button> node in both states (only its
-// icon/class/handler change) so React never unmounts-and-remounts it mid-click —
+// icon/class/handler change) so React never unmounts-and-remounts it mid-click,
 // a stray click landing exactly as speech ends can't misfire the captions
 // toggle underneath it.
 function CaptionsOrStop({ busy, karaokeState, captions, setCaptions, onStop }: {
@@ -79,7 +79,7 @@ function CaptionsOrStop({ busy, karaokeState, captions, setCaptions, onStop }: {
 
 // Two wordless states: idle `thinking` (turn started, nothing happening yet) is a
 // soft gray bounce; `working` (a tool is actively running) is an accent-tinted
-// left-to-right sweep that reads as "I'm on it / looking into this" — so a slow tool
+// left-to-right sweep that reads as "I'm on it / looking into this", so a slow tool
 // turn feels attended-to, not ignored. No text is ever shown or spoken.
 function TypingIndicator({ working = false }: { working?: boolean }) {
   return (

@@ -99,7 +99,7 @@ export function getArtist(mbid: string) {
 export function getAlbum(mbid: string) {
   return mfetch<{ album: CatalogAlbum; songs: CatalogSong[] }>(`/catalog/album/${mbid}`)
 }
-// Fallback cover art (iTunes) for albums with no Cover Art Archive image — called lazily only after
+// Fallback cover art (iTunes) for albums with no Cover Art Archive image, called lazily only after
 // the CAA image fails to load. Returns null when iTunes has nothing either.
 export function getGenreLanding(genre: string) {
   return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: Array<{ name: string; picture: string | null }> }>(
@@ -243,7 +243,7 @@ export interface Replay {
 export function getReplay(year?: number) { return mfetch<Replay>(`/rails/replay${year ? `?year=${year}` : ''}`) }
 
 // ── Lyrics + song/artist info (Now-Playing panel) ───────────────────────────────────
-// `words`, when present (Studio's forced-aligned lines only — raw LRCLIB never has it),
+// `words`, when present (Studio's forced-aligned lines only, raw LRCLIB never has it),
 // times each individual word so the karaoke wipe can pace itself to real word durations.
 export interface LyricWord { sec: number; end: number; text: string }
 export interface LyricLine { sec: number; text: string; words?: LyricWord[] }
@@ -274,7 +274,7 @@ export function getArtistInfo(name: string, mbid?: string) {
 
 // ── Ask the song ─────────────────────────────────────────────────────────────────
 // Streams token-by-token, same SSE contract as lib/videos/api.ts's askVideo() /
-// lib/podcast/aiApi.ts's askEpisode() — `onToken` fires per token, the promise
+// lib/podcast/aiApi.ts's askEpisode(), `onToken` fires per token, the promise
 // resolves when the stream ends.
 export interface AskTrackMessage { role: 'user' | 'assistant'; content: string }
 export async function askTrack(
@@ -311,7 +311,7 @@ export async function askTrack(
 
 // ── Moments ──────────────────────────────────────────────────────────────────────
 // The household social layer for a track, keyed by the unified track ref (see
-// lib/music/trackRef.ts) — same shape as videos' MomentsPanel/lib/videos/api.ts.
+// lib/music/trackRef.ts), same shape as videos' MomentsPanel/lib/videos/api.ts.
 export interface TrackMoment {
   id: string; userId: string; atSec: number; emoji: string | null; note: string | null
   by: string; mine: boolean; createdAt: number
@@ -367,7 +367,7 @@ export function snapshotStation(id: string, opts?: number | { count?: number; me
 }
 export const offlineAudioUrl = (videoId: string) => `/api/youtube/file/${videoId}/audio`
 
-/** Video-quality config (tiers/cap/pref) — shared with the YouTube app's save-quality governance. */
+/** Video-quality config (tiers/cap/pref), shared with the YouTube app's save-quality governance. */
 export interface VideoSaveQuality { tiers: number[]; cap: number; pref: number | null; effective: number }
 export async function getVideoSaveQuality(): Promise<VideoSaveQuality> {
   const res = await fetch('/api/youtube/save-quality', { credentials: 'include' })

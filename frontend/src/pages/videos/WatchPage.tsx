@@ -114,7 +114,7 @@ const SB_LABELS: Record<string, string> = {
  *  chapters/transcript, mini-player docking, PiP, live DVR, playlists) is capability-gated
  *  behind `source === 'youtube'`; every source renders through the same shell (title, creator
  *  row, segmented action buttons, description card, tabbed side panel) so the page looks and
- *  behaves the same everywhere — YouTube just lights up more of it. */
+ *  behaves the same everywhere, YouTube just lights up more of it. */
 export function WatchPage() {
   const { source: sourceParam, id } = useParams<{ source: string; id: string }>()
   const source = (sourceParam ?? 'youtube') as VideoSource
@@ -153,7 +153,7 @@ function WatchCinema({ art, ambient, children }: { art: string | null; ambient?:
 }
 
 /** Views + expandable description, the same Card style everywhere. The toggle only shows when
- *  the 3-line clamp is actually cutting text off — a short description that fits within 3
+ *  the 3-line clamp is actually cutting text off, a short description that fits within 3
  *  lines has nothing more to reveal. Measured via scrollHeight vs clientHeight (line-clamp
  *  keeps the full text laid out, just visually hidden, so this reads accurately) rather than
  *  a character-count guess, since description length alone doesn't determine wrapped line count. */
@@ -235,7 +235,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const [tab, setTab] = useState<SideTab>('upnext')
   const [autoplay, setAutoplay] = useState(true)
   // Present when this video was opened via a playlist's "Play all" or a row click (?plist=&
-  // ppos=) — autoplay then advances through the playlist's own order instead of algorithmic
+  // ppos=), autoplay then advances through the playlist's own order instead of algorithmic
   // "related" videos, and the sidebar shows the playlist queue instead of Up Next.
   const pq = usePlaylistQueue()
   // Per-user limits (kids): noAutoplay suppresses the countdown + hides the toggle.
@@ -276,13 +276,13 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   const togglePrivacy = () => setPrivacy(p => { const n = !p; try { sessionStorage.setItem(PRIVACY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
   // Picture-in-Picture on the plain iframe embed needs a real <video> to hand off to,
   // which means switching onto the privacy-proxy stream (see VideoPlayer's togglePip).
-  // Doesn't persist the toggle — this is "just get me PiP", not "always use the proxy".
+  // Doesn't persist the toggle, this is "just get me PiP", not "always use the proxy".
   // VideoPlayer is keyed on `privacy` (remounts on change), so the pending-PiP intent is
   // threaded through as a prop rather than a ref, which a remount would wipe out.
   const [pipPending, setPipPending] = useState(false)
   const enablePrivacyForPip = () => { setPrivacy(true); setPipPending(true) }
   // Same story for audio boost: amplifying past 100% needs a real <video>/<audio> to tap,
-  // which the iframe embed isn't — so a boost tap on the embed flips the privacy stream on
+  // which the iframe embed isn't, so a boost tap on the embed flips the privacy stream on
   // (session-only, not persisted) and threads a pending flag through the remount so the
   // boost slider opens on the freshly-mounted native player.
   const [boostPending, setBoostPending] = useState(false)
@@ -370,7 +370,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
 
   // Companion watch-along: publish this video, the live playhead, and the caption lines
   // just spoken into the companion's UI context. Docked/mini playback is covered by
-  // NowPlayingCompanionBridge (same query key) — the dock is cleared while this page owns
+  // NowPlayingCompanionBridge (same query key), the dock is cleared while this page owns
   // the video, so exactly one of the two entries is ever active.
   const { data: companionLines } = useQuery({
     queryKey: ['companion-yt-transcript', videoId],
@@ -461,7 +461,7 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
     if (upNext[0]) setCountdown({ secondsLeft: AUTOPLAY_COUNTDOWN_SEC, total: AUTOPLAY_COUNTDOWN_SEC })
   }
 
-  // Advances to whatever's "next" — the playlist's own next entry when one is active,
+  // Advances to whatever's "next", the playlist's own next entry when one is active,
   // otherwise the algorithmic up-next pick.
   function goToNext() {
     setCountdown(null)
@@ -638,7 +638,7 @@ function YoutubeInfoPanel({ videoId, title, author, channelThumb, meta, votes }:
   // generated one; the raw description is still what's used for chapter parsing above
   // (descChapters), since chapters are creator-authored timestamps, not promotional content.
   // "View original" only makes sense (and only shows) when Smart Description actually
-  // changed something — a video whose description had nothing promotional to strip has an
+  // changed something, a video whose description had nothing promotional to strip has an
   // identical descriptionClean, so there'd be nothing to toggle to.
   const hasOriginalDescription = !!meta?.descriptionClean && !!meta?.description && meta.descriptionClean !== meta.description
   const description = (showOriginalDescription ? meta?.description : meta?.descriptionClean) ?? meta?.description ?? null
@@ -781,7 +781,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
     try {
       const d = await saveOffline({ videoId, title, kind: 'video' })
       if (d.error) { toast.error(d.error); return }
-      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline — find it under Offline')
+      toast.success(d.status === 'already-saved' ? 'Already saved offline' : 'Saving offline, find it under Offline')
       qc.invalidateQueries({ queryKey: ['yt-downloads'] })
     } catch { toast.error('Could not save') } finally { setSavingLocal(false) }
   }
@@ -790,7 +790,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
-  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only —
+  // Live DVR: record an in-progress stream from its start. `recording` is local UI state only,
   // the capture itself runs server-side as a durable job, so reloading this page just loses the
   // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
   const [recording, setRecording] = useState(false)
@@ -801,7 +801,7 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
       if (recording) {
         await stopLiveRecord(videoId)
         setRecording(false)
-        toast.success('Recording finalizing — check Offline library shortly')
+        toast.success('Recording finalizing, check Offline library shortly')
       } else {
         const d = await startLiveRecord(videoId, title)
         if (d.error) { toast.error(d.error); return }
@@ -978,7 +978,7 @@ function TranscriptTab({ videoId, onSeek, currentSec, source = 'youtube' }: { vi
         </div>
         <div>
           <p className="text-sm font-medium">{status === 'failed' ? 'Transcription did not finish' : 'No transcript yet'}</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
             {error ?? 'This video did not ship captions. Transcribe it locally to search it, ask about it, and read along.'}
           </p>
         </div>
@@ -1175,7 +1175,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const [explicitTab, setExplicitTab] = useState<SideTab | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
   // Present when this video was opened via a playlist's "Play all" or a row click. Autoplay
-  // here only ever means "advance through that playlist" — there's no algorithmic "related"
+  // here only ever means "advance through that playlist", there's no algorithmic "related"
   // autoplay fallback for hub sources (matches today's no-queue behavior outside a playlist).
   const pq = usePlaylistQueue()
   const [autoplay, setAutoplay] = useState(true)
@@ -1184,7 +1184,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const [countdown, setCountdown] = useState<{ secondsLeft: number; total: number } | null>(null)
   // TikTok/Vimeo play through a cross-origin embed <iframe>, which the browser won't let us
   // Picture-in-Picture. When the user asks for PiP we swap the embed for a real <video> fed by
-  // the on-demand /api/vstream endpoint (yt-dlp), then request PiP — same handoff YouTube does.
+  // the on-demand /api/vstream endpoint (yt-dlp), then request PiP, same handoff YouTube does.
   const [pipStream, setPipStream] = useState(false)
   const [podcastOpen, setPodcastOpen] = useState(false)
 
@@ -1298,14 +1298,14 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const onlineOnly = mode === 'offline' && !localUrl
 
   // TikTok/Vimeo play through their official embed <iframe> (instant, no yt-dlp). A saved
-  // offline copy always wins — that plays from the local blob via <video>. When pipStream is
+  // offline copy always wins, that plays from the local blob via <video>. When pipStream is
   // on (user hit PiP on an embed source) we drop the iframe and stream a real <video> instead.
   const embedUrl = !localUrl && data?.playback?.mode === 'embed' ? data.playback.embedUrl : null
   const showEmbed = !!embedUrl && !pipStream
   showEmbedRef.current = showEmbed
   const vstreamUrl = `/api/vstream/${source}/${encodeURIComponent(id)}`
   // A real <video> exists whenever we're not showing the embed (native stream/hls/file modes,
-  // or the PiP stream swap) — that's what PiP can target.
+  // or the PiP stream swap), that's what PiP can target.
   const hasNativeVideo = !showEmbed
   // Drives the shared PlayerControlBar over the native <video> (Reddit/link, and the PiP
   // stream swap for embed sources) so it matches the Vimeo/TikTok bar instead of leaving the
@@ -1384,10 +1384,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     pb.dock([{
       videoId: id, source, title: data.item.title, author: data.item.creator?.name ?? null,
       thumbnail: data.item.thumbnailUrl ? proxyImg(data.item.thumbnailUrl) : undefined,
-      // Raw creator-avatar URL — the mini-bar's CreatorAvatar proxies it through /api/img.
+      // Raw creator-avatar URL, the mini-bar's CreatorAvatar proxies it through /api/img.
       channelThumb: data.item.creator?.avatarUrl ?? null,
       // A saved offline copy docks its local file (it's exactly why embedUrl is null for
-      // saved TikTok/Vimeo — don't make /api/vstream re-download what's already on disk);
+      // saved TikTok/Vimeo, don't make /api/vstream re-download what's already on disk);
       // then TikTok/Vimeo dock their embed iframe (instant, reliable); every other source
       // docks a real <video> off /api/vstream.
       ...(localUrl ? { streamVideoUrl: localUrl } : embedUrl ? { embedUrl } : { streamVideoUrl: vstreamUrl }),
@@ -1397,7 +1397,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     navigate(`/videos/${source}`)
   }
 
-  // Playback second for the transcript's follow-along highlight. Native <video> only —
+  // Playback second for the transcript's follow-along highlight. Native <video> only,
   // embed iframes (TikTok/Vimeo online) expose no time, so it stays -1 and no line
   // highlights; tapping a line still seeks when a native video exists.
   const [currentSec, setCurrentSec] = useState(-1)
@@ -1527,8 +1527,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const badge = SOURCE_META[source]
   // Same panel as YouTube's: the queue/watch-next content is the first (default) tab,
   // then Transcript / Ask / Moments / Comments. Transcript no longer drops off for
-  // caption-less sources (TikTok, Reddit) — it offers local generation instead (see
-  // TranscriptTab's 'none' state) — and Ask is grounded in About/comments even before a
+  // caption-less sources (TikTok, Reddit), it offers local generation instead (see
+  // TranscriptTab's 'none' state), and Ask is grounded in About/comments even before a
   // transcript exists, so both stay universal. Comments still drops off where there's no
   // comments API at all (TikTok).
   const tabs: Array<{ key: SideTab; label: string; icon?: LucideIcon }> = [
@@ -1841,7 +1841,7 @@ function GenericCommentsTab({ source, id }: { source: VideoSource; id: string })
   )
 }
 
-/** Platform-ranked "watch next" shelf (capabilities.related — Vimeo's related listing). */
+/** Platform-ranked "watch next" shelf (capabilities.related, Vimeo's related listing). */
 function RelatedVideosCard({ source, excludeId }: { source: VideoSource; excludeId: string }) {
   const { data } = useQuery({
     queryKey: ['videos-related', source, excludeId],

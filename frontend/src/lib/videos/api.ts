@@ -24,9 +24,9 @@ export interface HubVideoItem {
   publishedAt?: number | null
   publishedText?: string | null
   viewsText?: string | null
-  /** Pre-formatted like count, e.g. "4.4K likes" (getItem only — not populated on list/browse cards). */
+  /** Pre-formatted like count, e.g. "4.4K likes" (getItem only, not populated on list/browse cards). */
   likesText?: string | null
-  /** Compact comment count, e.g. "149" or "1.2K" (getItem only) — feeds the watch page's "Comments (N)" tab label. */
+  /** Compact comment count, e.g. "149" or "1.2K" (getItem only), feeds the watch page's "Comments (N)" tab label. */
   commentsCount?: string | null
   isAdult?: boolean
   live?: boolean
@@ -44,7 +44,7 @@ export interface HubCreator extends HubCreatorRef {
   subscriberText?: string | null
   followingText?: string | null
   likesText?: string | null
-  /** Pre-formatted display count, e.g. "1.2K videos" — shown in the header meta line. */
+  /** Pre-formatted display count, e.g. "1.2K videos", shown in the header meta line. */
   videoCount?: string | null
 }
 
@@ -195,7 +195,7 @@ export interface SubscriptionPlaylistGroup {
 
 /** Playlists published by every channel/creator you follow (YouTube subs + generic
  *  follows), aggregated server-side from a warmed per-channel cache. `warming` is how
- *  many channels are still being checked in the background — poll while it's nonzero. */
+ *  many channels are still being checked in the background, poll while it's nonzero. */
 export function getSubscriptionPlaylists(): Promise<{ groups: SubscriptionPlaylistGroup[]; warming: number }> {
   return getJson('/api/videos/subscriptions/playlists')
 }
@@ -557,7 +557,7 @@ export interface AskVideoMessage { role: 'user' | 'assistant'; content: string }
 /**
  * Stream an answer grounded in the video's transcript, About text, and top comments.
  * Follows the app's SSE pattern (`data: {"token"|"done"|"error"}` lines, one JSON object
- * per line) — same contract as `askEpisode()` in lib/podcast/aiApi.ts. `onToken` fires
+ * per line), same contract as `askEpisode()` in lib/podcast/aiApi.ts. `onToken` fires
  * per token; the promise resolves when the stream ends.
  */
 export async function askVideo(

@@ -112,6 +112,7 @@ export function SettingsVideosPortability() {
               return (
                 <div key={f.id} className="flex items-center gap-2">
                   <span className="w-28 shrink-0 truncate text-xs font-medium">{f.name}</span>
+                  {/* design-ok(mobile-input-zoom): readOnly field, never opens the keyboard so iOS won't focus-zoom */}
                   <Input readOnly value={url} className="h-8 flex-1 font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
                   <Button variant="ghost" size="icon-sm" aria-label={`Copy the ${f.name} feed URL`}
                     onClick={() => void copy(url)} className="shrink-0 text-muted-foreground hover:text-foreground">

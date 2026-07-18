@@ -17,13 +17,13 @@ interface CompanionStreamOptions {
   /** Fired at most once per turn, and ONLY when the backend genuinely changed
    *  approach after a dead end ("Hmm, let me try that a different way."). The
    *  caller speaks it on voice surfaces; text surfaces ignore it. This is the only
-   *  thing the companion ever says about its own processing — never a task
+   *  thing the companion ever says about its own processing, never a task
    *  announcement. */
   onSpokenCue?: (text: string) => void
 }
 
 // Ephemeral companion chat used OFF the chat app. Streams a reply in place and
-// keeps a short client-side history for context — but persists nothing and never
+// keeps a short client-side history for context, but persists nothing and never
 // navigates. (When the chat app is open, the overlay uses the real chat flow,
 // which records conversations.)
 export function useCompanionStream(options?: CompanionStreamOptions) {
@@ -37,7 +37,7 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
   const abortRef = useRef<AbortController | null>(null)
   // Server-side generation id for the in-flight turn. Generation is decoupled
   // from the connection (genQueue), so aborting the fetch alone no longer stops
-  // the GPU — cancel() must also hit the cancel endpoint.
+  // the GPU, cancel() must also hit the cancel endpoint.
   const genIdRef = useRef<string | null>(null)
   // Keep the latest callback in a ref so `submit` stays stable (the hands-free
   // loop calls it through a ref) without re-creating on every render.
@@ -116,7 +116,7 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
               try { const s = JSON.parse(data) as { phase?: CompanionPhase }; setPhase(s.phase ?? null) } catch { /* malformed */ }
             }
             else if (event === 'spoken_cue') {
-              // A real change of approach — the one line worth saying out loud.
+              // A real change of approach, the one line worth saying out loud.
               try { const c = JSON.parse(data) as { text?: string }; if (c.text) onSpokenCueRef.current?.(c.text) } catch { /* malformed */ }
             }
             else if (event === 'gen') {
@@ -140,21 +140,21 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
               // Mid-stream failure: surface it through the normal reply channel so
               // voice/captions say something instead of leaving dead air.
               sawError = true
-              if (!acc) { acc = 'Sorry — I hit a snag with that one. Mind trying again?'; setResponse(acc) }
+              if (!acc) { acc = 'Sorry, I hit a snag with that one. Mind trying again?'; setResponse(acc) }
               if (import.meta.env.DEV) console.warn('[COMPANION] stream error:', data)
             }
             else if (event === 'routing' && import.meta.env.DEV) console.log('[COMPANION] routing:', data)
           }
         }
       }
-      // Errored turns don't join history — the fallback line isn't the companion's.
+      // Errored turns don't join history, the fallback line isn't the companion's.
       if (!sawError) historyRef.current = [...historyRef.current, { role: 'assistant', content: acc }]
       if (import.meta.env.DEV) console.log(`[COMPANION] reply (${acc.length} chars):`, JSON.stringify(acc))
     } catch (e) {
       if (import.meta.env.DEV) console.log(`[COMPANION] reply ABORTED/failed at ${acc.length} chars:`, JSON.stringify(acc), String(e))
       // Real failures (not user aborts) speak up instead of going silent.
       if (!controller.signal.aborted && !acc) {
-        setResponse('Sorry — I hit a snag with that one. Mind trying again?')
+        setResponse('Sorry, I hit a snag with that one. Mind trying again?')
       }
     }
     finally { setStreaming(false); setPhase(null); abortRef.current = null; genIdRef.current = null }

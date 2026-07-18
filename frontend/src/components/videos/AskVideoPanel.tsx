@@ -102,7 +102,7 @@ export function AskVideoPanel({ source, videoId, onSeek }: {
             <div className="px-1 py-6 text-center">
               <Sparkles className="mx-auto mb-2 size-5 text-brand" />
               <p className="text-xs text-muted-foreground">
-                Ask anything about this video — what's shown, who's in it, why it's notable.
+                Ask anything about this video, what's shown, who's in it, why it's notable.
                 Answers draw on the transcript, the channel's About text, and top comments,
                 with tappable timestamps, and never leave your home server.
               </p>

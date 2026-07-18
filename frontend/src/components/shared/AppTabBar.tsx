@@ -18,7 +18,7 @@ interface AppTabBarProps<T extends string> {
    *  Playing overlay) with an always-white active state, independent of the app theme.
    *  Default renders with the normal semantic card tokens. */
   variant?: "default" | "glass";
-  /** Inactive tabs collapse to icon-only, full label reappears once selected — for
+  /** Inactive tabs collapse to icon-only, full label reappears once selected, for
    *  columns too narrow to fit every tab's full label (the video watch page's sticky
    *  400px side rail). Requires every tab to carry an `icon`. */
   compact?: boolean;
@@ -27,13 +27,14 @@ interface AppTabBarProps<T extends string> {
 /**
  * The standardized in-body sub-navigation pill row for tabbed apps (Music, Videos,
  * Podcasts, ...). Use this instead of hand-rolling a tab row so every tabbed app looks
- * and behaves identically — including the two shape variants real surfaces need
+ * and behaves identically, including the two shape variants real surfaces need
  * (`variant` for backdrop, `compact` for narrow columns), rather than a fork per page.
  */
 export function AppTabBar<T extends string>({ tabs, value, onChange, className, variant = "default", compact = false }: AppTabBarProps<T>) {
   const glass = variant === "glass";
   return (
     <div className={cn("no-scrollbar overflow-x-auto", className)}>
+      {/* design-ok(glass-on-plain-bg): the glass variant is opt-in for over-image backdrops (video watch page, Now Playing), see variant doc above */}
       <div className={cn("flex w-fit max-w-full rounded-full p-1", glass ? "gap-1 bg-white/10" : "gap-0.5 border border-border/50 bg-muted/30")}>
         {tabs.map((t) => {
           const Icon = t.icon;

@@ -1,7 +1,7 @@
 // Companion listen/watch-along: bridges whatever is playing right now (AI-radio music,
 // live internet radio, podcasts, docked mini-player videos) into the companion's UI
 // context, so the companion knows the item, the exact playhead, and the lyric/transcript
-// lines the user just heard — and can talk about it like it's listening along.
+// lines the user just heard, and can talk about it like it's listening along.
 //
 // Position and windows are resolved at SEND time via UIContextEntry.getDescription, so
 // nothing re-publishes (or re-renders consumers) on every playback tick. The full-page
@@ -45,7 +45,7 @@ export function NowPlayingCompanionBridge() {
   })
 
   // Generated-podcast transcript, when the loaded track didn't arrive with one inline
-  // (e.g. resumed from the queue). RSS episodes simply have none — the window stays empty.
+  // (e.g. resumed from the queue). RSS episodes simply have none, the window stays empty.
   const { data: fetchedTurns } = useQuery({
     queryKey: ['companion-podcast-transcript', pod.track?.episodeId ?? ''],
     queryFn: async (): Promise<TranscriptTurn[]> => {
@@ -107,7 +107,7 @@ type Snap = {
 }
 
 function buildMediaBlock(s: Snap): string {
-  // Same priority as `current` above — keep the block and the chip describing one item.
+  // Same priority as `current` above, keep the block and the chip describing one item.
   if (s.pod.track) return podcastBlock(s)
   if (s.radio.active && s.radio.currentTrack) return musicBlock(s)
   if (s.live.active) return liveRadioBlock(s)
@@ -125,14 +125,14 @@ function buildMediaBlock(s: Snap): string {
 function musicBlock(s: Snap): string {
   const t = s.radio.currentTrack!
   const parts = [
-    `The user is listening to music: "${t.title}"${t.author ? ` by ${t.author}` : ''} — at ${fmtProgress(s.radio.positionSec, s.radio.durationSec)}, currently ${s.radio.paused ? 'paused' : 'playing'}.`,
+    `The user is listening to music: "${t.title}"${t.author ? ` by ${t.author}` : ''}, at ${fmtProgress(s.radio.positionSec, s.radio.durationSec)}, currently ${s.radio.paused ? 'paused' : 'playing'}.`,
   ]
-  // A direct track play mints an ad-hoc station named after the track — only a real
+  // A direct track play mints an ad-hoc station named after the track, only a real
   // station selection is worth mentioning.
   if (s.radio.station && s.radio.station.label !== t.title) parts.push(`Station: ${s.radio.station.label} (AI Radio).`)
   if (s.radio.nextTrack) parts.push(`Up next: "${s.radio.nextTrack.title}"${s.radio.nextTrack.author ? ` by ${s.radio.nextTrack.author}` : ''}.`)
   if (s.lyrics?.restricted) {
-    parts.push("This profile's content settings hide this song's lyrics — do not quote or recite them.")
+    parts.push("This profile's content settings hide this song's lyrics, do not quote or recite them.")
   } else if (s.lyrics?.synced?.length) {
     const window = lyricsWindow(s.lyrics.synced, s.radio.positionSec)
     if (window) parts.push(window)
@@ -144,8 +144,8 @@ function musicBlock(s: Snap): string {
 function liveRadioBlock(s: Snap): string {
   const rec = s.live.recording
   const line = rec
-    ? `The user is listening to a saved radio recording: "${rec.title}" from ${rec.stationName ?? 'a live station'} — at ${fmtProgress(s.live.positionSec, s.live.durationSec)}, currently ${s.live.paused ? 'paused' : 'playing'}.`
-    : `The user is listening to the live internet radio station "${s.live.station?.name ?? 'Unknown'}" — currently ${s.live.paused ? 'paused' : 'playing'}. (Live stream: there is no track metadata or transcript.)`
+    ? `The user is listening to a saved radio recording: "${rec.title}" from ${rec.stationName ?? 'a live station'}, at ${fmtProgress(s.live.positionSec, s.live.durationSec)}, currently ${s.live.paused ? 'paused' : 'playing'}.`
+    : `The user is listening to the live internet radio station "${s.live.station?.name ?? 'Unknown'}", currently ${s.live.paused ? 'paused' : 'playing'}. (Live stream: there is no track metadata or transcript.)`
   return [line, MEDIA_GUIDANCE].join('\n')
 }
 
@@ -154,7 +154,7 @@ function podcastBlock(s: Snap): string {
   const pos = s.pod.positionSec
   const dur = s.pod.duration || t.durationSec || 0
   const parts = [
-    `The user is listening to a podcast: episode "${t.title}" from the show "${t.showName}" — at ${fmtProgress(pos, dur)}, currently ${s.pod.playing ? 'playing' : 'paused'}.`,
+    `The user is listening to a podcast: episode "${t.title}" from the show "${t.showName}", at ${fmtProgress(pos, dur)}, currently ${s.pod.playing ? 'playing' : 'paused'}.`,
   ]
   const ch = [...s.pod.chapters].reverse().find(c => pos >= c.startSec)
   if (ch) parts.push(`Current chapter: "${ch.title}".`)

@@ -11,7 +11,7 @@ export interface Transport {
   prev: () => void
   seek: (sec: number) => void
   stop: () => void
-  // Optional volume controls — engines that own a mixer register these so a remote
+  // Optional volume controls, engines that own a mixer register these so a remote
   // (controller button, voice) can adjust the volume of whatever is playing locally.
   volumeUp?: () => void
   volumeDown?: () => void

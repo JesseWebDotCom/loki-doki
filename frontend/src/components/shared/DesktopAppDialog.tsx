@@ -193,7 +193,7 @@ export function DesktopAppDialog({
                 {desktopStatus.updateAvailable ? (
                   <>
                     <p className="font-semibold text-foreground">
-                      Update available{desktopStatus.latestVersion ? ` — v${desktopStatus.latestVersion}` : ''}
+                      Update available{desktopStatus.latestVersion ? `, v${desktopStatus.latestVersion}` : ''}
                     </p>
                     <p className="mt-0.5">
                       You're running {desktopStatus.installedVersion ? `v${desktopStatus.installedVersion}` : 'an older version'}.
@@ -203,7 +203,7 @@ export function DesktopAppDialog({
                 ) : (
                   <p className="font-semibold text-foreground">
                     Doki Dock is installed{desktopStatus.installedVersion ? ` (v${desktopStatus.installedVersion})` : ''}
-                    {desktopStatus.installedVersion && desktopStatus.latestVersion ? ' — up to date' : ''}.
+                    {desktopStatus.installedVersion && desktopStatus.latestVersion ? ', up to date' : ''}.
                   </p>
                 )}
               </div>

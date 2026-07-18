@@ -13,7 +13,7 @@ export interface UIContextEntry {
   description: string             // LLM-friendly summary of what the user is looking at
   label?: string                  // brief label for the UI indicator chip (e.g. "Popeyes")
   data?: Record<string, unknown>  // structured data (available to tools)
-  /** Evaluated at SEND time instead of `description` — for context that moves between
+  /** Evaluated at SEND time instead of `description`, for context that moves between
    *  publishes (e.g. media playback position + the lyric/transcript lines just heard)
    *  without re-publishing (and re-rendering every consumer) on each tick. Return '' to
    *  contribute nothing this turn. */
@@ -50,7 +50,7 @@ export function UIContextProvider({ children }: { children: ReactNode }) {
     if (entries.length === 0) return null
     const lines = entries.map((e) => (e.getDescription?.() ?? e.description).trim()).filter(Boolean)
     if (lines.length === 0) return null
-    return `[App Context — what the user is currently viewing]\n${lines.join('\n')}\nUse this to interpret pronouns and implicit references in the user's message (e.g. "this", "it", "here", "the article"). Answer as if you can see what they're looking at.`
+    return `[App Context, what the user is currently viewing]\n${lines.join('\n')}\nUse this to interpret pronouns and implicit references in the user's message (e.g. "this", "it", "here", "the article"). Answer as if you can see what they're looking at.`
   }, [])
 
   const activeLabels = [...mapRef.current.values()]
