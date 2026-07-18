@@ -378,25 +378,72 @@ function flagKnownSponsorLines(segments: TranscriptSegment[], sponsors: string[]
   return hits
 }
 
-/** Learn the brands advertised in this episode's ads, so future episodes catch them for
- *  free. Best-effort (one small LLM call). */
-async function extractAndStoreSponsors(showId: string | null, adText: string, model: string): Promise<void> {
-  if (!showId || adText.trim().length < 20) return
+/** The distinct brand names advertised in the given ad text (lowercased, cleaned), via
+ *  one small LLM call. Empty on failure (best-effort). */
+async function extractSponsorNames(adText: string, model: string): Promise<string[]> {
+  if (adText.trim().length < 20) return []
   try {
     const res = await structuredCall<{ sponsors?: unknown }>(
       model, `Advertising excerpts:\n${adText.slice(0, 8000)}`, SPONSOR_EXTRACT_SYSTEM, { num_predict: 200 }, 'json')
-    const names = new Set((Array.isArray(res.sponsors) ? res.sponsors : [])
+    return [...new Set((Array.isArray(res.sponsors) ? res.sponsors : [])
       .map(s => String(s).toLowerCase().replace(/[^\w &'-]/g, '').replace(/\s+/g, ' ').trim())
-      .filter(s => s.length >= 4 && s.length <= 60 && !GENERIC_SPONSOR.has(s)))
-    const now = new Date()
-    for (const name of names) {
-      await db.insert(podcastShowSponsors)
-        .values({ id: crypto.randomUUID(), showId, name, hits: 1, createdAt: now, updatedAt: now })
-        .onConflictDoUpdate({ target: [podcastShowSponsors.showId, podcastShowSponsors.name], set: { hits: sql`${podcastShowSponsors.hits} + 1`, updatedAt: now } })
-        .catch(() => {})
-    }
-    if (names.size) logger.info(`[podcast-ad-scan] learned ${names.size} sponsor(s) for show ${showId}`)
-  } catch { /* best-effort */ }
+      .filter(s => s.length >= 4 && s.length <= 60 && !GENERIC_SPONSOR.has(s)))]
+  } catch { return [] }
+}
+
+/** Learn the brands advertised in this episode, so future episodes of the show catch
+ *  them for free. Best-effort. */
+async function storeShowSponsors(showId: string | null, names: string[]): Promise<void> {
+  if (!showId || !names.length) return
+  const now = new Date()
+  for (const name of names) {
+    await db.insert(podcastShowSponsors)
+      .values({ id: crypto.randomUUID(), showId, name, hits: 1, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({ target: [podcastShowSponsors.showId, podcastShowSponsors.name], set: { hits: sql`${podcastShowSponsors.hits} + 1`, updatedAt: now } })
+      .catch(() => {})
+  }
+  logger.info(`[podcast-ad-scan] learned ${names.length} sponsor(s) for show ${showId}`)
+}
+
+// ── Within-episode sponsor recurrence ───────────────────────────────────────────────
+// Sponsors often buy two slots in the same episode (the same read early and again late).
+// After the first pass lands its ranges, the advertised brands are extracted from the
+// detected ad text and every OTHER mention of them in the transcript gets a focused,
+// suspicion-leaning look. A mention is never assumed to be an ad (the hosts may simply
+// be talking about the brand), so the model judges each region against the confirmed
+// ad's own text; confirmed lines are grown and merged like any other anchor.
+const RECUR_CONTEXT_LINES = 5
+const RECUR_MAX_REGIONS = 12
+
+const AD_RECURRENCE_SYSTEM =
+  'A podcast episode contains a confirmed advertisement for a specific brand. Sponsors often run the same ad ' +
+  'twice in one episode, so you are shown numbered transcript lines from ELSEWHERE in the episode that mention ' +
+  'that brand, along with the confirmed ad for comparison. Decide whether these lines are part of ANOTHER ' +
+  'advertisement for the brand (a sponsor read, pitch, offer, promo code, or call to action, often phrased like ' +
+  'the confirmed ad) or just the hosts mentioning the brand in their own conversation. Return JSON ' +
+  '{"adLines": [the line numbers, copied exactly from the brackets, that are part of an advertisement]}. ' +
+  'Return {"adLines": []} if the mention is ordinary conversation. Do not use em dashes.'
+
+interface RecurRegion { lo: number; hi: number; brand: string }
+
+/** Lines outside the detected ranges that mention an advertised brand, clustered into
+ *  regions for the focused recurrence pass. */
+function findRecurrenceRegions(segs: TranscriptSegment[], brands: string[], ranges: RawRange[]): RecurRegion[] {
+  if (!brands.length) return []
+  const covered = (s: TranscriptSegment) =>
+    ranges.some(r => s.startSec < r.endSec + MERGE_GAP_SEC && s.endSec > r.startSec - MERGE_GAP_SEC)
+  const regions: RecurRegion[] = []
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i]!
+    if (covered(s)) continue
+    const text = s.text.toLowerCase()
+    const brand = brands.find(b => text.includes(b))
+    if (!brand) continue
+    const prev = regions[regions.length - 1]
+    if (prev && prev.brand === brand && i - prev.hi <= ANCHOR_CLUSTER_GAP) prev.hi = i
+    else regions.push({ lo: i, hi: i, brand })
+  }
+  return regions
 }
 
 /** Positional prior: anchor-scan just the opening or closing zone with a prompt that
@@ -552,6 +599,63 @@ export async function runPodcastAdScanJob(
     const snapped = ranges.filter(r => r.endSec - r.startSec >= MIN_AD_SEC)
     let merged = mergeRanges(snapped)
 
+    // ── RECURRENCE: the same sponsor often runs a second slot in the same episode ───
+    // Extract the advertised brands from the detected ads, then re-examine every other
+    // mention of them in the transcript with a focused pass that expects, but does not
+    // assume, a repeat read.
+    const rangeText = (r: RawRange) =>
+      segs.filter(s => s.endSec > r.startSec && s.startSec < r.endSec).map(s => s.text).join(' ')
+    let sponsorNames: string[] = []
+    if (merged.length) {
+      sponsorNames = await extractSponsorNames(merged.map(rangeText).join('\n\n'), model)
+      const regions = findRecurrenceRegions(segs, sponsorNames, merged)
+      if (regions.length > RECUR_MAX_REGIONS) {
+        logger.info(`[podcast-ad-scan] recurrence: examining ${RECUR_MAX_REGIONS} of ${regions.length} repeat-mention region(s)`)
+      }
+      const examined = regions.slice(0, RECUR_MAX_REGIONS)
+      const recurAnchors = new Set<number>()
+      for (let ri = 0; ri < examined.length; ri++) {
+        if (signal.aborted) throw new Error('Aborted')
+        const region = examined[ri]!
+        onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: `Checking repeat sponsor ${ri + 1}/${examined.length}` })
+        const confirmed = merged.find(r => rangeText(r).toLowerCase().includes(region.brand))
+        const exLo = Math.max(0, region.lo - RECUR_CONTEXT_LINES)
+        const exHi = Math.min(segs.length - 1, region.hi + RECUR_CONTEXT_LINES)
+        const lines: string[] = []
+        for (let i = exLo; i <= exHi; i++) lines.push(`[${i}] ${segs[i]!.text}`)
+        const prompt = [
+          `Brand: ${region.brand}`,
+          '',
+          `Confirmed advertisement from elsewhere in the episode:\n"${rangeText(confirmed ?? merged[0]!).slice(0, 500)}"`,
+          '',
+          'Numbered transcript lines that mention the brand again:',
+          lines.join('\n'),
+          '',
+          'Which of these numbered lines are part of an advertisement?',
+        ].join('\n')
+        try {
+          const res = await structuredCall<AdLinesResponse>(model, prompt, AD_RECURRENCE_SYSTEM, { num_predict: 200 }, 'json')
+          collectAdLines(res.adLines, exLo, exHi, recurAnchors)
+        } catch (err) {
+          logger.warn(`[podcast-ad-scan] recurrence region ${ri + 1}/${examined.length} failed: ${String(err).slice(0, 160)}`)
+        }
+      }
+      if (recurAnchors.size) {
+        const recurClusters = clusterAnchors(recurAnchors, segs.length - 1)
+        logger.info(`[podcast-ad-scan] recurrence: ${recurAnchors.size} anchor(s) -> ${recurClusters.length} repeat ad(s)`)
+        const extra: RawRange[] = []
+        for (const cluster of recurClusters) {
+          if (signal.aborted) throw new Error('Aborted')
+          const grown = await growCluster(cluster, segs, model, signal)
+          const first = segs[grown.lo]!, last = segs[grown.hi]!
+          if (last.endSec - first.startSec >= MIN_AD_SEC) {
+            extra.push({ startSec: Math.max(0, first.startSec), endSec: last.endSec, kind: 'ad', confidence: 0.8 })
+          }
+        }
+        if (extra.length) merged = mergeRanges([...merged, ...extra])
+      }
+    }
+
     // Verification pass (precision): drop candidates the model is confident are not ads.
     if (merged.length) {
       onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Verifying ads' })
@@ -569,11 +673,15 @@ export async function runPodcastAdScanJob(
     logger.info(`[podcast-ad-scan] "${episode.title}": ${segments.length} ad segment(s) across ${windows.length} window(s)`)
 
     // Learn this episode's sponsors so future episodes of the show catch them for free.
+    // The recurrence pass usually extracted them already; extract here only if it could not.
     if (segments.length) {
-      const adText = segments
-        .map(seg => segs.filter(s => s.endSec > seg.startSec && s.startSec < seg.endSec).map(s => s.text).join(' '))
-        .join('\n\n')
-      await extractAndStoreSponsors(episode.showId, adText, model)
+      if (!sponsorNames.length) {
+        const adText = segments
+          .map(seg => segs.filter(s => s.endSec > seg.startSec && s.startSec < seg.endSec).map(s => s.text).join(' '))
+          .join('\n\n')
+        sponsorNames = await extractSponsorNames(adText, model)
+      }
+      await storeShowSponsors(episode.showId, sponsorNames)
     }
   } catch (err) {
     // Retries re-enter through the scheduler; the terminal-failure hook flips the row
