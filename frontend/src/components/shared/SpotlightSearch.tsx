@@ -13,6 +13,8 @@ import {
   Mic,
   StickyNote,
   BookMarked,
+  Globe,
+  ArrowRight,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
@@ -55,7 +57,16 @@ interface ContentHit {
   group: string;
 }
 
-type SearchResult = NavItem | LibraryItem | ContentHit;
+// A live web-search hit (backend routes/webSearch.ts), previewed inline before the
+// user commits to the full /search page.
+interface WebHit {
+  kind: "web";
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+type SearchResult = NavItem | LibraryItem | ContentHit | WebHit;
 
 // ── Static nav data ──────────────────────────────────────────────────────────
 //
@@ -268,6 +279,32 @@ function LibraryRow({ item, selected, onSelect, onHover }: {
   );
 }
 
+function WebRow({ item, selected, onSelect, onHover }: {
+  item: WebHit;
+  selected: boolean;
+  onSelect: () => void;
+  onHover: () => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      onMouseEnter={onHover}
+      className={cn(
+        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-control text-sm transition-colors",
+        selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
+      )}
+    >
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-control bg-foreground/5">
+        <Globe className="size-3.5" />
+      </div>
+      <span className="flex-1 min-w-0 text-left">
+        <span className="block truncate">{item.title}</span>
+        <span className="block truncate text-xs text-foreground/35">{item.snippet || item.url}</span>
+      </span>
+    </button>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SpotlightSearch() {
@@ -276,6 +313,7 @@ export function SpotlightSearch() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [archives, setArchives] = useState<LibraryItem[]>([]);
   const [content, setContent] = useState<ContentHit[]>([]);
+  const [webResults, setWebResults] = useState<WebHit[]>([]);
   const navigate = useNavigate();
   // On phones this dialog is the Search TAB: full screen, and its empty state is the
   // app launcher grid (recents + categories) instead of a flat list. The single shared
@@ -334,6 +372,40 @@ export function SpotlightSearch() {
     };
   }, [q, open]);
 
+  // Same debounce/abort pattern as above, for a live web-search preview
+  // (routes/webSearch.ts), a separate request/endpoint from local-content search.
+  const webAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (q.length < 2) {
+      setWebResults([]);
+      webAbortRef.current?.abort();
+      return;
+    }
+    const ctrl = new AbortController();
+    webAbortRef.current?.abort();
+    webAbortRef.current = ctrl;
+    const t = setTimeout(() => {
+      fetch(`/api/search/web?q=${encodeURIComponent(q)}`, { credentials: "include", signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => {
+          setWebResults(
+            (d.web ?? []).slice(0, 3).map((r: Record<string, unknown>) => ({
+              kind: "web" as const,
+              title: r.title as string,
+              url: r.url as string,
+              snippet: r.snippet as string,
+            }))
+          );
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, open]);
+
   const filteredNav = q === ""
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(q));
@@ -360,6 +432,7 @@ export function SpotlightSearch() {
   const allResults: SearchResult[] = [
     ...filteredNav,
     ...contentGroups.flatMap((g) => g.hits),
+    ...webResults,
     ...filteredLibraries,
   ];
   const isEmpty = allResults.length === 0;
@@ -381,6 +454,7 @@ export function SpotlightSearch() {
     setQuery("");
     setSelectedIndex(0);
     setContent([]);
+    setWebResults([]);
   }, [open]);
 
   useEffect(() => {
@@ -391,11 +465,17 @@ export function SpotlightSearch() {
     (item: SearchResult) => {
       if (item.kind === "nav") navigate(item.href);
       else if (item.kind === "library") navigate(`/read/${item.sourceId}`);
+      else if (item.kind === "web") window.open(item.url, "_blank", "noopener,noreferrer");
       else navigate(item.route);
       setOpen(false);
     },
     [navigate]
   );
+
+  const seeAllWebResults = useCallback(() => {
+    navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    setOpen(false);
+  }, [navigate, query]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -518,6 +598,35 @@ export function SpotlightSearch() {
                   );
                 })}
 
+                {/* Web section: live search preview, links out to the full /search page */}
+                {webResults.length > 0 && (
+                  <>
+                    <p className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-foreground/25">
+                      Web
+                    </p>
+                    {webResults.map((item, i) => {
+                      const idx = filteredNav.length + content.length + i;
+                      return (
+                        <WebRow
+                          key={item.url}
+                          item={item}
+                          selected={idx === selectedIndex}
+                          onSelect={() => select(item)}
+                          onHover={() => setSelectedIndex(idx)}
+                        />
+                      );
+                    })}
+                    {/* design-ok(hand-styled-button): inline search-result affordance, same as WebRow above */}
+                    <button
+                      onClick={seeAllWebResults}
+                      className="flex w-[calc(100%-8px)] mx-1 items-center gap-2 px-3 py-2 rounded-control text-xs text-foreground/40 hover:text-foreground/70 transition-colors"
+                    >
+                      See all results for &ldquo;{query.trim()}&rdquo;
+                      <ArrowRight className="size-3" />
+                    </button>
+                  </>
+                )}
+
                 {/* Libraries section */}
                 {filteredLibraries.length > 0 && (
                   <>
@@ -525,7 +634,7 @@ export function SpotlightSearch() {
                       Libraries
                     </p>
                     {filteredLibraries.map((item, i) => {
-                      const idx = filteredNav.length + content.length + i;
+                      const idx = filteredNav.length + content.length + webResults.length + i;
                       return (
                         <LibraryRow
                           key={item.sourceId}

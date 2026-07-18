@@ -143,6 +143,7 @@ const EpisodePage = lazy(() => import('@/pages/podcast/EpisodePage').then((m) =>
 const ShowDetailPage = lazy(() => import('@/pages/podcast/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
 const PodcastSettingsPage = lazy(() => import('@/pages/podcast/PodcastSettingsPage').then((m) => ({ default: m.PodcastSettingsPage })))
 const DictionaryPage = lazy(() => import('@/pages/DictionaryPage').then((m) => ({ default: m.DictionaryPage })))
+const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })))
 const MediaLayout = lazy(() => import('@/components/media/MediaLayout').then((m) => ({ default: m.MediaLayout })))
 const ShowsHomePage = lazy(() => import('@/pages/shows/ShowsHomePage').then((m) => ({ default: m.ShowsHomePage })))
 const ShowsDetailPage = lazy(() => import('@/pages/shows/ShowDetailPage').then((m) => ({ default: m.ShowDetailPage })))
@@ -418,6 +419,7 @@ export default function App() {
                 <Route path="/maps/settings/:section?" element={<MapsSettingsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
                 <Route path="/weather/settings" element={<WeatherSettingsPage />} />
+                <Route path="/search" element={<SearchPage />} />
                 <Route path="/imaging" element={<ImagingPage />} />
                 <Route path="/music" element={<MusicLayout />}>
                   <Route index element={<MusicHomePage />} />

@@ -147,3 +147,16 @@ export async function podcastPolicyFor(userId: string): Promise<PodcastPolicy> {
     return OPEN_PODCAST_POLICY
   }
 }
+
+/** Resolve just the age tier for a user, for callers (web search) with no per-medium
+ *  override JSON of their own. Fails open, matching video/podcast policy above. */
+export async function searchTierFor(userId: string): Promise<MediaTier> {
+  try {
+    const row = await loadProfileRow(userId)
+    if (!row) return 'open'
+    return profileTier(row.dials, row.kidSafe)
+  } catch (err) {
+    logger.debug(`[policyTier] searchTierFor failed (open): ${String(err)}`)
+    return 'open'
+  }
+}

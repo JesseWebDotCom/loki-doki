@@ -51,10 +51,10 @@ function urlKey(url: string): string {
 
 // ── Engine: SearXNG (local metasearch sidecar) ───────────────────────────────────
 
-async function searxng(query: string, limit: number, timeoutMs: number): Promise<WebResult[]> {
+async function searxng(query: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
   // Returns [] unless the sidecar is installed and 'ready' (self-gated in searxngSearch),
   // so this is a no-op until SearXNG is set up — webSearch then runs purely on the scrapers.
-  const results = await searxngSearch(query, limit, timeoutMs)
+  const results = await searxngSearch(query, limit, timeoutMs, safesearch)
   return results.map(r => ({ title: r.title, snippet: r.snippet, url: r.url, engine: 'searxng' }))
 }
 
@@ -87,12 +87,19 @@ async function google(query: string, limit: number, timeoutMs: number): Promise<
 
 // ── Engine: DuckDuckGo (via duck-duck-scrape) ─────────────────────────────────────
 
-async function ddg(query: string, limit: number, timeoutMs: number): Promise<WebResult[]> {
+const DDG_SAFE_SEARCH: Record<0 | 1 | 2, SafeSearchType> = {
+  0: SafeSearchType.OFF,
+  1: SafeSearchType.MODERATE,
+  2: SafeSearchType.STRICT,
+}
+
+async function ddg(query: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
   try {
     // Uses DDG's vqd/JSON flow under the hood — survives where the old POST to
-    // html.duckduckgo.com got a 202 "anomaly" bot-block. SafeSearch OFF so adult/edgy
-    // queries aren't silently dropped (relevance + content policy are gated upstream).
-    const res = await ddgSearch(query, { safeSearch: SafeSearchType.OFF }, { response_timeout: timeoutMs })
+    // html.duckduckgo.com got a 202 "anomaly" bot-block. SafeSearch defaults to OFF so
+    // adult/edgy queries aren't silently dropped for open-tier profiles (relevance and
+    // content policy are gated upstream); kid/teen tiers pass a stricter level through.
+    const res = await ddgSearch(query, { safeSearch: DDG_SAFE_SEARCH[safesearch] }, { response_timeout: timeoutMs })
     if (res.noResults) return []
     return res.results
       .slice(0, limit)
@@ -159,22 +166,27 @@ async function marginalia(query: string, limit: number, timeoutMs: number): Prom
  * are merged in priority order (Google → DuckDuckGo → Mojeek → Marginalia), so the
  * big indexes lead when available and the independent crawlers backfill when those
  * are blocked or thin.
+ *
+ * `safesearch` (0=off, 1=moderate, 2=strict) is passed to the engines that support
+ * it (SearXNG, DuckDuckGo). Google/Mojeek/Marginalia have no safe-search knob, so for
+ * kid/teen profiles (safesearch > 0) they're skipped entirely rather than mixing in
+ * unfiltered results — mirrors `restrictedMode` gating YouTube in policyTier.ts.
  */
-export async function webSearch(query: string, limit = 5, timeoutMs = 6000): Promise<WebResult[]> {
+export async function webSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0): Promise<WebResult[]> {
   const q = query.trim()
   if (!q) return []
 
-  const [searx, goog, duck, moj, marg] = await Promise.all([
-    searxng(q, Math.max(limit, 5), timeoutMs),
-    google(q, Math.max(limit, 5), timeoutMs),
-    ddg(q, Math.max(limit, 5), timeoutMs),
-    mojeek(q, timeoutMs),
-    marginalia(q, Math.max(limit, 5), timeoutMs),
+  const lists = await Promise.all([
+    searxng(q, Math.max(limit, 5), timeoutMs, safesearch),
+    safesearch > 0 ? Promise.resolve([]) : google(q, Math.max(limit, 5), timeoutMs),
+    ddg(q, Math.max(limit, 5), timeoutMs, safesearch),
+    safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
+    safesearch > 0 ? Promise.resolve([]) : marginalia(q, Math.max(limit, 5), timeoutMs),
   ])
 
   const merged: WebResult[] = []
   const seen = new Set<string>()
-  for (const list of [searx, goog, duck, moj, marg]) {
+  for (const list of lists) {
     for (const r of list) {
       const key = urlKey(r.url)
       if (!key || seen.has(key)) continue

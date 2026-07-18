@@ -599,12 +599,12 @@ export interface SearxResult { title: string; snippet: string; url: string }
  * through to its keyless scrapers. Results are already merged/deduped across engines
  * by SearXNG and returned in its relevance order.
  */
-export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000): Promise<SearxResult[]> {
+export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0): Promise<SearxResult[]> {
   if (state.current !== 'ready') return []
   const q = query.trim()
   if (!q) return []
   try {
-    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&safesearch=0`
+    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&safesearch=${safesearch}`
     const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return []
     const data = await res.json() as { results?: Array<{ title?: string; content?: string; url?: string }> }
@@ -622,12 +622,12 @@ export interface SearxImage { title: string; imageUrl: string; thumbnailUrl: str
  * images ordered by SearXNG's relevance, largest-first within ties. [] when not ready or on
  * failure — never throws. Used to source backdrop/wallpaper art keylessly.
  */
-export async function searxngImageSearch(query: string, limit = 8, timeoutMs = 7000): Promise<SearxImage[]> {
+export async function searxngImageSearch(query: string, limit = 8, timeoutMs = 7000, safesearch: 0 | 1 | 2 = 1): Promise<SearxImage[]> {
   if (state.current !== 'ready') return []
   const q = query.trim()
   if (!q) return []
   try {
-    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&categories=images&safesearch=1`
+    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&categories=images&safesearch=${safesearch}`
     const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return []
     const data = await res.json() as {

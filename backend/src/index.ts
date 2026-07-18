@@ -68,6 +68,7 @@ import { adminBooks } from '@/routes/adminBooks'
 import { kosync } from '@/routes/kosync'
 import { opds } from '@/routes/opds'
 import { searchRouter } from '@/routes/search'
+import { webSearchRouter } from '@/routes/webSearch'
 import { appFeatures } from '@/routes/appFeatures'
 import { requireFeature, isFeatureEnabled } from '@/lib/featureGate'
 import { adminBriefing } from '@/routes/adminBriefing'
@@ -677,6 +678,7 @@ app.route('/api/opds', opds)
 // `/api/reader/<id>/archive/*` asset URLs into their saved HTML. Keep serving them.
 app.route('/api/reader', bookmarks)
 app.route('/api/search', searchRouter)
+app.route('/api/search/web', webSearchRouter)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
 app.route('/api/briefing', briefing)
