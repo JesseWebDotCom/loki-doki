@@ -22,7 +22,7 @@ import type { AppEnv } from '@/types'
 
 const webSearchRouter = new Hono<AppEnv>()
 
-const RESULT_LIMIT = 10
+const RESULT_LIMIT = 20
 const IMAGE_LIMIT = 12
 const ANSWER_RESULT_LIMIT = 6
 const ANSWER_SOURCE_LIMIT = 5
@@ -44,7 +44,13 @@ webSearchRouter.get('/', requireAuth, async (c) => {
   const safesearch = safesearchFor(tier)
 
   const [web, images] = await Promise.all([
-    webSearch(q, RESULT_LIMIT, 6000, safesearch),
+    // Longer budget than images below: SearXNG's general category aggregates across
+    // ~20 upstream engines (the heavier of the two categories), so a broad/popular
+    // query can legitimately take longer here than an image-only lookup. A shorter
+    // timeout on the heavier task was silently dropping web results (timing out and
+    // falling through to []) for exactly the kind of competitive query — a famous
+    // name, a current event — where SearXNG has the most engines to fan out to.
+    webSearch(q, RESULT_LIMIT, 9000, safesearch),
     // Images stay at least moderate even for open-tier profiles — SearXNG's image
     // categories have no equivalent to the web engines' upstream policy gating.
     searxngImageSearch(q, IMAGE_LIMIT, 7000, safesearch === 0 ? 1 : safesearch),

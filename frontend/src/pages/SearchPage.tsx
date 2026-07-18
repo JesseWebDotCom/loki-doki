@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Globe, SearchIcon, Play, Mic, BookMarked, Music, type LucideIcon } from 'lucide-react'
+import { Globe, SearchIcon, Play, Mic, BookMarked, Music, ImageOff, X, type LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { cn } from '@/lib/cn'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Button } from '@/components/ui/button'
@@ -9,6 +10,31 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { AiOverviewCard } from '@/components/search/AiOverviewCard'
 import { SearchResultRow } from '@/components/search/SearchResultRow'
+
+const WEB_PAGE_SIZE = 10
+
+/** Image tile that swaps to a muted placeholder on load failure instead of showing
+ *  the browser's broken-image glyph (several thumbnail URLs from scraped/aggregated
+ *  engines 404 or expire). */
+function SafeThumb({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div className={cn('grid place-items-center bg-muted/50', className)}>
+        <ImageOff className="size-5 text-muted-foreground/40" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={cn('object-cover', className)}
+    />
+  )
+}
 
 interface WebResult {
   title: string
@@ -55,6 +81,7 @@ interface RelatedHit {
 }
 const RELATED_TYPES = new Set<string>(['youtube', 'video', 'podcast', 'book', 'music'])
 const RELATED_ICON: Record<RelatedType, LucideIcon> = { youtube: Play, video: Play, podcast: Mic, book: BookMarked, music: Music }
+const RELATED_LABEL: Record<RelatedType, string> = { youtube: 'Video', video: 'Video', podcast: 'Podcast', book: 'Book', music: 'Music' }
 
 // Quick-jump filter chips for the rail: youtube+video collapse into one "Videos"
 // bucket (both are just "a video" to the user), the rest map 1:1 to their type.
@@ -93,6 +120,7 @@ export function SearchPage() {
   const [submittedQuery, setSubmittedQuery] = useState(initialQuery)
   const [view, setView] = useState<'web' | 'images'>('web')
   const [relatedFilter, setRelatedFilter] = useState<string | null>(null)
+  const [showAllWeb, setShowAllWeb] = useState(false)
 
   const { data, isFetching } = useQuery<WebSearchResponse>({
     queryKey: ['websearch', submittedQuery],
@@ -114,6 +142,7 @@ export function SearchPage() {
     setSubmittedQuery(word)
     setView('web')
     setRelatedFilter(null)
+    setShowAllWeb(false)
     setSearchParams({ q: word }, { replace: true })
   }, [inputValue, setSearchParams])
 
@@ -165,6 +194,7 @@ export function SearchPage() {
   const showNoResults = !isFetching && submittedQuery && data && data.web.length === 0 && data.images.length === 0
   const showResults = !isFetching && data && (data.web.length > 0 || data.images.length > 0)
   const railImages = data ? data.images.slice(0, 9) : []
+  const visibleWeb = data ? (showAllWeb ? data.web : data.web.slice(0, WEB_PAGE_SIZE)) : []
   const availableBuckets = related
     ? RELATED_BUCKETS.filter((b) => related.some((h) => b.types.includes(h.type as RelatedType)))
     : []
@@ -176,7 +206,7 @@ export function SearchPage() {
 
   return (
     <PageShell>
-      <PageContainer width="default" className="pt-6 pb-10">
+      <PageContainer width="wide" className="pt-6 pb-10">
 
         {/* Empty state */}
         {showEmpty && (
@@ -192,16 +222,18 @@ export function SearchPage() {
           </div>
         )}
 
-        {/* Two-column layout once a search is underway: the right-hand rail (same
-            grid+sticky-aside pattern as the video watch page) holds the AI Overview
-            plus a filled-in images grid below it, so the rail reads as one full
-            column instead of a small card floating over empty space; the plain
-            results sit in the main column. The aside is FIRST in DOM (mobile shows
-            the AI answer above the results) and only moves visually to column 2 at
-            the `xl` breakpoint via explicit grid placement. */}
+        {/* Two-column layout once a search is underway: a right-hand rail (AI Overview +
+            images + related library) and the main results column. On `xl`+ each column
+            gets its OWN capped-height scroll area (like a split pane) so scrolling
+            through a long result list never carries the rail out of view with it,
+            instead of relying on `position: sticky` (which is finicky inside a shell
+            that owns its own scroll container). The aside is FIRST in DOM (mobile shows
+            the AI answer above the results) and only moves visually to column 2 at the
+            `xl` breakpoint via explicit grid placement; below `xl` both columns fall
+            back to normal, un-capped page flow. */}
         {submittedQuery && (
-          <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-[1fr_400px]">
-            <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1 xl:self-start">
+          <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-[1fr_340px] xl:items-start">
+            <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto xl:self-start">
               <AiOverviewCard query={submittedQuery} />
 
               {railImages.length > 0 && (
@@ -225,11 +257,10 @@ export function SearchPage() {
                         rel="noopener noreferrer"
                         className="group aspect-square overflow-hidden rounded-control bg-muted/30"
                       >
-                        <img
+                        <SafeThumb
                           src={img.thumbnailUrl}
                           alt={img.title}
-                          loading="lazy"
-                          className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          className="size-full transition-transform duration-300 group-hover:scale-105"
                         />
                       </a>
                     ))}
@@ -278,16 +309,28 @@ export function SearchPage() {
                           to={hit.route}
                           className="group flex items-center gap-3 rounded-control p-1.5 transition-colors hover:bg-foreground/5"
                         >
-                          <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted/50">
+                          <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted/50">
                             {hit.icon ? (
                               <img src={hit.icon} alt="" loading="lazy" className="size-full object-cover" />
                             ) : (
                               <Fallback className="size-4 text-muted-foreground" />
                             )}
+                            {/* Persistent type badge so it's clear which kind of item this is
+                                even when a real thumbnail (icon) hides the fallback glyph above. */}
+                            {hit.icon && (
+                              <div className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-background ring-1 ring-border">
+                                <Fallback className="size-2.5 text-muted-foreground" />
+                              </div>
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[13px] font-medium leading-snug group-hover:text-brand">{hit.title}</p>
-                            <p className="truncate text-xs text-muted-foreground">{hit.subtitle || hit.group}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              <span className="font-semibold text-foreground/50">
+                                {RELATED_LABEL[hit.type as RelatedType] ?? hit.group}
+                              </span>
+                              {(hit.subtitle || hit.group) && <span> · {hit.subtitle || hit.group}</span>}
+                            </p>
                           </div>
                         </Link>
                       )
@@ -297,7 +340,7 @@ export function SearchPage() {
               )}
             </aside>
 
-            <div className="min-w-0 space-y-6 xl:col-start-1 xl:row-start-1">
+            <div className="min-w-0 space-y-6 xl:col-start-1 xl:row-start-1 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto xl:pr-2">
               {showLoading && <SkeletonLines />}
 
               {showNoResults && (
@@ -312,34 +355,56 @@ export function SearchPage() {
               {showResults && data && (
                 <div className="animate-in fade-in space-y-6 duration-300">
                   {view === 'web' && (
-                    <ul className="divide-y divide-border/40">
-                      {data.web.map((r, i) => (
-                        <li key={i} className="py-4 first:pt-0">
-                          <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <ul className="divide-y divide-border/40">
+                        {visibleWeb.map((r, i) => (
+                          <li key={i} className="py-4 first:pt-0">
+                            <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
+                          </li>
+                        ))}
+                      </ul>
+                      {!showAllWeb && data.web.length > WEB_PAGE_SIZE && (
+                        <div className="flex justify-center pt-2">
+                          <Button type="button" variant="tinted" size="sm" onClick={() => setShowAllWeb(true)}>
+                            Show {data.web.length - WEB_PAGE_SIZE} more results
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {view === 'images' && (
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-3">
-                      {data.images.map((img, i) => (
-                        <a
-                          key={i}
-                          href={img.imageUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group overflow-hidden rounded-card border bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
+                    <>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold">Images for &ldquo;{submittedQuery}&rdquo;</p>
+                        <button
+                          type="button"
+                          onClick={() => setView('web')}
+                          aria-label="Back to search results"
+                          title="Back to search results"
+                          className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
                         >
-                          <img
-                            src={img.thumbnailUrl}
-                            alt={img.title}
-                            loading="lazy"
-                            className="aspect-square w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          />
-                        </a>
-                      ))}
-                    </div>
+                          <X className="size-4" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-3">
+                        {data.images.map((img, i) => (
+                          <a
+                            key={i}
+                            href={img.imageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group overflow-hidden rounded-card border bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
+                          >
+                            <SafeThumb
+                              src={img.thumbnailUrl}
+                              alt={img.title}
+                              className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
