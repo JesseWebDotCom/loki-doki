@@ -10,6 +10,35 @@
 import { CODING_ENGINE_BASE } from '@/lib/codingEngine'
 import { lastOrphanSweep } from '@/lib/ollamaHygiene'
 import { logger } from '@/lib/logger'
+import { isAutomatic } from '@/lib/resourceMode'
+import { getModel, getRouterModel } from '@/lib/models'
+import { ollamaUnloadModel } from '@/llm/ollama'
+
+const normTag = (t: string) => t.replace(/:latest$/, '')
+
+// Spill auto-remediation (Phase 2.7): when the always-hot chat model is sustained-
+// offloading to CPU in automatic mode, evict the resident T2 router (a few GB that
+// only a minority of turns use) so the chat model can sit fully in VRAM. The router
+// reloads on the next ambiguous turn (an already-slower path). Bounded: fires at most
+// once per cooldown, only in automatic, only when the router is actually resident.
+let lastRemediationAt = 0
+const REMEDIATION_COOLDOWN_MS = 5 * 60_000
+async function remediateChatSpill(models: LoadedLlmModel[]): Promise<void> {
+  if (!isAutomatic()) return
+  if (Date.now() - lastRemediationAt < REMEDIATION_COOLDOWN_MS) return
+  try {
+    const chat = normTag(await getModel())
+    const chatSpilling = models.some((m) => m.engine === 'main' && normTag(m.name) === chat && m.offloadPct >= OFFLOAD_ALERT_PCT)
+    if (!chatSpilling) return
+    const router = await getRouterModel()
+    if (!router) return
+    const routerResident = models.some((m) => m.engine === 'main' && normTag(m.name) === normTag(router) && normTag(router) !== chat)
+    if (!routerResident) return
+    lastRemediationAt = Date.now()
+    await ollamaUnloadModel(router)
+    logger.warn(`[resource] chat model ${chat} spilling to CPU; evicted router ${router} to free VRAM (reloads on next ambiguous turn)`)
+  } catch { /* best-effort */ }
+}
 
 const MAIN_BASE = () => (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')
 
@@ -75,6 +104,7 @@ export async function getLlmStatus(): Promise<LlmStatus> {
 
   if (sustainedOffload.length > 0) {
     logger.warn(`[llm-status] sustained CPU offload: ${sustainedOffload.map((m) => `${m.name}@${m.engine} ${m.offloadPct}%`).join(', ')}`)
+    void remediateChatSpill(sustainedOffload)
   }
 
   return {

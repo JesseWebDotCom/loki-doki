@@ -15,6 +15,7 @@ import { startBriefingRefresh } from '@/lib/briefing/refresh'
 import { pruneExpiredSessions } from '@/lib/session'
 import { warmupModel } from '@/lib/models'
 import { requestLogger } from '@/middleware/requestLogger'
+import { recordApiLatency } from '@/lib/apiLatency'
 import { setup } from '@/routes/setup'
 import { auth } from '@/routes/auth'
 import { users } from '@/routes/users'
@@ -585,6 +586,18 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 app.use('*', requestLogger)
+
+// API responsiveness probe (Phase 2.8): time non-streaming API requests so p95 web
+// latency is visible in Admin > System. SSE/WS and static assets are excluded (their
+// wall-time is the client's, not a server-responsiveness signal).
+app.use('/api/*', async (c, next) => {
+  const t0 = performance.now()
+  await next()
+  const ct = c.res.headers.get('content-type') ?? ''
+  const p = c.req.path
+  if (ct.includes('text/event-stream') || p.includes('/stream') || p.endsWith('/terminal')) return
+  recordApiLatency(performance.now() - t0)
+})
 
 // Global error boundary: without this, any throw from a route handler surfaces as a
 // bare, body-less 500 that's indistinguishable from a transient stall — so a real bug

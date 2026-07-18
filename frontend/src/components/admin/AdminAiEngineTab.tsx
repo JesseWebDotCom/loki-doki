@@ -78,6 +78,7 @@ export function AdminAiEngineTab() {
   const [busy, setBusy] = useState<string | null>(null)
   const [autotune, setAutotune] = useState<AutotuneInfo | null>(null)
   const [mode, setMode] = useState<'automatic' | 'manual' | null>(null)
+  const [apiLat, setApiLat] = useState<{ count: number; p50: number; p95: number; p99: number; max: number } | null>(null)
 
   const loadAutotune = () => {
     fetch('/api/admin/gpu/engine-autotune', { credentials: 'include' })
@@ -112,6 +113,10 @@ export function AdminAiEngineTab() {
     fetch('/api/admin/gpu/resource-mode', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((m) => { if (m) setMode(m.mode as 'automatic' | 'manual') })
+      .catch(() => {})
+    fetch('/api/admin/gpu/api-latency', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((l) => { if (l) setApiLat(l) })
       .catch(() => {})
     loadAutotune()
   }, [])
@@ -191,6 +196,14 @@ export function AdminAiEngineTab() {
             <p className="text-[11px] text-muted-foreground">
               Model, context size, voice backend, and image device are all chosen automatically and rebalanced as your hardware changes. Any manual pins are ignored while this is on.
             </p>
+          )}
+          {apiLat && apiLat.count > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+              <span className="font-medium uppercase tracking-wide">Web responsiveness</span>
+              <span>median <span className="font-medium text-foreground tabular-nums">{apiLat.p50} ms</span></span>
+              <span className={cn(apiLat.p95 > 750 ? 'text-warning' : '')}>p95 <span className={cn('font-medium tabular-nums', apiLat.p95 > 750 ? 'text-warning' : 'text-foreground')}>{apiLat.p95} ms</span></span>
+              <span className="text-muted-foreground/70">({apiLat.count} recent requests)</span>
+            </div>
           )}
         </Card>
       )}

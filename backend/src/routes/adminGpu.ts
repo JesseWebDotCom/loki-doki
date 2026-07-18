@@ -11,6 +11,7 @@ import { getCachedEngineGuards, saveEngineGuards, type EngineGuards } from '@/li
 import { getCachedAutotune, resolveEngineAutotune, checkFit } from '@/lib/engineAutotune'
 import { getCachedResourceMode, setResourceMode, type ResourceMode } from '@/lib/resourceMode'
 import { sharesGpuWithLlm } from '@/lib/vramLedger'
+import { apiLatencySnapshot } from '@/lib/apiLatency'
 import { getModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
@@ -62,6 +63,10 @@ adminGpu.get('/engine-guards', (c) => c.json(getCachedEngineGuards()))
 // device, GPU assignment) and ignores per-subsystem manual overrides. Manual honours
 // the operator's explicit picks. This is the master control the UI collapses to.
 adminGpu.get('/resource-mode', (c) => c.json({ mode: getCachedResourceMode() }))
+
+// Web responsiveness: p50/p95/p99 of recent non-streaming API request wall-times.
+// The canary for CPU starvation (inference/transcode saturating cores climbs p95).
+adminGpu.get('/api-latency', (c) => c.json(apiLatencySnapshot()))
 
 adminGpu.put('/resource-mode', async (c) => {
   const { mode } = (await c.req.json().catch(() => ({}))) as { mode?: ResourceMode }

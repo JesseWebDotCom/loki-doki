@@ -12,10 +12,24 @@
 
 import { getCachedGpuPlacement } from '@/lib/hwfit'
 import { queryGpus } from '@/lib/gpuMonitor'
-import { ollamaUnloadModel } from '@/llm/ollama'
+import { ollamaUnloadModel, ollamaWarmModel } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
+import { comfyUrl } from '@/lib/comfyui'
 import { isAutomatic } from '@/lib/resourceMode'
 import { logger } from '@/lib/logger'
+
+// Ask ComfyUI to release its VRAM (unload checkpoints + free the allocator) so the
+// LLM can move back onto the card cleanly. Best-effort; ComfyUI frees lazily anyway.
+async function freeComfyVram(): Promise<void> {
+  try {
+    await fetch(`${comfyUrl()}/free`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch { /* best-effort */ }
+}
 
 /** True when ComfyUI (image/video) runs on the SAME physical card as Ollama, so a
  *  heavy generation and the resident LLM contend for one pool of VRAM. Derived from
@@ -72,7 +86,22 @@ export async function runGpuHeavyJob<T>(label: string, job: () => Promise<T>): P
     }
     return await job()
   } finally {
-    if (evicted) logger.info(`[resource] ${label} done; ${evicted} will reload on next chat`)
-    release()
+    // Re-warm proactively so the next chat isn't cold: free ComfyUI's VRAM first (else
+    // the LLM would load into a still-occupied card and spill), then warm the model
+    // back. Detached so the generation response returns immediately; the lock is held
+    // until the model is resident so a back-to-back job doesn't fight the re-warm.
+    if (evicted) {
+      const model = evicted
+      void (async () => {
+        try {
+          await freeComfyVram()
+          await ollamaWarmModel(model)
+          logger.info(`[resource] ${label} done; re-warmed ${model}`)
+        } catch { /* the model still loads on demand on the next chat */ }
+        finally { release() }
+      })()
+    } else {
+      release()
+    }
   }
 }
