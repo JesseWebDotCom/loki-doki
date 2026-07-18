@@ -96,6 +96,19 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
   }
 }
 
+/** Read-through accessor with an optional width hint (?w=): serves a bucketed webp
+ *  downscale rendered beside the original, or the original when resizing isn't
+ *  possible (no vips, animated/vector source, bad width). */
+export async function getOrFetchProxyImageResized(rawUrl: string, w: string | undefined): Promise<{ data: Buffer; contentType: string } | null> {
+  const orig = await getOrFetchProxyImage(rawUrl)
+  if (!orig) return null
+  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(w)
+  if (!bucket) return orig
+  const variant = await getResizedVariant(join(CACHE_DIR, hashUrl(rawUrl)), orig.contentType, bucket)
+  return variant ?? orig
+}
+
 /** Bound the cache: if total bytes exceed the ceiling, delete oldest files first. */
 export async function imageCacheSweep(): Promise<void> {
   try {

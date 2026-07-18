@@ -82,6 +82,26 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
     }
   }
 
+  // Smart Titles for caption-only sources: distill fresh captions in the idle band so
+  // grids (which only ever peek the cache) show real titles instead of heuristics.
+  // Coalesced per video via the precompute variantKey; capped like the sibling passes.
+  if (follow.source === 'tiktok' && fresh.length > 0) {
+    try {
+      const { enqueuePrecompute } = await import('@/lib/precompute')
+      const captionItems = fresh
+        .map((videoId) => items.find((i) => i.id === videoId))
+        .filter((i): i is NonNullable<typeof i> => !!i && !i.isAdult && !!i.title)
+        .slice(0, 5)
+      for (const item of captionItems) {
+        await enqueuePrecompute(`${follow.source}:${item.id}`, `Smart title: ${item.title.slice(0, 60)}`, {
+          kind: 'smart-title', source: follow.source, id: item.id, caption: item.title, author: item.creator?.name ?? null,
+        })
+      }
+    } catch (err) {
+      logger.warn(`[videos-feed] smart-title precompute failed for ${follow.source}:${follow.externalId}: ${err}`)
+    }
+  }
+
   // Auto-save: enqueue downloads for genuinely new uploads, then prune the rolling window.
   if (!follow.autoSave || fresh.length === 0) return
   const kind = follow.autoSaveKind

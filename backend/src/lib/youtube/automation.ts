@@ -406,6 +406,22 @@ export async function applySubscriptionAutomation(
     }
   }
 
+  // ── Precompute summary + Smart Description for fresh uploads ──
+  // Both are shared per-video caches generated on watch-page open today (a 2-5s fast-model
+  // call the viewer waits through). Park them in the idle band instead: newest-N per
+  // refresh, coalesced by videoId across subscribers via the precompute variantKey.
+  try {
+    const firstName = await getFirstName(sub.userId)
+    const { enqueuePrecompute } = await import('@/lib/precompute')
+    for (const v of ordered.slice(0, MAX_AUTO_TRANSCRIBE_PER_REFRESH)) {
+      await enqueuePrecompute(v.videoId, `Video summary: ${v.title ?? v.videoId}`, {
+        kind: 'yt-summary', videoId: v.videoId, userId: sub.userId, firstName,
+      })
+    }
+  } catch (err) {
+    logger.warn(`[youtube] summary precompute enqueue failed for "${sub.title}": ${err}`)
+  }
+
   // ── Auto-podcast: feed fresh videos into source-linked shows that opted in ──
   try {
     const shows = await db.select().from(podcastShows).where(and(

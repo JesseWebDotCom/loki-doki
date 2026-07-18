@@ -228,8 +228,30 @@ export async function refreshPodcastFeed(showId: string): Promise<number> {
   if (added > 0) {
     logger.info(`[podcast-rss] +${added} episode(s) for "${show.name}"`)
     await runAutoTranscribePass(showId, added).catch(err => logger.warn(`[podcast-rss] auto-transcribe pass failed for ${showId}: ${err}`))
+    await runInsightsPrecomputePass(showId, added).catch(err => logger.warn(`[podcast-rss] insights precompute pass failed for ${showId}: ${err}`))
   }
   return added
+}
+
+/** Precompute pre-listen insights for freshly landed episodes that carry a feed
+ *  transcript. Whisper'd episodes get insights chained after transcription already;
+ *  this closes the other half: feed-transcript episodes used to generate insights
+ *  on first open (a multi-second model call the listener sat through). Idle-band
+ *  jobs, same newest-N cap as the sibling passes, only for shows someone follows. */
+export async function runInsightsPrecomputePass(showId: string, added: number): Promise<void> {
+  const [sub] = await db.select({ userId: podcastSubscriptions.userId }).from(podcastSubscriptions)
+    .where(eq(podcastSubscriptions.showId, showId)).limit(1)
+  if (!sub) return
+  const fresh = await db.select({ id: podcastEpisodes.id, title: podcastEpisodes.title, transcriptUrl: podcastEpisodes.transcriptUrl })
+    .from(podcastEpisodes)
+    .where(eq(podcastEpisodes.showId, showId))
+    .orderBy(desc(podcastEpisodes.publishedAt), desc(podcastEpisodes.createdAt))
+    .limit(Math.min(Math.max(added, 1), 3))
+  const { enqueuePrecompute } = await import('@/lib/precompute')
+  for (const ep of fresh) {
+    if (!ep.transcriptUrl) continue
+    await enqueuePrecompute(ep.id, `Episode insights: ${ep.title}`, { kind: 'podcast-insights', episodeId: ep.id })
+  }
 }
 
 /** When any subscriber opted into auto-transcribe, queue Whisper jobs for the freshly

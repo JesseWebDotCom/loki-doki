@@ -118,6 +118,16 @@ export async function getMoviesHome(): Promise<MovieShelf[]> {
   return data.shelves
 }
 
+/** Shared factory so the idle warmer / hover-intent prefetch (lib/prefetch/registry)
+ *  warms exactly the query the home page reads. */
+export function moviesHomeQueryOptions() {
+  return {
+    queryKey: ['movies-home'] as const,
+    queryFn: getMoviesHome,
+    staleTime: 30 * 60 * 1000,
+  }
+}
+
 /** "Suggested for you" from the interest engine. `ref` is the dismiss key; `building`
  *  = the first pool build is still running (callers poll until it flips false). */
 export function getSuggestedMovies(): Promise<{ items: Array<MovieSummary & { ref: string }>; building: boolean }> {

@@ -20,7 +20,7 @@ function OnTonightCard({ e, live }: { e: ScheduleEntry; live: boolean }) {
     <Link to={`/shows/${e.show.id}`} className="group flex w-[150px] shrink-0 flex-col sm:w-[168px]">
       <div className="relative aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-sm ring-1 ring-border/40 transition-transform group-hover:scale-[1.03] group-active:scale-[0.99]">
         {e.show.poster ? (
-          <img src={mediaImg(e.show.poster)} alt={e.show.name} loading="lazy" className="size-full object-cover" />
+          <img src={mediaImg(e.show.poster, 480)} alt={e.show.name} loading="lazy" className="size-full object-cover" />
         ) : (
           <div className="flex size-full items-center justify-center">
             <Tv className="size-7 text-muted-foreground/40" />

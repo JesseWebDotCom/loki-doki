@@ -113,7 +113,7 @@ function TheaterCard({ m }: { m: ShowMovie }) {
     <div className="rounded-card border border-border/50 bg-card/40">
       <Link to={movieTo({ title: m.title, year: null })} className="group flex gap-3 p-3">
         {m.poster_url ? (
-          <img src={mediaImg(m.poster_url)} alt={m.title} loading="lazy" className="h-36 w-24 shrink-0 rounded-control object-cover ring-1 ring-border/40" />
+          <img src={mediaImg(m.poster_url, 240)} alt={m.title} loading="lazy" className="h-36 w-24 shrink-0 rounded-control object-cover ring-1 ring-border/40" />
         ) : (
           <div className="flex h-36 w-24 shrink-0 items-center justify-center rounded-control bg-muted">
             <Clapperboard className="size-6 text-muted-foreground/40" />

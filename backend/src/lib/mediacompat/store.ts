@@ -101,7 +101,7 @@ async function probeCached(absPath: string, key: string): Promise<CompatProbe> {
  *  - 'audio' — an audio-only rendition, used for lock-screen/background continuation of
  *              a video. For an audio file this behaves like 'auto'.
  */
-export async function ensureCompat(absPath: string, want: 'auto' | 'audio' = 'auto'): Promise<EnsureResult> {
+export async function ensureCompat(absPath: string, want: 'auto' | 'audio' = 'auto', opts?: { priority?: number }): Promise<EnsureResult> {
   const st = await stat(absPath)   // throws → caller's 404
   const key = srcKey(absPath, st.mtimeMs, st.size)
   const probe = await probeCached(absPath, key)
@@ -138,8 +138,25 @@ export async function ensureCompat(absPath: string, want: 'auto' | 'audio' = 'au
   }).onConflictDoNothing()
 
   const { enqueueMediaCompat } = await import('@/lib/downloadJobs')
-  await enqueueMediaCompat(id, transcodeLabel(absPath, variant))
+  await enqueueMediaCompat(id, transcodeLabel(absPath, variant), { priority: opts?.priority })
   return { compatible: false, kind: verdict.kind, id, status: 'pending', progressPct: 0, reasons: verdict.reasons }
+}
+
+/**
+ * Ingest-time hook: probe a freshly stored file and, when it can't play natively, park
+ * its transcode in the opportunistic band so it renders during an idle moment instead
+ * of on first tap (where iOS waits through the whole encode). A later real play
+ * escalates the same job to user priority via enqueueMediaCompat's coalescing.
+ * Best-effort by contract: never throws, does nothing when the admin switch is off.
+ */
+export async function precomputeCompat(absPath: string, want: 'auto' | 'audio' = 'auto'): Promise<void> {
+  const { isOpportunisticEnabled, OPPORTUNISTIC_PRIORITY } = await import('@/lib/idleScheduler')
+  if (!isOpportunisticEnabled()) return
+  try {
+    await ensureCompat(absPath, want, { priority: OPPORTUNISTIC_PRIORITY })
+  } catch (err) {
+    logger.warn(`[transcode-cache] ingest precompute skipped for ${absPath}: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** JSON shape every per-route compat endpoint returns — players share one client for it. */

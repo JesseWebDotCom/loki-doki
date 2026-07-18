@@ -21,6 +21,7 @@ import {
   type ItVideo,
 } from '@/lib/youtube/api'
 import { whereToWatchPopularQueryOptions, type TitleCard } from '@/lib/whereToWatch'
+import { moviesHomeQueryOptions, type MovieShelf } from '@/lib/movies/api'
 import { prewarmWeather } from '@/lib/weatherCache'
 import type { NewsItem } from '@/components/shared/NewsCard'
 import type { UserLocation } from '@/hooks/useUserLocation'
@@ -54,7 +55,8 @@ export const APP_PREFETCHERS: Record<string, Prefetcher> = {
     const opts = showsHomeQueryOptions()
     await qc.prefetchQuery(opts)
     const shelves = qc.getQueryData<ShowShelf[]>(opts.queryKey as QueryKey) ?? []
-    preloadImages(shelves.flatMap((s) => s.items.slice(0, 6).map((i) => mediaImg(i.poster))))
+    // Width must match TitleCard's render request (480 bucket) or the preload warms the wrong URL.
+    preloadImages(shelves.flatMap((s) => s.items.slice(0, 6).map((i) => mediaImg(i.poster, 480))))
   },
 
   // YouTube — Popular + Trending + sidebar subscriptions. Only when online (the page's
@@ -77,6 +79,15 @@ export const APP_PREFETCHERS: Record<string, Prefetcher> = {
     await qc.prefetchQuery(opts)
     const items = qc.getQueryData<TitleCard[]>(opts.queryKey as QueryKey) ?? []
     preloadImages(items.map((i) => i.posterUrl))
+  },
+
+  // Movies: home shelves + the first few posters per shelf (bucketed 480px variants,
+  // matching TitleCard's render width).
+  movies: async (qc) => {
+    const opts = moviesHomeQueryOptions()
+    await qc.prefetchQuery(opts)
+    const shelves = qc.getQueryData<MovieShelf[]>(opts.queryKey as QueryKey) ?? []
+    preloadImages(shelves.flatMap((s) => s.items.slice(0, 6).map((i) => (i.poster ? mediaImg(i.poster, 480) : null))))
   },
 
   // Weather — fills the cross-route module cache the page reads on mount (instant paint).

@@ -8,7 +8,10 @@
 // (news/article thumbnails, recipe/show cards, remote avatars). YouTube and Shows/Movies
 // have their own specialised proxies (ytImageProxy / mediaImg) — keep using those there.
 
-export function proxyImg(url: string | null | undefined): string {
+/** Optional width hint for card/grid renders: the proxy serves a bucketed webp
+ *  downscale (240/480/960) instead of the original bytes. Pass the DEVICE-pixel
+ *  width you render at (CSS px × ~2); omit for heroes, backdrops, and lightboxes. */
+export function proxyImg(url: string | null | undefined, w?: number): string {
   if (!url) return ''
   // Already local/inlined — nothing to proxy.
   if (/^(\/(?!\/)|data:|blob:)/.test(url)) return url
@@ -16,7 +19,7 @@ export function proxyImg(url: string | null | undefined): string {
     const u = new URL(url, window.location.origin)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return url
     if (u.origin === window.location.origin) return url // same-origin asset
-    return `/api/img?u=${encodeURIComponent(u.toString())}`
+    return `/api/img?u=${encodeURIComponent(u.toString())}${w ? `&w=${Math.round(w)}` : ''}`
   } catch {
     return url
   }

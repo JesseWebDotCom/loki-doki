@@ -10,11 +10,13 @@ const opts: RequestInit = { credentials: 'include' }
 // hosts, so the allowlist here must match the backend's.
 const PROXY_HOSTS = /(^|\.)(tvmaze\.com|justwatch\.com|wikimedia\.org|wikipedia\.org|fandango\.com|ytimg\.com|ggpht\.com)$/i
 
-export function mediaImg(url: string | null | undefined): string {
+/** Optional `w` = device-pixel render width for cards/grids: the proxy serves a
+ *  bucketed webp downscale (240/480/960). Omit for heroes/backdrops/lightboxes. */
+export function mediaImg(url: string | null | undefined, w?: number): string {
   if (!url) return ''
   try {
     const host = new URL(url).hostname
-    if (PROXY_HOSTS.test(host)) return `/api/media/img?u=${encodeURIComponent(url)}`
+    if (PROXY_HOSTS.test(host)) return `/api/media/img?u=${encodeURIComponent(url)}${w ? `&w=${Math.round(w)}` : ''}`
   } catch {
     /* not an absolute URL — return as-is */
   }

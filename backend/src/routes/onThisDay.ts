@@ -47,6 +47,9 @@ onThisDayRoute.get('/', requireAuth, async (c) => {
     return c.json({ events: [], births: [], deaths: [], month: now.getMonth() + 1, day: now.getDate(), offline: true })
   }
 
+  // Content is stable for the calendar day; let the browser reuse it for an hour
+  // (private: responses ride the session cookie).
+  c.header('Cache-Control', 'private, max-age=3600')
   const cached = getCached()
   if (cached) return c.json(cached)
 

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { downloadJobs, mediaAssets, podcastDownloads, podcastEpisodes } from '@/db/schema'
-import { contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
+import { blobAbsPath, contentTmpDir, markBlobLive, putBlobFromFile, withLock } from '@/lib/content/store'
 import { safeFetch } from '@/lib/ssrfGuard'
 import type { DownloadProgress } from '@/lib/download'
 import { logger } from '@/lib/logger'
@@ -228,6 +228,11 @@ export async function runPodcastDownloadJob(
       await linkReady(episodeId, asset.id)
     })
     logger.info(`[podcast-rss] downloaded "${episode.title}" (${(put.sizeBytes / 1e6).toFixed(1)} MB${put.deduped ? ', deduped' : ''})`)
+    // Ingest-time playability: if the enclosure's codec isn't browser-safe, park its
+    // transcode in the opportunistic band now instead of making the first listener wait.
+    void blobAbsPath(put.hash)
+      .then(async (p) => (await import('@/lib/mediacompat/store')).precomputeCompat(p))
+      .catch(() => {})
   } catch (err) {
     await unlink(tmpPath).catch(() => {})
     throw err

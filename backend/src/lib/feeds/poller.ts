@@ -125,6 +125,16 @@ export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
   const newIds = await upsertEntries(feed, parsed.entries)
   // Background: extract new articles' full content now so opening one is instant.
   if (newIds.length) prefetchFeedItemContent(newIds)
+  // And park TL;DR generation for the newest few in the idle band, so the reader's
+  // summary panel is warm by the time anyone opens the article. Persisted per item
+  // (feed_items.ai_summary), so a re-poll never re-summarizes; capped per poll.
+  if (newIds.length) {
+    void import('@/lib/precompute').then(async (m) => {
+      for (const id of newIds.slice(0, 5)) {
+        await m.enqueuePrecompute(id, `Article summary (${feed.title || 'feed'})`, { kind: 'news-summary', itemId: id })
+      }
+    }).catch(() => {})
+  }
   await prune(feed.id)
 
   const siteUrl = feed.siteUrl ?? parsed.siteUrl ?? null

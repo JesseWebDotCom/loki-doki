@@ -225,6 +225,89 @@ function GpuHealthCard() {
   )
 }
 
+// ── Background activity (the opportunistic idle band) ───────────────────────────
+
+interface BackgroundActivity {
+  gate: { enabled: boolean; busy: boolean; reasons: string[] }
+  jobs: { id: string; type: string; label: string; status: string; progress: { completed?: number; total?: number } | null; updatedAt: string }[]
+}
+
+const BG_STATUS_BADGE: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'info'> = {
+  running: 'default', pending: 'secondary', completed: 'outline', failed: 'destructive',
+}
+
+function BackgroundActivityCard() {
+  const [data, setData] = useState<BackgroundActivity | null>(null)
+  const [toggling, setToggling] = useState(false)
+
+  useEffect(() => {
+    const poll = () => apiFetch<BackgroundActivity>('/api/jobs/background').then((d) => { if (d) setData(d) })
+    void poll()
+    const t = setInterval(poll, 5_000)
+    return () => clearInterval(t)
+  }, [])
+
+  if (!data) return null
+  const { gate, jobs } = data
+  const pending = jobs.filter((j) => j.status === 'pending').length
+  const runningJobs = jobs.filter((j) => j.status === 'running')
+  const stateLine = !gate.enabled
+    ? 'Off: nothing runs proactively; everything still works lazily on demand.'
+    : runningJobs.length
+    ? `Working: ${runningJobs[0]!.label}${runningJobs.length > 1 ? ` (+${runningJobs.length - 1} more)` : ''}`
+    : gate.busy
+    ? `Paused: ${gate.reasons.join('; ')}`
+    : pending
+    ? 'Idle moment: starting queued work shortly.'
+    : 'Idle: nothing queued.'
+
+  return (
+    <Card variant="surface" className="border-border/50 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Background activity</h3>
+        <Switch
+          checked={gate.enabled}
+          disabled={toggling}
+          onCheckedChange={async (v) => {
+            setToggling(true)
+            await apiFetch('/api/jobs/background', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: v }),
+            })
+            setData((d) => (d ? { ...d, gate: { ...d.gate, enabled: v } } : d))
+            setToggling(false)
+          }}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        When the house is quiet, Loki Doki gets ahead of the family: converting media so it
+        plays instantly, summarizing new videos, articles and episodes, and warming slow
+        pages. It pauses itself whenever someone is chatting, generating, or streaming.
+      </p>
+      <div className="flex items-center gap-2 pt-1">
+        <Activity className={cn('size-4', !gate.enabled ? 'text-muted-foreground' : gate.busy ? 'text-warning' : 'text-success')} />
+        <span className="text-sm">{stateLine}</span>
+        {pending > 0 && <Badge variant="secondary">{pending} queued</Badge>}
+      </div>
+      {gate.enabled && jobs.length > 0 && (
+        <div className="space-y-1 pt-1">
+          {jobs.slice(0, 8).map((j) => (
+            <div key={j.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="min-w-0 truncate text-muted-foreground">{j.label}</span>
+              <Badge variant={BG_STATUS_BADGE[j.status] ?? 'outline'} className="shrink-0 capitalize">
+                {j.status === 'running' && j.progress?.total
+                  ? `${Math.round(((j.progress.completed ?? 0) / j.progress.total) * 100)}%`
+                  : j.status}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function AdminSystemTab() {
@@ -404,6 +487,8 @@ export function AdminSystemTab() {
       </div>
 
       <GpuHealthCard />
+
+      <BackgroundActivityCard />
 
       {/* Mode selector */}
       <Card variant="surface" className="border-border/50 p-3 space-y-2">
