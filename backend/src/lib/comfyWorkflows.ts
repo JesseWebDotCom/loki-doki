@@ -103,12 +103,16 @@ function chainLoras(
 }
 
 // ── Multi-character regional prompting (LoRA hooks) ──────────────────────────
-// Two character LoRAs stacked globally fight over every pixel and the stronger
-// one wins both bodies (two Mordecais, no Rigby). Instead, each character LoRA
-// becomes a CreateHookLora whose conditioning is confined to a vertical column
-// mask: the LoRA weights only apply where its conditioning applies. The base
-// prompt still covers the full frame so scene and style stay coherent.
-// Core nodes since ComfyUI v0.3.7; gate on supportsLoraHooks().
+// NOT wired into the generation path. Field test (2026-07, RTX 3070 8GB):
+// per-region hook evaluation multiplies sampling cost (~3x slower per step,
+// hook weights swap in and out per masked cond) and the unmasked base cond
+// averages against each region at equal strength, diluting character identity
+// until the LoRAs barely register. Do not re-enable without solving both;
+// harmonized global stacking (planLoraTokens) is the shipping approach.
+// Mechanism, kept for future retuning: each character LoRA becomes a
+// CreateHookLora whose conditioning is confined to a vertical column mask, so
+// its weights only apply where its conditioning applies. Core nodes since
+// ComfyUI v0.3.7; gate on supportsLoraHooks().
 
 // Cached probe: does this ComfyUI expose the core LoRA-hook nodes?
 let hooksProbe: { url: string; ok: boolean; at: number } | null = null

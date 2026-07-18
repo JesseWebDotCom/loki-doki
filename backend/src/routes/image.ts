@@ -40,10 +40,9 @@ import {
   buildPhotoRestoreWorkflow,
   uploadComfyImage,
   detectSamplerPreset,
-  supportsLoraHooks,
   SAMPLER_PROFILES,
 } from '@/lib/comfyWorkflows'
-import type { ComfyUIPrompt, CharacterRegion } from '@/lib/comfyWorkflows'
+import type { ComfyUIPrompt } from '@/lib/comfyWorkflows'
 import { sanitizeTriggerTokens, planLoraTokens } from '@/lib/loraTokens'
 import { resolveLoraFile } from '@/lib/loraFiles'
 import { buildPrompt, selectResolution } from '@/lib/promptPipeline'
@@ -309,7 +308,6 @@ interface ComfyGenPayload {
   seed: number
   loraIds: string[]       // basenames without extension (applied globally)
   loraWeights: number[]
-  characterRegions?: CharacterRegion[]  // txt2img: per-region character LoRA hooks
   hiresUpscale: boolean
   esrganModel?: string        // filename in upscale_models/ when ESRGAN is installed
   // Pipeline
@@ -369,10 +367,9 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
         sampler:        payload.sampler,
         scheduler:      payload.scheduler,
         seed:           payload.seed,
-        loraIds:          payload.loraIds,
-        loraWeights:      payload.loraWeights,
-        characterRegions: payload.characterRegions,
-        hiresUpscale:     payload.hiresUpscale,
+        loraIds:        payload.loraIds,
+        loraWeights:    payload.loraWeights,
+        hiresUpscale:   payload.hiresUpscale,
         esrganModel:    payload.esrganModel,
         upscaleDenoise: payload.esrganModel ? 0.30 : 0.40,
       }
@@ -969,10 +966,6 @@ async function buildAndEnqueueJob(params: {
   let positive = ''
   let negative = ''
   let resolvedLoras: SelectedLora[] = []
-  // When regional prompting is active, character LoRAs move into
-  // characterRegions and only the remaining (stylistic) LoRAs stack globally.
-  let globalLoras: SelectedLora[] | null = null
-  let characterRegions: CharacterRegion[] | undefined
   // SVD-XT is trained at 1024×576; default to that for image-to-video (do NOT shrink
   // it — SVD degrades badly off its training resolution). Text-to-video (AnimateDiff)
   // defaults to 768²: compute scales with pixels × frames, so 768² is ~1.8x faster
@@ -1037,24 +1030,15 @@ async function buildAndEnqueueJob(params: {
         resolvedLoras = await selectLoras(prompt, params.userId, params.isAdmin, routerModel)
       }
 
-      // Trigger-token hygiene + multi-character planning. Two character LoRAs
-      // both injecting "solo"/"1boy" collapse a two-subject prompt into one
-      // duplicated character; the plan replaces them with aggregate count tags
-      // and, when ComfyUI supports LoRA hooks, confines each character LoRA to
-      // its own region of the frame instead of stacking both globally.
+      // Trigger-token hygiene + multi-character harmonization. Two character
+      // LoRAs both injecting "solo"/"1boy" collapse a two-subject prompt into
+      // one duplicated character; the plan replaces them with aggregate count
+      // tags ("2boys") while keeping every identity token. All LoRAs stack
+      // globally: the per-region hook path was field-tested and rejected
+      // (~3x slower per step and the unmasked base cond diluted each
+      // character's identity), see buildCharacterRegionConditioning.
       const tokenPlan = planLoraTokens(resolvedLoras.map(l => l.triggerTokens))
-      let loraTokens = tokenPlan.globalTokens
-      if (tokenPlan.multiCharacter && pipeline === 'txt2img' && await supportsLoraHooks(comfyUrl())) {
-        characterRegions = tokenPlan.characters.map(ch => ({
-          loraFile: resolvedLoras[ch.index].filename,
-          weight:   resolvedLoras[ch.index].weight,
-          prompt:   ch.regionTokens.join(', '),
-        }))
-        const characterIdx = new Set(tokenPlan.characters.map(ch => ch.index))
-        globalLoras = resolvedLoras.filter((_, i) => !characterIdx.has(i))
-        loraTokens  = tokenPlan.baseTokens
-        logger.info(`[image] regional prompting active: ${characterRegions.length} character LoRAs split into columns`)
-      }
+      const loraTokens = tokenPlan.globalTokens
       const isStylisticLora = style !== 'photorealistic' || resolvedLoras.some(l => l.isStylisticLora)
 
       const qualityNegative  = 'deformed, ugly, bad anatomy, bad hands, watermark, text, blurry, low quality'
@@ -1128,9 +1112,8 @@ async function buildAndEnqueueJob(params: {
     sampler,
     scheduler,
     seed,
-    loraIds:      (globalLoras ?? resolvedLoras).map(l => l.filename),
-    loraWeights:  (globalLoras ?? resolvedLoras).map(l => l.weight),
-    characterRegions,
+    loraIds:      resolvedLoras.map(l => l.filename),
+    loraWeights:  resolvedLoras.map(l => l.weight),
     hiresUpscale,
     esrganModel,
     pipeline,
@@ -1250,8 +1233,9 @@ Rules for "prompt":
 
 Rules for "weights":
 - For each LoRA, choose a weight that balances style influence against prompt fidelity
+- Character/identity LoRAs (type: character) must stay at 0.8–1.0. Below ~0.7 the character stops looking like themselves. Never lower a character LoRA to make room for scene details.
 - Stylistic LoRAs (anime, painting, illustration styles) that could override scene content should be 0.4–0.7
-- If the user's prompt describes a very specific scene (specific subjects, actions, location), lean toward lower weights (0.4–0.6) so the scene renders correctly
+- If the user's prompt describes a very specific scene (specific subjects, actions, location), lean toward lower weights (0.4–0.6) for stylistic LoRAs so the scene renders correctly
 - If the prompt is vague or style-focused ("anime portrait", "ghibli scene"), higher weights (0.7–0.9) are fine
 - LoRAs that add subject types (vehicles, objects) rather than art styles can use 0.7–1.0
 
@@ -1269,14 +1253,14 @@ const AUTO_ENHANCE_VECTOR = `IMPORTANT — this image will be converted into an 
 image.post('/auto-enhance', requireAuth, async (c) => {
   const { prompt, loras, vector } = await c.req.json<{
     prompt: string
-    loras: Array<{ id: string; name: string; description?: string | null; isStylisticLora?: boolean }>
+    loras: Array<{ id: string; name: string; description?: string | null; isStylisticLora?: boolean; character?: boolean }>
     vector?: boolean   // SVG output: steer the rewrite toward flat, trace-friendly vector art
   }>()
   if (!prompt?.trim()) return c.json({ prompt: prompt ?? '', weights: {} })
   try {
     const model = await getModel()
     const loraList = loras.length > 0
-      ? loras.map(l => `- id: "${l.id}", name: "${l.name}"${l.description ? `, desc: "${l.description}"` : ''}${l.isStylisticLora ? ', type: stylistic' : ''}`).join('\n')
+      ? loras.map(l => `- id: "${l.id}", name: "${l.name}"${l.description ? `, desc: "${l.description}"` : ''}${l.character ? ', type: character' : l.isStylisticLora ? ', type: stylistic' : ''}`).join('\n')
       : '(none)'
     const userContent = `Prompt: ${prompt.trim()}\n\nSelected LoRAs:\n${loraList}`
     const system = vector ? `${AUTO_ENHANCE_VECTOR}\n\n${AUTO_ENHANCE_SYSTEM}` : AUTO_ENHANCE_SYSTEM
@@ -1286,9 +1270,15 @@ image.post('/auto-enhance', requireAuth, async (c) => {
     ], [], { num_predict: 400, temperature: 0.1 })
     const raw = result.message?.content?.trim() ?? ''
     const parsed = JSON.parse(raw) as { prompt?: string; weights?: Record<string, number> }
+    const weights = parsed.weights ?? {}
+    // Hard floor regardless of what the LLM returned: below ~0.7 a character
+    // LoRA stops producing the character, so 0.8 is the minimum useful weight.
+    for (const l of loras) {
+      if (l.character && weights[l.id] !== undefined && weights[l.id] < 0.8) weights[l.id] = 0.8
+    }
     return c.json({
       prompt: parsed.prompt?.trim() || prompt,
-      weights: parsed.weights ?? {},
+      weights,
     })
   } catch {
     return c.json({ prompt, weights: {} })
@@ -1305,6 +1295,7 @@ You will receive: the original prompt, what the VLM saw in the preview, and the 
 
 Common root causes and fixes:
 - Stylistic LoRA (anime/ghibli/cartoon) weight too high → it overrides scene content → reduce weight to 0.3–0.45
+- Character/identity LoRAs (marked type: character) must stay at 0.8–1.0. If the character is missing or off-model, RAISE toward 1.0; never lower a character LoRA.
 - Subject is missing entirely → add stronger scene anchoring to the prompt ("clearly showing", "in the foreground")
 - Keep the prompt faithful to the user's intent — only add specificity, never change the scene
 
@@ -1315,7 +1306,7 @@ image.post('/preview-check', requireAuth, async (c) => {
   const { prompt, previewBase64, loras } = await c.req.json<{
     prompt: string
     previewBase64: string
-    loras: Array<{ id: string; name: string; weight: number }>
+    loras: Array<{ id: string; name: string; weight: number; character?: boolean }>
   }>()
   if (!previewBase64) return c.json({ match: true })
 
@@ -1349,7 +1340,7 @@ image.post('/preview-check', requireAuth, async (c) => {
 
     // Mismatch — ask text LLM to suggest corrections
     const textModel = await getModel()
-    const loraDesc = loras.map(l => `id="${l.id}" name="${l.name}" weight=${l.weight}`).join(', ')
+    const loraDesc = loras.map(l => `id="${l.id}" name="${l.name}" weight=${l.weight}${l.character ? ' type=character' : ''}`).join(', ')
     const correctResult = await ollamaChat(textModel, [
       { role: 'system', content: PREVIEW_CORRECT_SYSTEM },
       { role: 'user', content: `Prompt: "${prompt.trim()}"\nVLM saw: "${seen}"\nLoRAs: ${loraDesc || 'none'}` },
@@ -1360,11 +1351,20 @@ image.post('/preview-check', requireAuth, async (c) => {
       ? (JSON.parse(correctMatch[0]) as { prompt?: string; weights?: Record<string, number> })
       : {}
 
+    // Same character-weight floor as /auto-enhance: the corrector may only
+    // raise character LoRAs, never weaken them below the identity threshold.
+    const correctedWeights = correction.weights ?? {}
+    for (const l of loras) {
+      if (l.character && correctedWeights[l.id] !== undefined && correctedWeights[l.id] < Math.max(0.8, l.weight)) {
+        correctedWeights[l.id] = Math.max(0.8, l.weight)
+      }
+    }
+
     return c.json({
       match: false,
       seen,
       correctedPrompt: correction.prompt?.trim() || prompt,
-      correctedWeights: correction.weights ?? {},
+      correctedWeights,
     })
   } catch {
     return c.json({ match: true }) // fail open — don't interrupt generation on errors

@@ -51,6 +51,13 @@ interface LoraOption {
   available?: boolean
 }
 
+// A LoRA whose trigger words carry subject-count tags was trained on a specific
+// character; it needs high weight (0.8+) to hold the likeness, unlike stylistic
+// LoRAs which are turned DOWN to protect scene fidelity.
+function isCharacterLora(l: LoraOption): boolean {
+  return l.triggerTokens.some(t => /^(solo|solo focus|1boy|1girl|1other)$/i.test(t.trim()))
+}
+
 interface HistoryItem {
   id: string
   prompt: string
@@ -901,6 +908,7 @@ export function ImagingPage() {
               id: l.id,
               name: l.styleLabel ?? l.name,
               weight: sentLoraWeightsRef.current[l.id] ?? l.defaultWeight,
+              character: isCharacterLora(l),
             })),
           }),
         })
@@ -1158,7 +1166,8 @@ export function ImagingPage() {
               id: l.id,
               name: l.styleLabel ?? l.name,
               description: l.description,
-              isStylisticLora: l.triggerTokens.length > 0 || l.styleLabel !== null,
+              character: isCharacterLora(l),
+              isStylisticLora: !isCharacterLora(l) && (l.triggerTokens.length > 0 || l.styleLabel !== null),
             })),
           }),
         })
