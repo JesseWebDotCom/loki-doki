@@ -31,12 +31,8 @@ export type AdScanStatus = 'none' | 'pending' | 'processing' | 'ready' | 'failed
 // lands inside an ad read (the merge pass dedupes the doubled detections).
 const WINDOW_CHARS = 16_000
 const WINDOW_OVERLAP_SEC = 90
-// Detection guards: low-confidence, implausibly short, and implausibly long ranges
-// are dropped; nearby ranges merge; the total is capped defensively.
-// Bias toward recall (catch the full ad and every ad): a lenient confidence floor, and
-// a generous merge gap so pieces of one ad break (or an LLM hit next to a keyword hit)
-// join into a single range instead of leaving gaps of un-skipped ad between them.
-const MIN_CONFIDENCE = 0.5
+// Detection guards: implausibly short and long ranges are dropped; nearby ranges merge
+// (adjacent ads in one break pod become a single skippable block); total capped.
 const MIN_AD_SEC = 8
 const MAX_AD_SEC = 600
 const MERGE_GAP_SEC = 30
@@ -49,49 +45,50 @@ const SUPPRESS_OVERLAP = 0.5
 // a transcript, since Whisper writes out what the host says. No trailing \b (patterns end
 // on punctuation or mid-URL).
 const AD_SIGNAL = /\b(?:promo\s?code|use\s+code|coupon\s+code|discount\s+code|brought to you by|sponsored by|this (?:episode|podcast) is sponsored|support (?:for|comes) (?:for )?(?:this (?:show|podcast|episode) )?(?:comes )?from|free trial|\d+\s?(?:%|percent)\s+off|save \d+\s?(?:%|percent)|dot (?:com|co|net|org|io)\s+slash|[a-z0-9-]+\.(?:com|co|net|org|io)\/[a-z]|terms (?:and conditions )?apply|offer (?:ends|expires|valid))/i
-// How far (seconds) a keyword hit reaches to capture the surrounding read.
-const SIGNAL_REACH_SEC = 30
 
 export const adScanJobRefId = (episodeId: string) =>
   JSON.stringify({ episodeId } satisfies PodcastAdScanPayload)
 
-// Per-LINE classification, not boundary detection. Local models are weak at "where does
-// the topic change back to the show" and at spotting salesy speech that reads like normal
-// talk ("it comes in four delicious flavors", "switch to Allstate and save"). So we do not
-// ask for boundaries at all: we ask the model to label each numbered line as advertising
-// or not, one line at a time, and the ad ranges fall out of the contiguous ad lines. The
-// times come from those segments (never model-computed seconds). Few-shot examples anchor
-// the salesy register the model otherwise misses.
-const AD_LINES_SYSTEM =
-  'You label the advertising lines in a podcast transcript. Every line begins with its line number in square ' +
-  'brackets, like [42]. Judge each line ON ITS OWN. ' +
-  'A line is ADVERTISING if it is any part of a sponsor read, commercial, promo, jingle, discount or promo-code ' +
-  'read, or a call to action for a product or service. This INCLUDES product descriptions and slogans even when ' +
-  'they sound conversational. Examples of advertising lines:\n' +
-  '  "This episode is brought to you by Acme."\n' +
-  '  "And it comes in four delicious flavors."\n' +
-  '  "Switch to Allstate and you could save hundreds."\n' +
-  '  "Use code POD for twenty percent off your first order."\n' +
-  '  "Just head to example dot com slash pod."\n' +
-  '  "Terms and conditions apply."\n' +
-  'A line is NOT advertising if it is the hosts\' own conversation, the episode\'s topic, banter, interviewing a ' +
-  'guest, or the intro and sign-off. Examples of NOT advertising:\n' +
-  '  "So what did you actually think of the movie?"\n' +
-  '  "I cannot believe he said that on air."\n' +
-  '  "Our guest today needs no introduction."\n' +
-  'Return JSON {"adLines": [the line numbers, copied exactly from the brackets, that are advertising]}. Return ' +
-  '{"adLines": []} if none. Do not use em dashes.'
+// ANCHOR-AND-GROW detection.
+// The model is never asked to find boundaries or to label a whole window (it is bad at
+// both). Instead:
+//   1. ANCHOR: collect lines that are OBVIOUSLY ads, from high-precision sources - the
+//      keyword regex, known sponsors of this show, the user's missed-ad reports, and an
+//      LLM pass that is told to mark only lines it is certain about.
+//   2. GROW: cluster the anchors, then for each cluster repeatedly show the model the ad
+//      text plus the few sentences just before (or after) it and ask the one easy
+//      question: are these part of the SAME ad? Extend through the contiguous "yes"
+//      lines; stop at the first "no". A few small, focused judgments instead of one
+//      giant labeling task, and the growth knows what ad it is following.
+const AD_ANCHOR_SYSTEM =
+  'You find lines that are OBVIOUSLY advertising in a podcast transcript. Every line begins with its line number ' +
+  'in square brackets, like [42]. Return JSON {"adLines": [line numbers copied exactly from the brackets]}. ' +
+  'Mark ONLY lines you are certain are advertising: a sponsorship announcement ("this episode is brought to you ' +
+  'by ..."), a promo or discount code, a spoken URL ("acme dot com slash pod"), an offer or savings pitch ' +
+  '("switch to Allstate and you could save hundreds", "get twenty percent off"), a product slogan or feature ' +
+  'pitch ("it comes in four delicious flavors"), or a call to action to buy, subscribe, or sign up. ' +
+  'Do NOT mark the hosts\' own conversation, banter, or the episode topic, and skip borderline lines entirely: ' +
+  'the sentences around your marks are examined separately, so only certain lines matter. ' +
+  'Return {"adLines": []} if none. Do not use em dashes.'
 
-// A single non-ad line inside an ad (a quick host aside) shouldn't split one ad in two:
-// bridge gaps up to this many lines between ad-labeled lines.
-const AD_LINE_GAP = 2
+const AD_GROW_SYSTEM =
+  'You are shown part of an ADVERTISEMENT from a podcast, then the numbered sentences that come immediately ' +
+  'before or after it in the transcript. Decide which of those sentences are part of the SAME advertisement: the ' +
+  'same sponsor or product, its lead-in ("we will be right back", "this episode is brought to you by"), more of ' +
+  'the pitch or the offer, the promo code or URL, the legal terms, or the hand-off back to the show. Sentences ' +
+  'where the hosts are having their own conversation or discussing the episode topic are NOT part of the ad. ' +
+  'Return JSON {"related": [the line numbers, copied exactly from the brackets, that are part of the same ad]}. ' +
+  'Return {"related": []} if none are. Do not use em dashes.'
 
-// Ads cluster at the episode's open (pre-roll) and close (post-roll). We scan those zones
-// again with a positional prior, since a slick pre-roll is what the general pass most
-// often misses.
+// Anchors within this many lines of each other belong to the same ad cluster.
+const ANCHOR_CLUSTER_GAP = 6
+// Growth: sentences examined per step, and max steps per direction. 8 lines x 6 rounds
+// reaches ~48 lines each way, far past any real ad, while each call stays tiny.
+const GROW_BATCH = 8
+const GROW_ROUNDS = 6
+// Ads cluster at the episode's open (pre-roll) and close (post-roll); those zones get an
+// extra anchor pass with a prompt that expects an ad there.
 const EDGE_ZONE_SEC = 180
-// Lines around a user-reported "missed" ad, or a positional prior hit, to treat as ad.
-const REPORT_REACH_LINES = 8
 
 interface AdLinesResponse { adLines?: unknown }
 
@@ -270,60 +267,83 @@ function collectAdLines(raw: unknown, windowStart: number, windowEnd: number, in
   }
 }
 
-/** Turn the set of ad-labeled line indices into time ranges: bridge tiny gaps, take
- *  contiguous runs, map to the segments' own start/end times, and drop implausibly
- *  short/long runs. */
-function adLinesToRanges(adSet: Set<number>, segments: TranscriptSegment[]): RawRange[] {
-  if (!adSet.size) return []
-  const flag = new Uint8Array(segments.length)
-  for (const i of adSet) if (i >= 0 && i < segments.length) flag[i] = 1
-  // Bridge single-line (up to AD_LINE_GAP) non-ad gaps so a brief aside doesn't split one ad.
-  let i = 0
-  while (i < flag.length) {
-    if (flag[i]) { i++; continue }
-    let j = i
-    while (j < flag.length && !flag[j]) j++
-    if (i > 0 && j < flag.length && j - i <= AD_LINE_GAP) for (let k = i; k < j; k++) flag[k] = 1
-    i = j
+/** Group anchor lines into clusters: anchors within ANCHOR_CLUSTER_GAP lines belong to
+ *  the same ad. Each cluster is grown to the full ad afterwards. */
+function clusterAnchors(anchors: Set<number>, maxIdx: number): { lo: number; hi: number }[] {
+  const sorted = [...anchors].filter(i => i >= 0 && i <= maxIdx).sort((a, b) => a - b)
+  const out: { lo: number; hi: number }[] = []
+  for (const i of sorted) {
+    const prev = out[out.length - 1]
+    if (prev && i - prev.hi <= ANCHOR_CLUSTER_GAP) prev.hi = i
+    else out.push({ lo: i, hi: i })
   }
-  const out: RawRange[] = []
-  i = 0
-  while (i < flag.length) {
-    if (!flag[i]) { i++; continue }
-    let j = i
-    while (j < flag.length && flag[j]) j++
-    const first = segments[i]!, last = segments[j - 1]!
-    const len = last.endSec - first.startSec
-    if (len >= MIN_AD_SEC && len <= MAX_AD_SEC) {
-      out.push({ startSec: Math.max(0, first.startSec), endSec: last.endSec, kind: 'ad', confidence: 0.8 })
-    }
-    i = j
-  }
-  return out
+  return out.slice(0, MAX_SEGMENTS)
 }
 
-/** Method 2: a deterministic keyword/pattern pass over the whole transcript. Every line
- *  carrying a strong ad signal (promo code, "brought to you by", a slash-path URL, ...)
- *  becomes a range grown to the surrounding read, catching ads the model under-marks or
- *  misses entirely. Unioned with the model's ranges (the merge dedupes overlaps). Kept
- *  to high-precision phrases so it does not swallow ordinary conversation. */
-function heuristicAdRanges(segments: TranscriptSegment[]): RawRange[] {
-  const out: RawRange[] = []
-  for (let i = 0; i < segments.length; i++) {
-    if (!AD_SIGNAL.test(segments[i]!.text)) continue
-    const anchor = segments[i]!
-    let lo = i, hi = i
-    while (lo > 0 && anchor.startSec - segments[lo - 1]!.startSec <= SIGNAL_REACH_SEC) lo--
-    while (hi < segments.length - 1 && segments[hi + 1]!.endSec - anchor.endSec <= SIGNAL_REACH_SEC) hi++
-    out.push({ startSec: segments[lo]!.startSec, endSec: segments[hi]!.endSec, kind: 'sponsor', confidence: 0.8 })
+/** Grow one anchor cluster to the full ad. Each step shows the model the ad text plus the
+ *  GROW_BATCH sentences adjacent to the current boundary and asks which are part of the
+ *  SAME ad; the boundary extends through the contiguous "yes" run and stops at the first
+ *  "no" (or when a step grows nothing, or the length cap is hit). */
+async function growCluster(
+  cluster: { lo: number; hi: number },
+  segs: TranscriptSegment[],
+  model: string,
+  signal: AbortSignal,
+): Promise<{ lo: number; hi: number }> {
+  let { lo, hi } = cluster
+  // The ad identity shown to the model: the first ~12 anchor-cluster lines.
+  const adPreview = segs.slice(lo, Math.min(hi + 1, lo + 12)).map(s => s.text).join(' ').slice(0, 700)
+
+  const step = async (dir: 'before' | 'after'): Promise<boolean> => {
+    const batchLo = dir === 'before' ? Math.max(0, lo - GROW_BATCH) : hi + 1
+    const batchHi = dir === 'before' ? lo - 1 : Math.min(segs.length - 1, hi + GROW_BATCH)
+    if (batchHi < batchLo) return false
+    const lines: string[] = []
+    for (let i = batchLo; i <= batchHi; i++) lines.push(`[${i}] ${segs[i]!.text}`)
+    const prompt = [
+      `Advertisement text:\n"${adPreview}"`,
+      '',
+      `Numbered sentences immediately ${dir.toUpperCase()} the advertisement:`,
+      lines.join('\n'),
+      '',
+      'Which of these numbered sentences are part of the same advertisement?',
+    ].join('\n')
+    const res = await structuredCall<{ related?: unknown }>(model, prompt, AD_GROW_SYSTEM, { num_predict: 100 }, 'json')
+    const related = new Set<number>()
+    collectAdLines(res.related, batchLo, batchHi, related)
+    // Extend only through the contiguous run touching the boundary; a detached "yes"
+    // farther out is a different ad or a mistake.
+    let grew = false
+    if (dir === 'before') {
+      let newLo = lo
+      for (let i = lo - 1; i >= batchLo; i--) { if (related.has(i)) newLo = i; else break }
+      if (newLo < lo && segs[hi]!.endSec - segs[newLo]!.startSec <= MAX_AD_SEC) { grew = newLo === batchLo; lo = newLo }
+    } else {
+      let newHi = hi
+      for (let i = hi + 1; i <= batchHi; i++) { if (related.has(i)) newHi = i; else break }
+      if (newHi > hi && segs[newHi]!.endSec - segs[lo]!.startSec <= MAX_AD_SEC) { grew = newHi === batchHi; hi = newHi }
+    }
+    // Continue another round only when the growth consumed the whole batch (the boundary
+    // may still be farther out); a partial extension means the edge was found.
+    return grew
   }
-  return out
+
+  for (let r = 0; r < GROW_ROUNDS; r++) {
+    if (signal.aborted) throw new Error('Aborted')
+    let more = false
+    try { more = await step('before') } catch { break }
+    if (!more) break
+  }
+  for (let r = 0; r < GROW_ROUNDS; r++) {
+    if (signal.aborted) throw new Error('Aborted')
+    let more = false
+    try { more = await step('after') } catch { break }
+    if (!more) break
+  }
+  return { lo, hi }
 }
 
 // ── Cross-episode sponsor memory ────────────────────────────────────────────────────
-// Lines of read to include around a known-sponsor mention (the brand appears once, but
-// the whole read is the ad).
-const SPONSOR_REACH_LINES = 8
 // Never store these as "sponsors" (generic ad-speak, not a brand).
 const GENERIC_SPONSOR = new Set(['the show', 'this show', 'this podcast', 'the podcast', 'our sponsor', 'our sponsors',
   'this episode', 'the episode', 'sponsor', 'sponsors', 'advertisement', 'promo code', 'the company', 'the brand'])
@@ -343,8 +363,9 @@ async function loadShowSponsors(showId: string | null): Promise<string[]> {
   return rows.map(r => r.name).filter(n => n.length >= 4)
 }
 
-/** Flag lines that mention a known sponsor of this show, plus the surrounding read. This
- *  is MinusPod's cross-episode catch: a recurring sponsor is found without the LLM. */
+/** Anchor lines that mention a known sponsor of this show. This is MinusPod's
+ *  cross-episode catch: a recurring sponsor is anchored without the LLM, and the growth
+ *  pass finds the read's full extent. */
 function flagKnownSponsorLines(segments: TranscriptSegment[], sponsors: string[], into: Set<number>): number {
   if (!sponsors.length) return 0
   let hits = 0
@@ -352,7 +373,7 @@ function flagKnownSponsorLines(segments: TranscriptSegment[], sponsors: string[]
     const text = segments[i]!.text.toLowerCase()
     if (!sponsors.some(s => text.includes(s))) continue
     hits++
-    for (let k = Math.max(0, i - SPONSOR_REACH_LINES); k <= Math.min(segments.length - 1, i + SPONSOR_REACH_LINES); k++) into.add(k)
+    into.add(i)
   }
   return hits
 }
@@ -378,9 +399,9 @@ async function extractAndStoreSponsors(showId: string | null, adText: string, mo
   } catch { /* best-effort */ }
 }
 
-/** Positional prior: re-classify just the opening or closing zone with a prompt that
- *  expects an ad there. Catches pre/post-rolls the general pass missed. */
-async function classifyEdgeZone(segments: TranscriptSegment[], zone: 'opening' | 'closing', model: string, into: Set<number>): Promise<void> {
+/** Positional prior: anchor-scan just the opening or closing zone with a prompt that
+ *  expects an ad there. Catches pre/post-rolls the general anchor pass missed. */
+async function anchorEdgeZone(segments: TranscriptSegment[], zone: 'opening' | 'closing', model: string, into: Set<number>): Promise<void> {
   const total = segments[segments.length - 1]!.endSec
   const idxs: number[] = []
   for (let i = 0; i < segments.length; i++) {
@@ -390,10 +411,10 @@ async function classifyEdgeZone(segments: TranscriptSegment[], zone: 'opening' |
   if (idxs.length < 2) return
   const text = idxs.map(i => `[${i}] ${segments[i]!.text}`).join('\n')
   const note = zone === 'opening'
-    ? 'This is the OPENING of the episode. Podcasts almost always begin with an advertisement (a pre-roll) before the hosts start the show. Label the advertising lines.'
-    : 'This is the END of the episode, which often contains an advertisement (a post-roll). Label the advertising lines.'
+    ? 'This is the OPENING of the episode. Podcasts almost always begin with an advertisement (a pre-roll) before the hosts start the show.'
+    : 'This is the END of the episode, which often contains an advertisement (a post-roll).'
   try {
-    const res = await structuredCall<AdLinesResponse>(model, `${note}\n\nTranscript:\n${text}`, AD_LINES_SYSTEM, { num_predict: 600 }, 'json')
+    const res = await structuredCall<AdLinesResponse>(model, `${note}\n\nTranscript:\n${text}`, AD_ANCHOR_SYSTEM, { num_predict: 400 }, 'json')
     collectAdLines(res.adLines, idxs[0]!, idxs[idxs.length - 1]!, into)
   } catch { /* best-effort */ }
 }
@@ -459,30 +480,32 @@ export async function runPodcastAdScanJob(
     const total = fmtStamp(episode.durationSec ?? segs[segs.length - 1]!.endSec)
     const ranges: RawRange[] = []
 
-    // ── Cross-episode memory: flag lines mentioning a known sponsor of this show ───
-    const adLines = new Set<number>()
-    const knownSponsors = await loadShowSponsors(episode.showId)
-    const sponsorHits = flagKnownSponsorLines(segs, knownSponsors, adLines)
-    if (sponsorHits) logger.info(`[podcast-ad-scan] ${sponsorHits} known-sponsor mention(s) pre-flagged`)
+    // ── ANCHOR: collect obviously-ad lines from every high-precision source ─────────
+    const anchors = new Set<number>()
 
-    // Learn from corrections: an ad the user reported as MISSED is flagged around its
-    // reported position so the rescan actually catches it.
+    // Deterministic keyword hits (promo codes, "brought to you by", spoken URLs, ...).
+    for (let i = 0; i < segs.length; i++) if (AD_SIGNAL.test(segs[i]!.text)) anchors.add(i)
+
+    // Known sponsors of this show (cross-episode memory).
+    const knownSponsors = await loadShowSponsors(episode.showId)
+    const sponsorHits = flagKnownSponsorLines(segs, knownSponsors, anchors)
+    if (sponsorHits) logger.info(`[podcast-ad-scan] ${sponsorHits} known-sponsor anchor(s)`)
+
+    // The user's "missed ad" reports anchor their reported position.
     const missed = await db.select({ startSec: podcastAdReports.startSec }).from(podcastAdReports)
       .where(and(eq(podcastAdReports.episodeId, episodeId), eq(podcastAdReports.kind, 'missed'))).catch(() => [])
     for (const m of missed) {
       let idx = segs.findIndex(s => s.endSec >= m.startSec)
       if (idx < 0) idx = segs.length - 1
-      for (let k = Math.max(0, idx - REPORT_REACH_LINES); k <= Math.min(segs.length - 1, idx + REPORT_REACH_LINES); k++) adLines.add(k)
+      anchors.add(idx)
     }
 
-    // ── Per-line ad classification over each window ────────────────────────────────
-    // The boundaries fall out of the contiguous ad-labeled lines, so the model never has
-    // to judge where a topic changes (which it is bad at) - only "is THIS line an ad".
+    // LLM anchor pass over each window: only lines it is CERTAIN are ads.
     let failedWindows = 0
     for (let w = 0; w < windows.length; w++) {
       if (signal.aborted) throw new Error('Aborted')
       const win = windows[w]!
-      onProgress({ completed: w, total: windows.length, speedBps: 0, etaSeconds: 0, note: `Scanning for ads ${Math.round((w / windows.length) * 100)}%` })
+      onProgress({ completed: w, total: windows.length, speedBps: 0, etaSeconds: 0, note: `Finding ads ${Math.round((w / windows.length) * 70)}%` })
       const prompt = [
         `Episode title: ${episode.title}`,
         `This excerpt is part of a [${total}] episode. Each transcript line begins with its line number in [brackets].`,
@@ -490,11 +513,9 @@ export async function runPodcastAdScanJob(
         'Transcript:',
         win.text,
       ].join('\n')
-      // format 'json' forces valid JSON; num_predict roomy for a window full of ad lines.
-      // A single window that fails does not sink the episode.
       try {
-        const res = await structuredCall<AdLinesResponse>(model, prompt, AD_LINES_SYSTEM, { num_predict: 1500 }, 'json')
-        collectAdLines(res.adLines, win.startIdx, win.endIdx, adLines)
+        const res = await structuredCall<AdLinesResponse>(model, prompt, AD_ANCHOR_SYSTEM, { num_predict: 800 }, 'json')
+        collectAdLines(res.adLines, win.startIdx, win.endIdx, anchors)
       } catch (err) {
         failedWindows++
         logger.warn(`[podcast-ad-scan] window ${w + 1}/${windows.length} failed: ${String(err).slice(0, 160)}`)
@@ -506,23 +527,25 @@ export async function runPodcastAdScanJob(
       throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
 
-    // Positional prior: ads cluster at the open and close; scan those zones again with a
-    // prompt that expects an ad there (catches a missed pre/post-roll).
-    onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Checking pre-roll and post-roll' })
-    await classifyEdgeZone(segs, 'opening', model, adLines)
-    await classifyEdgeZone(segs, 'closing', model, adLines)
+    // Positional prior: extra anchor pass over the open and close, where ads cluster.
+    await anchorEdgeZone(segs, 'opening', model, anchors)
+    await anchorEdgeZone(segs, 'closing', model, anchors)
 
-    ranges.push(...adLinesToRanges(adLines, segs))
+    // ── GROW: expand each anchor cluster to the full ad, a few sentences at a time ──
+    const clusters = clusterAnchors(anchors, segs.length - 1)
+    logger.info(`[podcast-ad-scan] ${anchors.size} anchor(s) -> ${clusters.length} cluster(s)`)
+    for (let ci = 0; ci < clusters.length; ci++) {
+      if (signal.aborted) throw new Error('Aborted')
+      onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: `Expanding ad ${ci + 1}/${clusters.length}` })
+      const grown = await growCluster(clusters[ci]!, segs, model, signal)
+      const first = segs[grown.lo]!, last = segs[grown.hi]!
+      if (last.endSec - first.startSec >= MIN_AD_SEC) {
+        ranges.push({ startSec: Math.max(0, first.startSec), endSec: last.endSec, kind: 'ad', confidence: 0.85 })
+      }
+    }
 
-    // Union the deterministic keyword pass so ads the model missed still get caught (the
-    // merge below dedupes overlap).
-    ranges.push(...heuristicAdRanges(segs))
-
-    // NOTE: the audio two-fetch fingerprint diff (adFingerprint.ts) is DISABLED. In the
-    // real world this show re-encodes each fetch, so even the shared content differs
-    // between the two copies and the diff flagged almost the whole episode as ad. The
-    // module is kept for a future, guarded revival (see AUDIO_DIFF_ENABLED) but is not
-    // run: detection is the LLM + keyword passes only.
+    // NOTE: the audio two-fetch fingerprint diff (adFingerprint.ts) stays DISABLED (this
+    // show re-encodes each fetch, so the diff flags everything).
 
     // Times already come straight from transcript segment boundaries (no model-computed
     // seconds), so no snapping is needed; just drop anything too short after the merge.
