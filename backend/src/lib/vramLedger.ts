@@ -16,6 +16,7 @@ import { ollamaUnloadModel, ollamaWarmModel } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import { comfyUrl } from '@/lib/comfyui'
 import { isAutomatic } from '@/lib/resourceMode'
+import { recordResourceEvent } from '@/lib/resourceEvents'
 import { logger } from '@/lib/logger'
 
 // Ask ComfyUI to release its VRAM (unload checkpoints + free the allocator) so the
@@ -81,6 +82,7 @@ export async function runGpuHeavyJob<T>(label: string, job: () => Promise<T>): P
       await ollamaUnloadModel(model)
       evicted = model
       logger.info(`[resource] evicted ${model} to free VRAM for ${label}`)
+      recordResourceEvent('evict', `Freed the chat model for ${label}`)
     } catch (e) {
       logger.warn(`[resource] could not evict LLM before ${label}: ${(e as Error).message}`)
     }
@@ -97,6 +99,7 @@ export async function runGpuHeavyJob<T>(label: string, job: () => Promise<T>): P
           await freeComfyVram()
           await ollamaWarmModel(model)
           logger.info(`[resource] ${label} done; re-warmed ${model}`)
+          recordResourceEvent('rewarm', `Reloaded the chat model after ${label}`)
         } catch { /* the model still loads on demand on the next chat */ }
         finally { release() }
       })()

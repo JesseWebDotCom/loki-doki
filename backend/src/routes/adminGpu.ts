@@ -5,6 +5,7 @@ import {
   getGpuAlertConfig,
   setGpuAlertConfig,
   resetGpuBaseline,
+  queryGpus,
   type GpuAlertConfigPatch,
 } from '@/lib/gpuMonitor'
 import { getCachedEngineGuards, saveEngineGuards, type EngineGuards } from '@/lib/engineGuards'
@@ -12,6 +13,7 @@ import { getCachedAutotune, resolveEngineAutotune, checkFit } from '@/lib/engine
 import { getCachedResourceMode, setResourceMode, type ResourceMode } from '@/lib/resourceMode'
 import { sharesGpuWithLlm } from '@/lib/vramLedger'
 import { apiLatencySnapshot } from '@/lib/apiLatency'
+import { recentResourceEvents } from '@/lib/resourceEvents'
 import { getModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
@@ -67,6 +69,25 @@ adminGpu.get('/resource-mode', (c) => c.json({ mode: getCachedResourceMode() }))
 // Web responsiveness: p50/p95/p99 of recent non-streaming API request wall-times.
 // The canary for CPU starvation (inference/transcode saturating cores climbs p95).
 adminGpu.get('/api-latency', (c) => c.json(apiLatencySnapshot()))
+
+// One-screen resource health: everything needed to validate that automatic mode is
+// working, in a single call. Mode, the effective chat model + whether it is fully on
+// GPU (offloadPct), per-GPU VRAM, web p95, and the recent evict/re-warm/remediate
+// events. This is the "is it working?" glance.
+adminGpu.get('/resource-health', async (c) => {
+  const [gpus, llm] = await Promise.all([queryGpus(), getLlmStatus()])
+  const chatTag = (await getModel()).replace(/:latest$/, '')
+  const chat = llm.models.find((m) => m.engine === 'main' && m.name.replace(/:latest$/, '') === chatTag)
+    ?? llm.models.find((m) => m.engine === 'main')
+  return c.json({
+    mode: getCachedResourceMode(),
+    sharedGpu: sharesGpuWithLlm(),
+    chatModel: chat ? { name: chat.name, offloadPct: chat.offloadPct, onGpuPct: 100 - chat.offloadPct, sizeBytes: chat.sizeBytes } : { name: chatTag, offloadPct: null, onGpuPct: null, sizeBytes: 0 },
+    gpus: (gpus ?? []).map((g) => ({ index: g.index, name: g.name, usedMb: g.memUsedMb, totalMb: g.memTotalMb, utilPct: g.utilizationPct })),
+    web: apiLatencySnapshot(),
+    events: recentResourceEvents(),
+  })
+})
 
 adminGpu.put('/resource-mode', async (c) => {
   const { mode } = (await c.req.json().catch(() => ({}))) as { mode?: ResourceMode }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cpu, RefreshCw, Trash2, Zap, AlertTriangle } from 'lucide-react'
+import { Cpu, RefreshCw, Trash2, Zap, AlertTriangle, Activity, HardDrive, CheckCircle2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,22 @@ interface EngineGuards {
 
 const CTX_CHOICES = [16384, 24576, 32768, 49152, 65536]
 const fmtGb = (b: number) => `${(b / 1e9).toFixed(1)} GB`
+
+interface ResourceHealth {
+  mode: 'automatic' | 'manual'
+  sharedGpu: boolean
+  chatModel: { name: string; offloadPct: number | null; onGpuPct: number | null; sizeBytes: number }
+  gpus: { index: number; name: string; usedMb: number | null; totalMb: number | null; utilPct: number | null }[]
+  web: { count: number; p50: number; p95: number; p99: number; max: number }
+  events: { kind: 'evict' | 'rewarm' | 'remediate'; message: string; at: number }[]
+}
+
+function ago(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.round(s / 60)}m ago`
+  return `${Math.round(s / 3600)}h ago`
+}
 
 interface AutotuneInfo {
   fit: { vramBytes: number; hasGpu: boolean; recommendedModel: string; recommendedNumCtx: number; reason: string }
@@ -79,6 +95,7 @@ export function AdminAiEngineTab() {
   const [autotune, setAutotune] = useState<AutotuneInfo | null>(null)
   const [mode, setMode] = useState<'automatic' | 'manual' | null>(null)
   const [apiLat, setApiLat] = useState<{ count: number; p50: number; p95: number; p99: number; max: number } | null>(null)
+  const [resHealth, setResHealth] = useState<ResourceHealth | null>(null)
 
   const loadAutotune = () => {
     fetch('/api/admin/gpu/engine-autotune', { credentials: 'include' })
@@ -119,6 +136,18 @@ export function AdminAiEngineTab() {
       .then((l) => { if (l) setApiLat(l) })
       .catch(() => {})
     loadAutotune()
+  }, [])
+
+  // Resource health poll (live glance for validating automatic mode).
+  useEffect(() => {
+    let alive = true
+    const load = () => fetch('/api/admin/gpu/resource-health', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => { if (alive && h) setResHealth(h as ResourceHealth) })
+      .catch(() => {})
+    void load()
+    const t = setInterval(load, 10_000)
+    return () => { alive = false; clearInterval(t) }
   }, [])
 
   const switchToAuto = async () => {
@@ -163,8 +192,80 @@ export function AdminAiEngineTab() {
   const unload = (m: LoadedLlmModel) =>
     void action(`Unloaded ${m.name}`, '/unload', { model: m.name, engine: m.engine })
 
+  const onGpu = resHealth?.chatModel.onGpuPct
+  const gpuHealthy = onGpu == null || onGpu >= 95
+  const webHealthy = !resHealth?.web.count || resHealth.web.p95 <= 750
+
   return (
     <div className="space-y-3 p-3">
+      {/* Resource health: the one-screen "is automatic working?" glance. */}
+      {resHealth && (
+        <Card variant="surface" className="border-border/50 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Activity className="size-3" /> Resource health
+            </h3>
+            <Badge variant={resHealth.mode === 'automatic' ? 'info' : 'secondary'} className="text-[10px]">{resHealth.mode}</Badge>
+          </div>
+
+          {/* Two headline health checks: chat model on GPU, and web responsiveness. */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className={cn('rounded-card border p-2.5', gpuHealthy ? 'border-success/40 bg-success/[0.06]' : 'border-warning/40 bg-warning/[0.06]')}>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                {gpuHealthy ? <CheckCircle2 className="size-3.5 text-success" /> : <AlertTriangle className="size-3.5 text-warning" />}
+                Chat model on GPU
+              </div>
+              <p className="mt-0.5 text-lg font-bold tabular-nums">
+                {onGpu == null ? 'n/a' : `${onGpu}%`}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground truncate">{resHealth.chatModel.name}</span>
+              </p>
+            </div>
+            <div className={cn('rounded-card border p-2.5', webHealthy ? 'border-success/40 bg-success/[0.06]' : 'border-warning/40 bg-warning/[0.06]')}>
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                {webHealthy ? <CheckCircle2 className="size-3.5 text-success" /> : <AlertTriangle className="size-3.5 text-warning" />}
+                Web responsiveness (p95)
+              </div>
+              <p className="mt-0.5 text-lg font-bold tabular-nums">
+                {resHealth.web.count ? `${resHealth.web.p95} ms` : 'n/a'}
+                {resHealth.web.count ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">median {resHealth.web.p50} ms</span> : null}
+              </p>
+            </div>
+          </div>
+
+          {/* Per-GPU VRAM. */}
+          {resHealth.gpus.map((g) => {
+            const pct = g.usedMb != null && g.totalMb ? Math.round((g.usedMb / g.totalMb) * 100) : null
+            return (
+              <div key={g.index} className="space-y-1">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <HardDrive className="size-3" />
+                  <span className="min-w-0 flex-1 truncate text-foreground">{g.name}</span>
+                  {pct != null && <span className="tabular-nums">{Math.round((g.usedMb ?? 0) / 1024 * 10) / 10}/{Math.round((g.totalMb ?? 0) / 1024 * 10) / 10} GB</span>}
+                  {g.utilPct != null && <span className="tabular-nums">{g.utilPct}% util</span>}
+                </div>
+                {pct != null && (
+                  <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10">
+                    <div className={cn('h-full rounded-full', pct >= 92 ? 'bg-warning' : 'bg-brand')} style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Recent automatic actions, so eviction/re-warm is visible when it happens. */}
+          {resHealth.events.length > 0 && (
+            <div className="space-y-1 border-t border-border/50 pt-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Recent actions</p>
+              {resHealth.events.slice(0, 4).map((e, i) => (
+                <p key={i} className="text-[11px] text-muted-foreground">
+                  <span className="text-muted-foreground/60">{ago(e.at)}</span> · {e.message}
+                </p>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* THE one switch: automatic owns all placement, manual exposes the knobs. */}
       {mode && (
         <Card variant="surface" className="border-border/50 p-3 space-y-2">

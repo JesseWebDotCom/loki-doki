@@ -13,6 +13,7 @@ import { logger } from '@/lib/logger'
 import { isAutomatic } from '@/lib/resourceMode'
 import { getModel, getRouterModel } from '@/lib/models'
 import { ollamaUnloadModel } from '@/llm/ollama'
+import { recordResourceEvent } from '@/lib/resourceEvents'
 
 const normTag = (t: string) => t.replace(/:latest$/, '')
 
@@ -37,6 +38,7 @@ async function remediateChatSpill(models: LoadedLlmModel[]): Promise<void> {
     lastRemediationAt = Date.now()
     await ollamaUnloadModel(router)
     logger.warn(`[resource] chat model ${chat} spilling to CPU; evicted router ${router} to free VRAM (reloads on next ambiguous turn)`)
+    recordResourceEvent('remediate', `Chat model was spilling to CPU; freed the router to recover`)
   } catch { /* best-effort */ }
 }
 
