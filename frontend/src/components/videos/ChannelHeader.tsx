@@ -45,7 +45,7 @@ export function ChannelHeader({
       <div className="relative mb-4 overflow-hidden rounded-sheet shadow-xl">
         <div className="relative aspect-[21/9] w-full sm:aspect-[5/1]">
           {bannerUrl && bannerOk ? (
-            <img src={proxyImgAuto(bannerUrl)} alt="" referrerPolicy="no-referrer"
+            <img src={proxyImgAuto(bannerUrl)} alt="" referrerPolicy="no-referrer" decoding="async"
               className="absolute inset-0 size-full object-cover" onError={() => setBannerOk(false)} />
           ) : (
             <BlendedHeroBackdrop art={avatarUrl ? proxyImgAuto(avatarUrl) : null}

@@ -23,7 +23,9 @@ export function CreatorAvatar({ title, src, className }: {
   if (src && failedSrc !== src) {
     // referrerPolicy="no-referrer": Google's avatar CDN (yt3.googleusercontent.com) 429s
     // hotlinked requests carrying a localhost Referer - avatars silently became letters.
-    return <img key={src} src={proxyImgAuto(src)} alt={title} referrerPolicy="no-referrer" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
+    // No key={src}: the element must survive src changes so navigating creator-to-creator
+    // keeps the previous avatar painted until the next one decodes (no blank flash).
+    return <img src={proxyImgAuto(src)} alt={title} referrerPolicy="no-referrer" decoding="async" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
   }
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0

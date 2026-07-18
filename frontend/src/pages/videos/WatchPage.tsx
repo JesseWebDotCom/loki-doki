@@ -1188,11 +1188,15 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const [pipStream, setPipStream] = useState(false)
   const [podcastOpen, setPodcastOpen] = useState(false)
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, isPlaceholderData } = useQuery({
     queryKey: ['videos-item', source, id],
     queryFn: () => getSourceItem(source, id),
     enabled: !!source && !!id,
   })
+  // With the app-wide keepPreviousData default, `item` briefly holds the PREVIOUS video's
+  // data after a watch-to-watch navigation. That is wanted for display (no blank flash),
+  // but resume seeks and watch-state writes below must never act on it: they gate on
+  // isPlaceholderData so only data belonging to the current id drives side effects.
   const item: HubVideoItem | undefined = data?.item
 
   // ── Cross-device resume ────────────────────────────────────────────────────────
@@ -1201,8 +1205,8 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   // written by every device on a 10s heartbeat. Completed or near-finished videos restart.
   const [wtParams] = useSearchParams()
   const [adopt] = useState(() => (pb.track?.source === source && pb.track?.videoId === id ? Math.floor(pb.positionSec) : null))
-  const savedPos = item?.watch && !item.watch.completed ? item.watch.positionSec : 0
-  const nearEnd = !!item?.durationSec && savedPos >= item.durationSec * 0.95
+  const savedPos = !isPlaceholderData && item?.watch && !item.watch.completed ? item.watch.positionSec : 0
+  const nearEnd = !isPlaceholderData && !!item?.durationSec && savedPos >= item.durationSec * 0.95
   // A ?t= deep link (semantic search "jump to moment", shared timestamps) beats both.
   const tParamGeneric = Number(wtParams.get('t'))
   const resumeSec = Number.isFinite(tParamGeneric) && tParamGeneric > 0 ? Math.floor(tParamGeneric)
@@ -1251,6 +1255,12 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const embedPos = useRef({ sec: 0, dur: 0, lastSent: 0 })
   const itemRef = useRef(item)
   itemRef.current = item
+  // The unmount flush below deliberately reads itemRef even when it is placeholder data:
+  // at that moment the "placeholder" IS the departing video's own item (closured source/id
+  // match it). Heartbeats are the opposite case, the NEW id with the OLD item, so they
+  // skip while the placeholder shows.
+  const itemPlaceholderRef = useRef(isPlaceholderData)
+  itemPlaceholderRef.current = isPlaceholderData
   const onEmbedProgress = useCallback((sec: number, dur: number) => {
     const s = embedPos.current
     s.sec = sec
@@ -1259,7 +1269,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     if (now - s.lastSent < 10_000) return
     s.lastSent = now
     const it = itemRef.current
-    if (!it) return
+    if (!it || itemPlaceholderRef.current) return
     const completed = s.dur > 0 && sec / s.dur > 0.9
     void putWatchState(source, id, Math.floor(sec), completed, watchSnapshot(it)).then(applyTimeGate).catch(() => {})
   }, [source, id, applyTimeGate])
@@ -1455,7 +1465,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
   const lastSent = useRef(0)
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !item) return
+    // Placeholder item = the previous video's data under the new id; writing watch state
+    // from it would tag this id with the wrong title/thumbnail. The departing video's own
+    // final flush already ran in the prior effect instance's cleanup (correct closures).
+    if (!video || !item || isPlaceholderData) return
     const snapshot = watchSnapshot(item)
     const onTime = () => {
       const now = Date.now()
@@ -1472,7 +1485,7 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
         void putWatchState(source, id, Math.floor(video.currentTime), completed, snapshot).catch(() => {})
       }
     }
-  }, [source, id, item, applyTimeGate])
+  }, [source, id, item, isPlaceholderData, applyTimeGate])
 
   const saveMutation = useMutation({
     mutationFn: () => saveVideo(source, id, 'video'),

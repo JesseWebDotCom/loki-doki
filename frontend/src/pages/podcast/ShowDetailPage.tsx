@@ -49,7 +49,7 @@ export function ShowDetailPage() {
   const { data: shows = [] } = useQuery({ queryKey: ['podcast-shows'], queryFn: getShows })
   const show = shows.find(s => s.id === id)
 
-  const { data: episodes = [], isLoading } = useQuery({
+  const { data: episodes = [], isLoading, isPlaceholderData } = useQuery({
     queryKey: ['podcast-episodes', id],
     queryFn: () => getEpisodes(id),
     // Poll while anything is generating OR an offline download is in flight.
@@ -72,7 +72,10 @@ export function ShowDetailPage() {
     return [...list].sort((a, b) => sortNewest ? ts(b) - ts(a) : ts(a) - ts(b))
   }, [episodes, query, sortNewest])
 
-  const readyTracks = ready.map(e => toTrack(e, { id, name: show?.name ?? '' }))
+  // While keepPreviousData shows the previous show's episodes (show-to-show navigation),
+  // don't build playable tracks from them: "Play all" would enqueue the old show's
+  // episodes tagged with this show's id/name.
+  const readyTracks = isPlaceholderData ? [] : ready.map(e => toTrack(e, { id, name: show?.name ?? '' }))
 
   // Which episode's transcript is shown in the left panel.
   // Defaults to the currently playing episode from this show, else the first ready one.
