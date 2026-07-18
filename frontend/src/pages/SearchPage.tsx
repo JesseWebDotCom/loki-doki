@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Globe, SearchIcon } from 'lucide-react'
+import { useSearchParams, Link } from 'react-router-dom'
+import { Globe, SearchIcon, Play, Mic, BookMarked, type LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -38,6 +38,31 @@ async function fetchWebSearch(query: string): Promise<WebSearchResponse> {
   return r.json() as Promise<WebSearchResponse>
 }
 
+// "From Loki Doki" rail: your own library (videos/podcasts/books today, the local
+// content index has no music provider yet) related to the query, via the existing
+// local-content search (routes/search.ts, the same endpoint Spotlight already uses).
+// Fetched as its own independent query so a slow/absent match here never holds up
+// the web results or the AI Overview.
+type RelatedType = 'youtube' | 'video' | 'podcast' | 'book'
+interface RelatedHit {
+  type: RelatedType | string
+  id: string
+  title: string
+  subtitle: string | null
+  icon: string | null
+  route: string
+  group: string
+}
+const RELATED_TYPES = new Set<string>(['youtube', 'video', 'podcast', 'book'])
+const RELATED_ICON: Record<RelatedType, LucideIcon> = { youtube: Play, video: Play, podcast: Mic, book: BookMarked }
+
+async function fetchRelated(query: string): Promise<RelatedHit[]> {
+  const r = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { credentials: 'include' })
+  if (!r.ok) return []
+  const d = await r.json() as { hits?: RelatedHit[] }
+  return (d.hits ?? []).filter((h) => RELATED_TYPES.has(h.type)).slice(0, 6)
+}
+
 function SkeletonLines() {
   return (
     <div className="space-y-6 pt-2">
@@ -63,6 +88,13 @@ export function SearchPage() {
     queryKey: ['websearch', submittedQuery],
     queryFn: () => fetchWebSearch(submittedQuery),
     enabled: submittedQuery.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: related } = useQuery<RelatedHit[]>({
+    queryKey: ['websearch-related', submittedQuery],
+    queryFn: () => fetchRelated(submittedQuery),
+    enabled: submittedQuery.length > 1,
     staleTime: 5 * 60 * 1000,
   })
 
@@ -121,7 +153,7 @@ export function SearchPage() {
   const showLoading = isFetching && !!submittedQuery
   const showNoResults = !isFetching && submittedQuery && data && data.web.length === 0 && data.images.length === 0
   const showResults = !isFetching && data && (data.web.length > 0 || data.images.length > 0)
-  const imageStrip = view === 'web' && data ? data.images.slice(0, 8) : []
+  const railImages = data ? data.images.slice(0, 9) : []
 
   return (
     <PageShell>
@@ -141,15 +173,82 @@ export function SearchPage() {
           </div>
         )}
 
-        {/* Two-column layout once a search is underway: AI Overview sits in a right-hand
-            rail (same grid+sticky-aside pattern as the video watch page), the plain
-            results in the main column. The aside is FIRST in DOM (mobile shows the AI
-            answer above the results, which is what you want on a phone) and only moves
-            visually to column 2 at the `xl` breakpoint via explicit grid placement. */}
+        {/* Two-column layout once a search is underway: the right-hand rail (same
+            grid+sticky-aside pattern as the video watch page) holds the AI Overview
+            plus a filled-in images grid below it, so the rail reads as one full
+            column instead of a small card floating over empty space; the plain
+            results sit in the main column. The aside is FIRST in DOM (mobile shows
+            the AI answer above the results) and only moves visually to column 2 at
+            the `xl` breakpoint via explicit grid placement. */}
         {submittedQuery && (
-          <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
-            <aside className="min-w-0 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1 xl:self-start">
+          <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-[1fr_400px]">
+            <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1 xl:self-start">
               <AiOverviewCard query={submittedQuery} />
+
+              {railImages.length > 0 && (
+                <div className="rounded-card border border-border/60 bg-card p-3">
+                  <div className="mb-2 flex items-center justify-between px-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Images</p>
+                    <button
+                      type="button"
+                      onClick={() => setView('images')}
+                      className="text-xs font-medium text-brand hover:underline"
+                    >
+                      See all
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {railImages.map((img, i) => (
+                      <a
+                        key={i}
+                        href={img.imageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group aspect-square overflow-hidden rounded-control bg-muted/30"
+                      >
+                        <img
+                          src={img.thumbnailUrl}
+                          alt={img.title}
+                          loading="lazy"
+                          className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {related && related.length > 0 && (
+                <div className="rounded-card border border-border/60 bg-card p-3">
+                  <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    From Loki Doki
+                  </p>
+                  <div className="flex flex-col">
+                    {related.map((hit) => {
+                      const Fallback = RELATED_ICON[hit.type as RelatedType] ?? Play
+                      return (
+                        <Link
+                          key={`${hit.type}:${hit.id}`}
+                          to={hit.route}
+                          className="group flex items-center gap-3 rounded-control p-1.5 transition-colors hover:bg-foreground/5"
+                        >
+                          <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted/50">
+                            {hit.icon ? (
+                              <img src={hit.icon} alt="" loading="lazy" className="size-full object-cover" />
+                            ) : (
+                              <Fallback className="size-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-medium leading-snug group-hover:text-brand">{hit.title}</p>
+                            <p className="truncate text-xs text-muted-foreground">{hit.subtitle || hit.group}</p>
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </aside>
 
             <div className="min-w-0 space-y-6 xl:col-start-1 xl:row-start-1">
@@ -167,43 +266,13 @@ export function SearchPage() {
               {showResults && data && (
                 <div className="animate-in fade-in space-y-6 duration-300">
                   {view === 'web' && (
-                    <>
-                      {imageStrip.length > 0 && (
-                        <div>
-                          <div className="mb-2 flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Images</p>
-                            <button
-                              type="button"
-                              onClick={() => setView('images')}
-                              className="text-xs font-medium text-brand hover:underline"
-                            >
-                              See all
-                            </button>
-                          </div>
-                          <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
-                            {imageStrip.map((img, i) => (
-                              <a
-                                key={i}
-                                href={img.imageUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="size-28 shrink-0 snap-start overflow-hidden rounded-control border border-border/50 bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
-                              >
-                                <img src={img.thumbnailUrl} alt={img.title} loading="lazy" className="size-full object-cover" />
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <ul className="divide-y divide-border/40">
-                        {data.web.map((r, i) => (
-                          <li key={i} className="py-4 first:pt-0">
-                            <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
-                          </li>
-                        ))}
-                      </ul>
-                    </>
+                    <ul className="divide-y divide-border/40">
+                      {data.web.map((r, i) => (
+                        <li key={i} className="py-4 first:pt-0">
+                          <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
+                        </li>
+                      ))}
+                    </ul>
                   )}
 
                   {view === 'images' && (

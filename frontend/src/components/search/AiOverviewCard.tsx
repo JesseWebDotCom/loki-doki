@@ -57,10 +57,10 @@ export function AiOverviewCard({ query }: { query: string }) {
 
   return (
     <div className={cn('ai-ring', streaming && 'ai-ring--active')}>
-      <div className="rounded-[calc(1rem-1.5px)] bg-card p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand/15">
-            <Sparkles className="size-3.5 text-brand" />
+      <div className="rounded-[calc(1rem-1.5px)] bg-card p-4">
+        <div className="mb-2.5 flex items-center gap-2">
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/15">
+            <Sparkles className="size-3 text-brand" />
           </div>
           <p className="text-sm font-semibold">AI Overview</p>
           <AiGeneratedBadge label="AI generated" tone="brand" />
@@ -70,24 +70,24 @@ export function AiOverviewCard({ query }: { query: string }) {
             disabled={streaming}
             aria-label="Regenerate"
             title="Regenerate"
-            className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
+            className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
           >
             <RotateCw className="size-3.5" />
           </button>
         </div>
 
         {content ? (
-          <MarkdownRenderer content={content} isStreaming={streaming} sources={sources} />
+          <MarkdownRenderer content={content} isStreaming={streaming} sources={sources} className="text-[13px] leading-relaxed" />
         ) : (
           <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-4/5" />
-            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-4/5" />
+            <Skeleton className="h-3.5 w-3/5" />
           </div>
         )}
 
         {!streaming && sources.length > 0 && (
-          <div className="mt-4">
+          <div className="mt-3">
             <SourcesCard sources={sources} />
           </div>
         )}
