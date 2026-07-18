@@ -79,6 +79,9 @@ export interface CapsuleEvent {
   icon: LucideIcon
   text: string
   actions?: CapsuleEventAction[]
+  /** Track-change announcements: the peek renders the full now-playing row
+   *  (cover art + transport) instead of the bare icon + text line. */
+  nowPlaying?: boolean
 }
 
 export interface CompanionEngine {

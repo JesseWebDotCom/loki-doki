@@ -93,6 +93,10 @@ export function IslandExpanded({ nowPlaying, topInset }: {
             </Button>
           )}
         </>
+      ) : engine.capsuleEvent?.nowPlaying && nowPlaying ? (
+        // Track-change bloom: show the real player row (cover art + transport)
+        // rather than a generic icon + text announcement.
+        <NowPlayingRow info={nowPlaying} />
       ) : engine.capsuleEvent ? (
         <>
           {EventIcon && <EventIcon className="size-4 shrink-0 text-white/80" />}

@@ -63,14 +63,19 @@ export function IslandShell() {
   // First caller for the event-peek (#1): when the track changes while the dock is idle,
   // briefly bloom the capsule to announce it (the Dynamic Island music behavior). The ref
   // starts undefined so the currently-playing track on mount does not trigger a pulse.
+  // Only announce tracks that are actually PLAYING: after a server restart the page
+  // reloads and the playback contexts restore the last loaded (paused) track, which
+  // used to read as a "track change" and bloom the capsule over silence.
   const lastTrackRef = useRef<string | null | undefined>(undefined)
   const pulseEvent = engine.pulseEvent
   useEffect(() => {
     const title = nowPlaying?.title ?? null
     if (lastTrackRef.current === undefined) { lastTrackRef.current = title; return }
-    if (title && title !== lastTrackRef.current) pulseEvent({ icon: Music, text: `Now playing: ${title}` })
+    if (title && title !== lastTrackRef.current && nowPlaying?.playing) {
+      pulseEvent({ icon: Music, text: `Now playing: ${title}`, nowPlaying: true })
+    }
     lastTrackRef.current = title
-  }, [nowPlaying?.title, pulseEvent])
+  }, [nowPlaying?.title, nowPlaying?.playing, pulseEvent])
 
   // Reset to home when the panel closes; also bounds the shelf hold.
   useEffect(() => {

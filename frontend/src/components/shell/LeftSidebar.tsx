@@ -402,19 +402,29 @@ export function LeftSidebar() {
     setCheckedBehind(null)
     setUpdateRechecking(true)
     try {
-      const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
-      if (r.ok) {
-        const { behind } = (await r.json()) as { behind: number }
-        setCheckedBehind(behind)
-        refreshServerUpdateStatus()
-        if (behind === 0) {
-          setConfirmUpdate(false)
-          toast.success('Already up to date')
+      // The backend's background poller can hold the check phase, which 409s a
+      // manual check. Retry through it instead of silently keeping the stale
+      // polled count; the whole point of the click-time check is a true number.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
+        if (r.status === 409) { await new Promise((res) => setTimeout(res, 2_000)); continue }
+        if (r.ok) {
+          const { behind } = (await r.json()) as { behind: number }
+          setCheckedBehind(behind)
+          if (behind === 0) {
+            setConfirmUpdate(false)
+            toast.success('Already up to date')
+          }
         }
+        break
       }
-      // Busy/failed check: keep the polled count; the update itself re-fetches anyway.
     } catch { /* offline: keep the polled count */ }
-    finally { setUpdateRechecking(false) }
+    finally {
+      setUpdateRechecking(false)
+      // Even when the manual check lost the race, the background check that beat
+      // it just refreshed the server-side count; pull it into the badge/dialog.
+      refreshServerUpdateStatus()
+    }
   }
 
   // An update kicked off elsewhere (Admin > Server, another admin, auto mode) is
