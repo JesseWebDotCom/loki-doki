@@ -60,6 +60,7 @@ import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
 import { notesRouter } from '@/routes/notes'
 import { narration } from '@/routes/narration'
+import { writingToolsRoute } from '@/routes/writingTools'
 import { books } from '@/routes/books'
 import { booksGenerate } from '@/routes/booksGenerate'
 import { adminBooks } from '@/routes/adminBooks'
@@ -650,6 +651,7 @@ app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/notes', notesRouter)
 app.route('/api/clipper', clipperRoute)
 app.route('/api/narration', narration)
+app.route('/api/writing-tools', writingToolsRoute)
 app.route('/api/books', books)
 app.route('/api/books', booksGenerate)
 app.route('/api/admin/books', adminBooks)

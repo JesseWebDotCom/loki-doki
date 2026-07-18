@@ -747,6 +747,24 @@ element or engine internals. Add a context method if one is missing, as `enqueue
 Music-scoped siblings: `components/music/JamBanner.tsx` (start/join/end, on the Music home
 page) and `JamQueueSheet.tsx` (the shared queue with "added by" attribution + dnd reorder).
 
+### `AiGeneratedBadge` - `src/components/shared/AiGeneratedBadge.tsx`
+
+THE one label for AI-generated content (sparkle glyph + short honest text). Apple's
+Generative-AI HIG is the reference: anything a model wrote or summarized must be marked so a
+reader is never misled into thinking it is human-authored or verbatim source text. Use it on
+podcast insights, briefing digests, notification summaries, camera digests, AI-authored
+books/podcasts, and any new generated surface instead of hand-rolling a per-surface label.
+
+```ts
+{ label?: string; tone?: 'muted' | 'brand'; className?: string; title?: string }
+```
+
+`label` should say what produced the content ("Summarized by Loki", "Made with Imaging").
+`title` carries an optional hover caveat (e.g. a summary-accuracy note). Never summarize
+safety-relevant content (camera/security alerts) - show it verbatim, no badge, no rewrite.
+
+---
+
 ### Toasts (app-wide) - `sonner`
 
 Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere. Do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.
@@ -788,6 +806,13 @@ gradient on a precise mark. Build the rest of the UI toward that, not toward "mo
 - **No floating UI parked on top of content.** A persistent overlay (the companion, a mini
   player) defaults to a corner dock, not dead-center, so it never guarantees an overlap with
   whatever the page happens to render there.
+- **Label AI-generated content, keep revert adjacent.** Any surface showing text a model wrote
+  or summarized carries an `AiGeneratedBadge` (never a hand-rolled label), and any generated
+  artifact keeps an Edit/Undo/Retry affordance next to it (chat has Regenerate; writing-tools
+  edits keep an "Original" toggle; image results keep Retry). No generated artifact ships
+  without an adjacent way to revert or retry it. Never summarize or rewrite safety-relevant
+  content (camera/security alerts): show it verbatim. Prefer specific status text ("Scanning
+  transcript…", image-gen step counts) over a bare spinner on any AI path.
 - **No em dashes** in documentation, UI copy, code comments, or commit messages (see Writing
   Style above). This is the single most common violation found in an app-wide audit, more than
   any other rule here, so treat it as the canonical thing to check a diff against.

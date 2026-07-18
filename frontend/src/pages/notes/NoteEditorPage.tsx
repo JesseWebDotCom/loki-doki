@@ -9,7 +9,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   MoreHorizontal, Pin, PinOff, Trash2, Users, Link2, Package, BookOpen,
-  FolderOpen, Tag, X,
+  FolderOpen, Tag, X, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { RichOptionSelect } from '@/components/shared/RichOptionSelect'
+import { WritingToolsPopover } from '@/components/shared/WritingToolsPopover'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useAuth } from '@/context/AuthContext'
 import { useNotesUI } from '@/components/notes/NotesLayout'
@@ -347,6 +348,15 @@ export function NoteEditorPage() {
         <span className="ml-auto" />
         {canEdit && (
           <>
+            <WritingToolsPopover
+              text={body}
+              onReplace={(next) => { setBody(next); scheduleSave() }}
+              align="end"
+            >
+              <Button variant="ghost" size="icon-sm" aria-label="Writing Tools">
+                <Sparkles className="size-4" />
+              </Button>
+            </WritingToolsPopover>
             <Button variant="ghost" size="icon-sm" aria-label={note.pinned ? 'Unpin' : 'Pin'}
               className={cn(note.pinned && 'text-warning')}
               onClick={() => patch({ pinned: !note.pinned })}>
