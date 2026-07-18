@@ -15,6 +15,7 @@ import {
   getAdSegments, getEpisodeTranscript, reportAdCorrection, requestAdScan, transcribeEpisode,
   type AdSegment,
 } from '@/lib/podcast/aiApi'
+import { downloadEpisode } from '@/lib/podcast/api'
 import {
   applyPodcastDsp, duckPodcastForSpeech, ensurePodcastGraph, fadePodcastVolume, resetPodcastVolume,
   setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
@@ -160,6 +161,14 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   // so a failing sidecar or model is not re-hammered on every poll tick.
   const preparedEpisodes = useRef(new Set<string>())
   const requestedScans = useRef(new Set<string>())
+  // Skip-ads needs one immutable audio copy (dynamically-inserted ads make the live
+  // stream's timeline differ from a download's). These guard the once-per-episode
+  // download trigger, the source swap to the downloaded copy, and record whether this
+  // play session started on a local copy (so we only swap when it started on the stream).
+  const downloadTriggered = useRef(new Set<string>())
+  const downloadFailed = useRef(new Set<string>())
+  const swappedToLocal = useRef(new Set<string>())
+  const sessionStartedLocal = useRef<boolean | null>(null)
   // Each detected range fires at most once per play session, so a user who scrubs
   // back into one deliberately can listen through it (the natural way to verify a
   // detection) without the player fighting them.
@@ -235,6 +244,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     lastSaved.current = 0
     outroFired.current = false
     skippedAdIds.current = new Set()
+    sessionStartedLocal.current = null
     pendingStart.current = startSec
     // Replaying the episode that's already loaded (e.g. tapping one of its bookmarks):
     // the src-driving effect won't reset currentTime, so seek the element directly.
@@ -415,40 +425,77 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     return () => { alive = false }
   }, [track?.episodeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fetch the current episode's audio from the backend, which now serves the
+  // downloaded copy (once its assetId is ready) instead of the live stream. Resets to
+  // the top because the two timelines differ (dynamically-inserted ads), so a preserved
+  // position would land in the wrong place. Only called near the start of a session.
+  const reloadCleanSource = useCallback(() => {
+    const el = audioRef.current
+    if (!el) return
+    const wasPlaying = !el.paused
+    pendingStart.current = 0
+    skippedAdIds.current = new Set()
+    try { el.load() } catch { /* re-fetch same src; now the downloaded blob */ }
+    el.currentTime = 0
+    setPositionSec(0)
+    if (wasPlaying) el.play().catch(() => {})
+  }, [])
+
   // ── Ad segments ────────────────────────────────────────────────────────────────
   // When skip-ads is on for the current track, drive the whole detection pipeline
-  // lazily and non-blocking: the episode plays immediately (with ads), and in the
-  // background we make sure it has a transcript, then a scan, then live ad ranges.
-  // Auto-transcribe is the point of this: an episode with no transcript gets one
-  // started automatically (once per session), and the transcribe job chains into the
-  // ad scan on completion. Ads only start being skipped once ranges arrive; until then
-  // adStatus is 'preparing' (with adPrepLabel saying what stage / how far). A failed
-  // scan or an un-transcribable episode goes 'unavailable' with the reason, and does
-  // NOT silently retry forever (retryAdDetection re-runs it on demand).
+  // lazily and non-blocking. Because shows use dynamically-inserted ads (the live
+  // stream's timeline differs every fetch), the FIRST step is to get one immutable
+  // copy: download the episode, then transcribe and scan THAT. The episode plays
+  // immediately (with ads) meanwhile; once the download lands and we started on the
+  // stream, we swap playback to the downloaded copy so the ad marks line up. adStatus
+  // is 'preparing' (with adPrepLabel: downloading / transcribing / finding ads, and how
+  // far) until ranges arrive; a failure goes 'unavailable' with the reason and does NOT
+  // retry forever (retryAdDetection / Rescan re-runs on demand).
   useEffect(() => {
     const episodeId = track?.episodeId
     setAdSegments([])
     if (!episodeId || !effectiveSkipAds) { setAdStatus('off'); setAdPrepLabel(null); return }
-    setAdStatus('preparing'); setAdPrepLabel('Finding ads')
+    setAdStatus('preparing'); setAdPrepLabel('Preparing')
     let alive = true
     let tries = 0
     let timer: number | undefined
-    const poll = () => { if (++tries <= 90) timer = window.setTimeout(() => { void check() }, 20_000) }
+    const poll = () => { if (++tries <= 120) timer = window.setTimeout(() => { void check() }, 20_000) }
     const stop = (label: string) => { setAdStatus('unavailable'); setAdPrepLabel(label) }
     const check = async () => {
-      // 1. Scan state first.
       const scan = await getAdSegments(episodeId).catch(() => null)
       if (!alive) return
+      const audioLocal = scan?.audioLocal ?? false
+      if (sessionStartedLocal.current === null && scan) sessionStartedLocal.current = audioLocal
+
+      // Step 0: ensure ONE immutable audio copy so the transcript/ad timeline matches
+      // playback. Download once; if the episode can't be downloaded, proceed on the
+      // stream and accept some drift rather than getting stuck.
+      if (!audioLocal && !downloadFailed.current.has(episodeId)) {
+        if (!downloadTriggered.current.has(episodeId)) {
+          downloadTriggered.current.add(episodeId)
+          try { await downloadEpisode(episodeId) } catch { downloadFailed.current.add(episodeId) }
+        }
+        if (!downloadFailed.current.has(episodeId)) {
+          setAdStatus('preparing'); setAdPrepLabel('Downloading a clean copy'); poll(); return
+        }
+      }
+      // The download just completed this session: if playback started on the stream and
+      // we are still near the top, swap to the downloaded copy so its timeline matches.
+      if (audioLocal && sessionStartedLocal.current === false && !swappedToLocal.current.has(episodeId)) {
+        swappedToLocal.current.add(episodeId)
+        if (posRef.current < 20) reloadCleanSource()
+      }
+
+      // Step 1: scan state.
       if (scan?.status === 'ready') { setAdSegments(scan.segments); setAdStatus('ready'); setAdPrepLabel(null); return }
       if (scan && (scan.status === 'pending' || scan.status === 'processing')) {
         setAdStatus('preparing')
         setAdPrepLabel(scan.progress?.percent != null ? `Finding ads ${scan.progress.percent}%` : (scan.progress?.note || 'Finding ads'))
         poll(); return
       }
-      // A scan that gave up: surface the reason and stop (no infinite re-request).
       if (scan?.status === 'failed') { stop(scan.error ? `Ad scan failed: ${scan.error.slice(0, 120)}` : 'Ad scan failed'); return }
 
-      // 2. No scan yet ('none'): make sure the transcript it needs exists or is being made.
+      // Step 2: no scan yet: make sure the transcript it needs exists or is being made.
       const t = await getEpisodeTranscript(episodeId).catch(() => null)
       if (!alive) return
       if (t?.status === 'ready') {
@@ -461,8 +508,8 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
       if (t && (t.status === 'pending' || t.status === 'processing')) {
         setAdStatus('preparing'); setAdPrepLabel(t.progress?.percent != null ? `Transcribing ${t.progress.percent}%` : 'Transcribing'); poll(); return
       }
-      // 3. No transcript (never made, or a prior attempt failed): auto-start one, but
-      //    only once per episode per session so a broken sidecar is not re-hammered.
+      // Step 3: no transcript (never made, or a prior attempt failed): auto-start one,
+      //   but only once per episode per session so a broken sidecar is not re-hammered.
       if (!preparedEpisodes.current.has(episodeId)) {
         preparedEpisodes.current.add(episodeId)
         try { await transcribeEpisode(episodeId); setAdStatus('preparing'); setAdPrepLabel('Transcribing'); poll() }
@@ -482,10 +529,12 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     if (!episodeId) return
     preparedEpisodes.current.delete(episodeId)
     requestedScans.current.delete(episodeId)
-    setAdStatus('preparing'); setAdPrepLabel('Finding ads')
+    downloadFailed.current.delete(episodeId)
+    setAdStatus('preparing'); setAdPrepLabel('Preparing')
     void (async () => {
-      try { await requestAdScan(episodeId, true) }
-      catch { try { await transcribeEpisode(episodeId) } catch { /* effect will surface it */ } }
+      // Force a fresh scan when a transcript already exists; otherwise the re-run of the
+      // effect below drives the full download -> transcribe -> scan pipeline.
+      try { await requestAdScan(episodeId, true) } catch { /* effect re-runs the pipeline */ }
       setAdRetryNonce(n => n + 1)
     })()
   }, [])

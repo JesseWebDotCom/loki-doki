@@ -240,4 +240,13 @@ async function linkReady(episodeId: string, assetId: string): Promise<void> {
   await db.update(podcastDownloads).set({ status: 'ready', error: null, updatedAt: now })
     .where(and(eq(podcastDownloads.assetId, assetId), inArray(podcastDownloads.status, ['pending', 'downloading'])))
   await db.update(podcastEpisodes).set({ assetId }).where(eq(podcastEpisodes.id, episodeId))
+
+  // Skip-ads shows: the downloaded copy is now the canonical timeline, so re-run
+  // transcription/ad-detection against it (a transcript made earlier from the live,
+  // dynamically-inserted stream would be shifted). Awaited so the stale transcript/scan
+  // are cleared before the download is observed 'ready' (otherwise the player could grab
+  // the old, mis-timed segments in the gap). Best-effort; a failure never fails the download.
+  const { reprocessForSkipAdsAfterDownload } = await import('@/lib/podcast/adScan')
+  await reprocessForSkipAdsAfterDownload(episodeId).catch(err =>
+    logger.warn(`[podcast-download] skip-ads reprocess failed for ${episodeId}: ${err}`))
 }

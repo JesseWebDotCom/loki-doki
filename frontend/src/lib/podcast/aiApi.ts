@@ -91,6 +91,10 @@ export interface AdSegmentsResponse {
   status: AdScanStatus
   error: string | null
   segments: AdSegment[]
+  /** Whether the episode has a stable local audio copy. When false, playback and the
+   *  transcript come from independent fetches of a stream that can carry different
+   *  dynamically-inserted ads, so ad times will not line up until a copy is downloaded. */
+  audioLocal?: boolean
   progress?: { note: string | null; percent: number | null } | null
 }
 

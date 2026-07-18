@@ -7,7 +7,7 @@
 
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings, userPreferences } from '@/db/schema'
+import { downloadJobs, podcastAdReports, podcastAdScans, podcastEpisodes, podcastShowSettings, podcastTranscripts, userPreferences } from '@/db/schema'
 import { getScriptModel } from '@/lib/models'
 import { structuredCall } from '@/llm/structured'
 import { fmtStamp, resolveEpisodeTranscript, type TranscriptSegment } from '@/lib/podcast/transcripts'
@@ -139,18 +139,49 @@ export async function failPodcastAdScanByJobRefId(refId: string, error: string):
 export async function maybeEnqueueAdScanForEpisode(episodeId: string): Promise<void> {
   const [episode] = await db.select({ showId: podcastEpisodes.showId })
     .from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
-  if (!episode?.showId) return
+  if (episode?.showId && await showWantsSkipAds(episode.showId)) await enqueueAdScan(episodeId, null)
+}
 
+/** True when at least one household member would skip ads on this show: a per-show
+ *  force-on, or the global podcasts.skipAds default for someone who has not turned the
+ *  show off. Mirrors the client's effective value. */
+async function showWantsSkipAds(showId: string): Promise<boolean> {
   const rows = await db.select({ userId: podcastShowSettings.userId, skipAds: podcastShowSettings.skipAds })
-    .from(podcastShowSettings).where(eq(podcastShowSettings.showId, episode.showId))
-  // Anyone forcing it on for this show.
-  if (rows.some(r => r.skipAds === 1)) { await enqueueAdScan(episodeId, null); return }
-
-  // Otherwise honor the global default for anyone who has not forced this show off.
+    .from(podcastShowSettings).where(eq(podcastShowSettings.showId, showId))
+  if (rows.some(r => r.skipAds === 1)) return true
   const forcedOff = new Set(rows.filter(r => r.skipAds === 0).map(r => r.userId))
   const globalOn = await db.select({ userId: userPreferences.userId }).from(userPreferences)
     .where(and(eq(userPreferences.key, 'podcasts.skipAds'), eq(userPreferences.value, 'true')))
-  if (globalOn.some(u => !forcedOff.has(u.userId))) await enqueueAdScan(episodeId, null)
+  return globalOn.some(u => !forcedOff.has(u.userId))
+}
+
+/** Called when an episode's download finishes. Dynamically-inserted ads mean a transcript
+ *  made from the live stream has a different timeline than the downloaded copy (a longer
+ *  or different pre-roll shifts everything), so any transcript/scan made before the
+ *  download is stale. For skip-ads shows, drop them and re-transcribe from the now-canonical
+ *  downloaded file (which chains back into a fresh scan). No-op for other shows. */
+export async function reprocessForSkipAdsAfterDownload(episodeId: string): Promise<void> {
+  const [episode] = await db.select({ showId: podcastEpisodes.showId })
+    .from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
+  if (!episode?.showId || !(await showWantsSkipAds(episode.showId))) return
+  await db.delete(podcastAdScans).where(eq(podcastAdScans.episodeId, episodeId))
+  await db.delete(podcastTranscripts).where(eq(podcastTranscripts.episodeId, episodeId))
+  const { enqueueEpisodeTranscription } = await import('@/lib/podcast/transcribe')
+  await enqueueEpisodeTranscription(episodeId, null)
+}
+
+/** Whether the episode has a stable local audio copy the player and transcriber both use
+ *  (a generated file, or a downloaded blob that is ready). When false, playback and
+ *  transcription each fetch the live stream independently, so their timelines can differ. */
+export async function episodeHasLocalAudio(episodeId: string): Promise<boolean> {
+  const [ep] = await db.select({ assetId: podcastEpisodes.assetId, audioRelPath: podcastEpisodes.audioRelPath })
+    .from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
+  if (!ep) return false
+  if (ep.audioRelPath) return true
+  if (!ep.assetId) return false
+  const { mediaAssets } = await import('@/db/schema')
+  const [asset] = await db.select({ status: mediaAssets.status }).from(mediaAssets).where(eq(mediaAssets.id, ep.assetId)).limit(1)
+  return asset?.status === 'ready'
 }
 
 /** Split the transcript into overlapping windows of line-numbered text. Each line is
