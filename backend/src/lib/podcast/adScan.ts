@@ -259,6 +259,7 @@ export async function runPodcastAdScanJob(
     const windows = buildWindows(transcript.segments)
     const total = fmtStamp(episode.durationSec ?? transcript.segments[transcript.segments.length - 1]!.endSec)
     const ranges: RawRange[] = []
+    let failedWindows = 0
 
     for (let w = 0; w < windows.length; w++) {
       if (signal.aborted) throw new Error('Aborted')
@@ -274,8 +275,23 @@ export async function runPodcastAdScanJob(
         'Transcript (each line is prefixed with its start time):',
         win.text,
       ].join('\n')
-      const res = await structuredCall<AdScanResponse>(model, prompt, AD_SCAN_SYSTEM, { num_predict: 600 })
-      ranges.push(...normalizeWindowAds(res.ads, win.startSec, win.endSec, episode.durationSec))
+      // format 'json' makes Ollama emit syntactically valid JSON (the model was returning
+      // prose/markdown-wrapped output, throwing "SyntaxError: JSON Parse"); a roomier
+      // num_predict keeps a window with many ads from truncating mid-array. A single
+      // window that still fails does not sink the whole episode: log it and move on.
+      try {
+        const res = await structuredCall<AdScanResponse>(model, prompt, AD_SCAN_SYSTEM, { num_predict: 1200 }, 'json')
+        ranges.push(...normalizeWindowAds(res.ads, win.startSec, win.endSec, episode.durationSec))
+      } catch (err) {
+        failedWindows++
+        logger.warn(`[podcast-ad-scan] window ${w + 1}/${windows.length} failed: ${String(err).slice(0, 160)}`)
+      }
+    }
+
+    // If EVERY window failed, the model/endpoint is genuinely broken: surface it rather
+    // than silently saving an empty (falsely "no ads") result.
+    if (windows.length > 0 && failedWindows === windows.length) {
+      throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
 
     const snapped = ranges.map(r => ({
