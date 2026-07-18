@@ -184,9 +184,12 @@ export function NowPlaying() {
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             {/* design-ok(raw-palette-semantic): semantic "ad range" amber swatch, matches the seek-bar marks */}
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-amber-400/70" />
-            {adSegments.length > 0
-              ? `${adSegments.length} ad ${adSegments.length === 1 ? 'segment' : 'segments'} marked (amber) and skipped automatically.`
-              : 'No ads detected in this episode.'}
+            <span className="min-w-0 flex-1">
+              {adSegments.length > 0
+                ? `${adSegments.length} ad ${adSegments.length === 1 ? 'segment' : 'segments'} marked (amber) and skipped automatically.`
+                : 'No ads detected in this episode.'}
+            </span>
+            <button onClick={retryAdDetection} className="shrink-0 font-medium text-brand hover:underline">Rescan</button>
           </p>
         )}
       </div>

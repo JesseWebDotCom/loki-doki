@@ -38,21 +38,25 @@ const MIN_AD_SEC = 8
 const MAX_AD_SEC = 600
 const MERGE_GAP_SEC = 15
 const MAX_SEGMENTS = 30
-const SNAP_SEC = 10
 // A detected segment overlapped by a 'not_ad' report beyond this share is suppressed.
 const SUPPRESS_OVERLAP = 0.5
 
 export const adScanJobRefId = (episodeId: string) =>
   JSON.stringify({ episodeId } satisfies PodcastAdScanPayload)
 
+// The model identifies WHICH numbered lines are ads; the exact start/end times come
+// from those transcript lines on our side. Never ask the model for seconds: it cannot
+// reliably read a [H:MM:SS] stamp and do the arithmetic, and a small error there put
+// the ad markers and auto-skip in the wrong place. Line numbers it can copy verbatim.
 const AD_SCAN_SYSTEM =
-  'You find advertising segments in a podcast transcript excerpt. Return JSON with exactly one key "ads": an ' +
-  'array of objects {"startSec": number, "endSec": number, "kind": "sponsor" | "ad" | "promo", "confidence": ' +
-  'number between 0 and 1}. An ad is a host-read sponsor message, an inserted commercial break, a discount code ' +
-  'or promo URL read, or a promotion for another show. Editorial discussion of a product or company as the topic ' +
-  'of the episode is NOT an ad. startSec and endSec must be taken from the [H:MM:SS] stamps present in the ' +
-  'excerpt, converted to whole seconds, with endSec after startSec. Return {"ads": []} when the excerpt contains ' +
-  'no ads. Do not use em dashes.'
+  'You find advertising segments in a podcast transcript excerpt. Every line begins with a line number in ' +
+  'square brackets, like [42]. Return JSON with exactly one key "ads": an array of objects ' +
+  '{"startLine": number, "endLine": number, "kind": "sponsor" | "ad" | "promo", "confidence": number between 0 ' +
+  'and 1}. startLine is the line number where the ad read begins and endLine is the line number where it ends ' +
+  '(inclusive); copy both numbers exactly from the brackets, endLine at or after startLine. An ad is a host-read ' +
+  'sponsor message, an inserted commercial break, a discount code or promo URL read, or a promotion for another ' +
+  'show. Editorial discussion of a product or company as the topic of the episode is NOT an ad. Return ' +
+  '{"ads": []} when the excerpt contains no ads. Do not use em dashes.'
 
 interface AdScanResponse { ads?: unknown }
 
@@ -149,9 +153,11 @@ export async function maybeEnqueueAdScanForEpisode(episodeId: string): Promise<v
   if (globalOn.some(u => !forcedOff.has(u.userId))) await enqueueAdScan(episodeId, null)
 }
 
-/** Split the transcript into overlapping windows of timestamped lines. */
-function buildWindows(segments: TranscriptSegment[]): { text: string; startSec: number; endSec: number }[] {
-  const windows: { text: string; startSec: number; endSec: number }[] = []
+/** Split the transcript into overlapping windows of line-numbered text. Each line is
+ *  prefixed with its GLOBAL segment index in [brackets], so the model's returned line
+ *  numbers map straight back to a transcript segment (and thus an exact time). */
+function buildWindows(segments: TranscriptSegment[]): { text: string; startIdx: number; endIdx: number }[] {
+  const windows: { text: string; startIdx: number; endIdx: number }[] = []
   let i = 0
   while (i < segments.length) {
     const startIdx = i
@@ -159,18 +165,17 @@ function buildWindows(segments: TranscriptSegment[]): { text: string; startSec: 
     const lines: string[] = []
     while (i < segments.length) {
       const s = segments[i]!
-      const line = `[${fmtStamp(s.startSec)}] ${s.text}`
+      const line = `[${i}] ${s.text}`
       if (used + line.length + 1 > WINDOW_CHARS && lines.length) break
       lines.push(line)
       used += line.length + 1
       i++
     }
-    const startSec = segments[startIdx]!.startSec
-    const endSec = segments[i - 1]!.endSec
-    windows.push({ text: lines.join('\n'), startSec, endSec })
+    const endIdx = i - 1
+    windows.push({ text: lines.join('\n'), startIdx, endIdx })
     if (i >= segments.length) break
-    // Step back so the next window re-reads the overlap span.
-    const overlapFrom = endSec - WINDOW_OVERLAP_SEC
+    // Step back so the next window re-reads the overlap span (by time).
+    const overlapFrom = segments[endIdx]!.endSec - WINDOW_OVERLAP_SEC
     let back = i
     while (back > startIdx + 1 && segments[back - 1]!.startSec > overlapFrom) back--
     i = Math.max(back, startIdx + 1)
@@ -178,45 +183,35 @@ function buildWindows(segments: TranscriptSegment[]): { text: string; startSec: 
   return windows
 }
 
-function normalizeWindowAds(raw: unknown, windowStart: number, windowEnd: number, durationSec: number | null): RawRange[] {
+/** Map the model's line-number ranges to exact transcript times. The times are read
+ *  from the segments the model pointed at, never computed by the model, so an ad mark
+ *  lands exactly where that line does in the audio. */
+function normalizeWindowAds(raw: unknown, windowStart: number, windowEnd: number, segments: TranscriptSegment[]): RawRange[] {
   if (!Array.isArray(raw)) return []
   const out: RawRange[] = []
   for (const a of raw) {
     if (!a || typeof a !== 'object') continue
     const o = a as Record<string, unknown>
-    const startSec = Math.round(Number(o.startSec ?? o.start))
-    const endSec = Math.round(Number(o.endSec ?? o.end))
+    let sL = Math.round(Number(o.startLine ?? o.start))
+    let eL = Math.round(Number(o.endLine ?? o.end))
     const confidence = Number(o.confidence)
     const kind = String(o.kind) === 'sponsor' ? 'sponsor' : String(o.kind) === 'promo' ? 'promo' : 'ad'
-    if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec) continue
-    // A stamp the model never saw in this window is a hallucination, not a detection.
-    if (startSec < windowStart - SNAP_SEC || endSec > windowEnd + SNAP_SEC) continue
+    if (!Number.isFinite(sL) || !Number.isFinite(eL)) continue
+    if (eL < sL) [sL, eL] = [eL, sL]
+    // Clamp to the lines this window actually showed the model; a reference outside it
+    // is a hallucination. Fully-outside ranges are dropped.
+    sL = Math.max(sL, windowStart); eL = Math.min(eL, windowEnd)
+    if (eL < sL) continue
+    const first = segments[sL]; const last = segments[eL]
+    if (!first || !last) continue
+    const startSec = first.startSec; const endSec = last.endSec
+    if (endSec <= startSec) continue
     if (!Number.isFinite(confidence) || confidence < MIN_CONFIDENCE) continue
     const len = endSec - startSec
     if (len < MIN_AD_SEC || len > MAX_AD_SEC) continue
-    if (durationSec && startSec > durationSec) continue
-    out.push({
-      startSec: Math.max(0, startSec),
-      endSec: durationSec ? Math.min(endSec, durationSec) : endSec,
-      kind,
-      confidence,
-    })
+    out.push({ startSec: Math.max(0, startSec), endSec, kind, confidence })
   }
   return out
-}
-
-/** Snap a boundary to the nearest transcript segment edge within SNAP_SEC, so skips
- *  land on speech boundaries instead of mid-word. */
-function snapToSegments(sec: number, segments: TranscriptSegment[], edge: 'start' | 'end'): number {
-  let best = sec
-  let bestDist = SNAP_SEC + 1
-  for (const s of segments) {
-    const candidate = edge === 'start' ? s.startSec : s.endSec
-    const dist = Math.abs(candidate - sec)
-    if (dist < bestDist) { best = candidate; bestDist = dist }
-    if (s.startSec > sec + SNAP_SEC) break
-  }
-  return Math.round(best)
 }
 
 function mergeRanges(ranges: RawRange[]): RawRange[] {
@@ -270,9 +265,9 @@ export async function runPodcastAdScanJob(
       })
       const prompt = [
         `Episode title: ${episode.title}`,
-        `This excerpt covers [${fmtStamp(win.startSec)}] to [${fmtStamp(win.endSec)}] of a [${total}] episode.`,
+        `This excerpt is part of a [${total}] episode. Each transcript line begins with its line number in [brackets].`,
         '',
-        'Transcript (each line is prefixed with its start time):',
+        'Transcript:',
         win.text,
       ].join('\n')
       // format 'json' makes Ollama emit syntactically valid JSON (the model was returning
@@ -281,7 +276,7 @@ export async function runPodcastAdScanJob(
       // window that still fails does not sink the whole episode: log it and move on.
       try {
         const res = await structuredCall<AdScanResponse>(model, prompt, AD_SCAN_SYSTEM, { num_predict: 1200 }, 'json')
-        ranges.push(...normalizeWindowAds(res.ads, win.startSec, win.endSec, episode.durationSec))
+        ranges.push(...normalizeWindowAds(res.ads, win.startIdx, win.endIdx, transcript.segments))
       } catch (err) {
         failedWindows++
         logger.warn(`[podcast-ad-scan] window ${w + 1}/${windows.length} failed: ${String(err).slice(0, 160)}`)
@@ -294,11 +289,9 @@ export async function runPodcastAdScanJob(
       throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
 
-    const snapped = ranges.map(r => ({
-      ...r,
-      startSec: snapToSegments(r.startSec, transcript.segments, 'start'),
-      endSec: snapToSegments(r.endSec, transcript.segments, 'end'),
-    })).filter(r => r.endSec - r.startSec >= MIN_AD_SEC)
+    // Times already come straight from transcript segment boundaries (no model-computed
+    // seconds), so no snapping is needed; just drop anything too short after the merge.
+    const snapped = ranges.filter(r => r.endSec - r.startSec >= MIN_AD_SEC)
 
     const segments: AdSegment[] = mergeRanges(snapped).map(r => ({ id: crypto.randomUUID(), ...r }))
 
