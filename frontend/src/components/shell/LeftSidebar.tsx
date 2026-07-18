@@ -427,6 +427,30 @@ export function LeftSidebar() {
     }
   }
 
+  // Hidden feature: with no badge showing, an admin clicking the logo runs an
+  // on-demand update check and refreshes the badge (a found update makes the
+  // badge appear; clicking again then opens the confirm flow above).
+  const [logoChecking, setLogoChecking] = useState(false)
+  async function logoCheckForUpdates() {
+    if (logoChecking) return
+    setLogoChecking(true)
+    try {
+      const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
+      if (r.ok) {
+        const { behind } = (await r.json()) as { behind: number }
+        if (behind > 0) toast.info(`${behind} update${behind === 1 ? '' : 's'} available`)
+        else toast.success('Up to date')
+      } else if (r.status !== 409) {
+        // 409 = a background check is already running; its result lands via refresh.
+        toast.error('Could not check for updates')
+      }
+    } catch { toast.error('Could not check for updates') }
+    finally {
+      setLogoChecking(false)
+      refreshServerUpdateStatus()
+    }
+  }
+
   // An update kicked off elsewhere (Admin > Server, another admin, auto mode) is
   // still running: attach so the shared progress dialog shows up here too, not
   // just on the admin page.
@@ -617,11 +641,13 @@ export function LeftSidebar() {
               ? "from-destructive/[0.08] via-destructive/[0.02]"
               : "from-brand/[0.08] via-brand/[0.02]",
           )} />
-          {isAdmin && updatesAvailable > 0 ? (
+          {isAdmin ? (
             <button
               type="button"
-              onClick={() => void openUpdateConfirm()}
-              title={`${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} available: click to update and restart`}
+              onClick={() => void (updatesAvailable > 0 ? openUpdateConfirm() : logoCheckForUpdates())}
+              title={updatesAvailable > 0
+                ? `${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} available: click to update and restart`
+                : undefined}
               className="relative shrink-0 rounded-control transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
