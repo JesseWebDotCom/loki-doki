@@ -31,6 +31,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { NewsRow, NewsLink, type NewsItem } from "@/components/shared/NewsCard";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import { useNewsReaderMode } from "@/hooks/useNewsReaderMode";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
@@ -176,21 +177,6 @@ function JokeText({ light }: { light?: boolean }) {
 
 // ── Home ticker (multi-source) ────────────────────────────────────────────────
 
-const SPORT_EMOJI: Record<string, string> = {
-  'MLB':       '⚾',
-  'NFL':       '🏈',
-  'NBA':       '🏀',
-  'NHL':       '🏒',
-  'MLS':       '⚽',
-  'World Cup': '⚽',
-  'NCAAF':     '🏈',
-  'NCAAB':     '🏀',
-  'WNBA':      '🏀',
-  'CFL':       '🏈',
-  'EPL':       '⚽',
-  'UEFA':      '⚽',
-}
-
 interface ParsedGame { league: string; teams: string; status: string; isFinal: boolean; isLive: boolean }
 
 function parseGame(title: string): ParsedGame {
@@ -218,12 +204,14 @@ type TickerItem =
 
 type TickerSection = { source: TickerSource; items: TickerItem[] }
 
+// One calm, neutral tone for every source. A row of four different accent hues in
+// a 30px strip read as a dashboard ticker, not a media app; the icon alone carries
+// the source, the label the context (see Visual Language: accent discipline).
 const SECTION_STYLES: Record<TickerSource, { Icon: React.ElementType; accent: string; bg: string; label: string }> = {
-  sports:  { Icon: Trophy,      accent: 'text-success', bg: 'bg-success/[0.08]', label: 'Scores'   },
-  // design-ok(raw-palette-semantic): YouTube brand-red identity accent
-  youtube: { Icon: PlaySquare,  accent: 'text-red-400', bg: 'bg-red-500/[0.09]', label: 'YouTube'  },
-  news:    { Icon: Newspaper,   accent: 'text-info',    bg: 'bg-info/[0.08]',    label: 'News'     },
-  podcast: { Icon: Headphones,  accent: 'text-brand',   bg: 'bg-brand/[0.08]',   label: 'Podcasts' },
+  sports:  { Icon: Trophy,      accent: 'text-muted-foreground/70', bg: '', label: 'Scores'   },
+  youtube: { Icon: PlaySquare,  accent: 'text-muted-foreground/70', bg: '', label: 'YouTube'  },
+  news:    { Icon: Newspaper,   accent: 'text-muted-foreground/70', bg: '', label: 'News'     },
+  podcast: { Icon: Headphones,  accent: 'text-muted-foreground/70', bg: '', label: 'Podcasts' },
 }
 
 function SectionBadge({ source }: { source: TickerSource }) {
@@ -231,7 +219,7 @@ function SectionBadge({ source }: { source: TickerSource }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-3 border-r border-border/20 self-stretch shrink-0">
       <Icon className={cn('size-3 shrink-0', accent)} />
-      <span className={cn('text-[9px] font-semibold uppercase tracking-[0.14em] whitespace-nowrap', accent)}>{label}</span>
+      <span className={cn('text-[10px] font-semibold uppercase tracking-[0.14em] whitespace-nowrap', accent)}>{label}</span>
     </span>
   )
 }
@@ -241,8 +229,8 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
     const { league, teams, status, isFinal, isLive } = parseGame(item.title)
     return (
       <span className="inline-flex items-center gap-2 px-4 whitespace-nowrap" onPointerDown={onPointerDown}>
-        {league && <span className="text-[13px] leading-none" title={league}>{SPORT_EMOJI[league] ?? '🏆'}</span>}
-        <span className="text-[11px] font-medium text-foreground/75">{teams}</span>
+        {league && <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50" title={league}>{league}</span>}
+        <span className="text-[12px] font-medium text-foreground/80">{teams}</span>
         {status && (
           <span className={cn("text-[10px]", isLive ? "font-semibold text-success" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55")}>
             {isFinal ? "Final" : status}
@@ -265,7 +253,7 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
             <img src={ytImageProxy(item.channelThumb)} alt="" loading="lazy" className="size-full object-cover" />
           </div>
         )}
-        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[220px] truncate">{item.title}</span>
+        <span className="text-[12px] font-medium text-foreground/80 group-hover:text-foreground transition-colors max-w-[220px] truncate">{item.title}</span>
         <span className="text-border/40 ml-1">·</span>
       </span>
     )
@@ -287,7 +275,7 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
         ) : !item.imageUrl && (
           <Newspaper className="size-3 text-info/60 shrink-0" />
         )}
-        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[260px] truncate">{item.title}</span>
+        <span className="text-[12px] font-medium text-foreground/80 group-hover:text-foreground transition-colors max-w-[260px] truncate">{item.title}</span>
         <span className="text-border/40 ml-1">·</span>
       </span>
     )
@@ -298,7 +286,7 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
         <div className="shrink-0 size-[26px] overflow-hidden rounded bg-muted">
           <img src={item.podCoverUrl} alt="" loading="lazy" className="size-full object-cover" />
         </div>
-        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[240px] truncate">{item.title}</span>
+        <span className="text-[12px] font-medium text-foreground/80 group-hover:text-foreground transition-colors max-w-[240px] truncate">{item.title}</span>
         <span className="text-border/40 ml-1">·</span>
       </span>
     )
@@ -496,14 +484,6 @@ function HomeTicker({ config }: { config: TickerConfig }) {
 
 // ── Today's Headlines ─────────────────────────────────────────────────────────
 
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-1 text-overline text-muted-foreground/60 mb-3">
-      {children}
-    </p>
-  );
-}
-
 function parseOtdYear(title: string): { year: string; text: string } {
   const m = title.match(/^(\d{1,4})\s*[—–]\s*(.+)$/); // design-ok(em-dash): regex parses dash separators in external titles
   return m ? { year: m[1]!, text: m[2]! } : { year: "", text: title };
@@ -552,6 +532,45 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
       .finally(() => setLoading(false));
   }, [limit]);
 
+  if (displayMode === 'row') {
+    return (
+      <RowShelf title="News" to="/news">
+        {loading && <Spinner className="text-muted-foreground/30" />}
+        {!loading && items.length === 0 && (
+          <p className="px-1 text-[13px] text-muted-foreground/60">No news available.</p>
+        )}
+        {items.length > 0 && (
+          <div className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {items.map((item, i) => (
+              <NewsLink
+                key={i}
+                item={item}
+                className="group shrink-0 w-[200px] flex flex-col gap-2"
+              >
+                {item.imageUrl ? (
+                  <div className="w-full aspect-video overflow-hidden rounded-card bg-muted ring-1 ring-inset ring-border/40 transition-shadow group-hover:shadow-lg group-hover:shadow-black/20">
+                    <img
+                      src={item.imageUrl} alt="" loading="lazy"
+                      className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full aspect-video rounded-card bg-muted/60 ring-1 ring-inset ring-border/40 flex items-center justify-center">
+                    <Newspaper className="size-6 text-muted-foreground/20" />
+                  </div>
+                )}
+                <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground/90">{item.title}</p>
+                {item.source && (
+                  <p className="truncate text-[11px] text-muted-foreground/60">{item.source}</p>
+                )}
+              </NewsLink>
+            ))}
+          </div>
+        )}
+      </RowShelf>
+    );
+  }
+
   return (
     <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
@@ -565,40 +584,11 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
       {!loading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No news available.</p>
       )}
-      {displayMode === 'row' ? (
-        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
-          {items.map((item, i) => (
-            <NewsLink
-              key={i}
-              item={item}
-              className="group shrink-0 w-[180px] flex flex-col gap-1.5"
-            >
-              {item.imageUrl ? (
-                <div className="w-full aspect-video overflow-hidden rounded-card bg-muted">
-                  <img
-                    src={item.imageUrl} alt="" loading="lazy"
-                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                  />
-                </div>
-              ) : (
-                <div className="w-full aspect-video rounded-card bg-muted/60 flex items-center justify-center">
-                  <Newspaper className="size-6 text-muted-foreground/20" />
-                </div>
-              )}
-              <p className="line-clamp-3 text-[11px] font-semibold leading-snug text-foreground/85">{item.title}</p>
-              {item.source && (
-                <p className="truncate text-[10px] text-muted-foreground/55">{item.source}</p>
-              )}
-            </NewsLink>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-0.5 flex-1">
-          {items.map((item, i) => (
-            <NewsRow key={i} item={item} />
-          ))}
-        </div>
-      )}
+      <div className="space-y-0.5 flex-1">
+        {items.map((item, i) => (
+          <NewsRow key={i} item={item} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -660,8 +650,8 @@ function WidgetSports() {
           return (
             <div key={i} className="flex items-center gap-2">
               {league && (
-                <span className="text-[13px] leading-none shrink-0" title={league}>
-                  {SPORT_EMOJI[league] ?? '🏆'}
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/45 shrink-0 w-9" title={league}>
+                  {league}
                 </span>
               )}
               <span className="text-[11px] font-medium text-foreground/75 flex-1 min-w-0 truncate">{teams}</span>
@@ -766,27 +756,28 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
     if (otd) cards.push({ label: 'On This Day', icon: CalendarDays, text: otd.title });
 
     return (
-      <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
-        {header}
+      <RowShelf title="Morning briefing">
         {(loading || warming) && <Spinner className="text-muted-foreground/30" />}
-        {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
-        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
-          {cards.map((c, i) => {
-            const Icon = c.icon;
-            const inner = (
-              <div className="group shrink-0 w-[180px] flex flex-col gap-1.5 rounded-control bg-muted/40 p-2.5">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/60">
-                  <Icon className="size-3" /><span>{c.label}</span>
+        {empty && <p className="px-1 text-[13px] text-muted-foreground/60">No briefing available yet.</p>}
+        {cards.length > 0 && (
+          <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {cards.map((c, i) => {
+              const Icon = c.icon;
+              const inner = (
+                <div className="group h-full shrink-0 w-[220px] flex flex-col gap-2 rounded-card bg-card/60 ring-1 ring-inset ring-border/40 p-3.5 transition-shadow hover:shadow-lg hover:shadow-black/20">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">
+                    <Icon className="size-3" /><span>{c.label}</span>
+                  </div>
+                  <p className="line-clamp-3 text-[12px] font-medium leading-snug text-foreground/85">{c.text}</p>
                 </div>
-                <p className="line-clamp-3 text-[11px] font-medium leading-snug text-foreground/85">{c.text}</p>
-              </div>
-            );
-            return c.url
-              ? <NewsLink key={i} item={{ title: c.text, url: c.url }}>{inner}</NewsLink>
-              : <div key={i}>{inner}</div>;
-          })}
-        </div>
-      </div>
+              );
+              return c.url
+                ? <NewsLink key={i} item={{ title: c.text, url: c.url }}>{inner}</NewsLink>
+                : <div key={i}>{inner}</div>;
+            })}
+          </div>
+        )}
+      </RowShelf>
     );
   }
 
@@ -831,6 +822,20 @@ function hubThumb(it: HubVideoItem): string | null {
   return it.thumbnailUrl ? proxyImg(it.thumbnailUrl) : null;
 }
 
+/** Full-width editorial shelf for row-mode widgets: the section title sits
+ *  directly on the page (no card box, no colored icon eyebrow) with a brand
+ *  "See all" link, matching the media-app shelves in Music/Videos/Podcasts.
+ *  Column-mode tiles keep their compact card chrome; this is only for the
+ *  full-width strips, which is where the boxed "dashboard" look reads wrong. */
+function RowShelf({ title, to, children }: { title: string; to?: string; children: React.ReactNode }) {
+  return (
+    <section className="flex h-full flex-col gap-3">
+      <SectionHeader title={title} to={to} className="px-1" />
+      {children}
+    </section>
+  );
+}
+
 /** Shared body for every subscriptions widget (unified + per-source). */
 function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loading, empty, displayMode, showSourceDot }: {
   label: string;
@@ -846,6 +851,44 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
   const showCount = displayMode === 'row' ? 8 : 4;
   const vids = items.slice(0, showCount);
 
+  if (displayMode === 'row') {
+    return (
+      <RowShelf title={label} to={seeAll}>
+        {loading && vids.length === 0 && <Spinner className="text-muted-foreground/30" />}
+        {!loading && vids.length === 0 && (
+          <p className="px-1 text-[13px] text-muted-foreground/60">{empty}</p>
+        )}
+        {vids.length > 0 && (
+          <div className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {vids.map((it) => {
+              const age = it.publishedText ?? fmtAge(it.publishedAt);
+              const thumb = hubThumb(it);
+              return (
+                <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group shrink-0 w-[200px] flex flex-col gap-2">
+                  <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted ring-1 ring-inset ring-border/40 transition-shadow group-hover:shadow-lg group-hover:shadow-black/20">
+                    {thumb && (
+                      <img
+                        src={thumb} alt="" loading="lazy"
+                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                      />
+                    )}
+                    {showSourceDot && (
+                      <span className={cn("absolute bottom-1.5 right-1.5 size-2.5 rounded-full ring-2 ring-background", SOURCE_META[it.source].dotClass)} />
+                    )}
+                  </div>
+                  <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground/90">{it.title}</p>
+                  <p className="truncate text-[11px] text-muted-foreground/60">
+                    {it.creator?.name}{it.creator?.name && age ? " · " : ""}{age}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </RowShelf>
+    );
+  }
+
   return (
     <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center justify-between">
@@ -860,34 +903,7 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
       {!loading && vids.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">{empty}</p>
       )}
-      {displayMode === 'row' ? (
-        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
-          {vids.map((it) => {
-            const age = it.publishedText ?? fmtAge(it.publishedAt);
-            const thumb = hubThumb(it);
-            return (
-              <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
-                <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted">
-                  {thumb && (
-                    <img
-                      src={thumb} alt="" loading="lazy"
-                      className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                    />
-                  )}
-                  {showSourceDot && (
-                    <span className={cn("absolute bottom-1 right-1 size-2.5 rounded-full ring-2 ring-background", SOURCE_META[it.source].dotClass)} />
-                  )}
-                </div>
-                <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{it.title}</p>
-                <p className="truncate text-[10px] text-muted-foreground/55">
-                  {it.creator?.name}{it.creator?.name && age ? " · " : ""}{age}
-                </p>
-              </Link>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="space-y-2 flex-1">
+      <div className="space-y-2 flex-1">
           {vids.map((it) => {
             const age = it.publishedText ?? fmtAge(it.publishedAt);
             const thumb = hubThumb(it);
@@ -913,8 +929,7 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
               </Link>
             );
           })}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -2398,7 +2413,7 @@ function Canvas({
           Drag a widget onto another to pair them up (up to 3 across), or into a gap to give it its own full-width row.
         </p>
       )}
-      <div className={cn(!editMode && "space-y-3")}>
+      <div className={cn(!editMode && "space-y-8")}>
         {view.map(row => (
           <Fragment key={row.id}>
             {/* No gap directly above the in-flight placeholder row — otherwise the
@@ -2624,9 +2639,9 @@ export function HomePage() {
         editMode && "ring-2 ring-inset ring-brand/40 rounded-card mx-2",
       )}>
 
-        {/* Canvas header with edit controls */}
-        <div className="flex items-center justify-between mb-4">
-          <Label>My Home</Label>
+        {/* Canvas header: edit controls only. The greeting hero already titles the
+            page, so a redundant "My Home" overline is dropped for an editorial feel. */}
+        <div className="flex items-center justify-end min-h-6 mb-3">
           {!locked && (
             editMode ? (
               <div className="flex items-center gap-2">
