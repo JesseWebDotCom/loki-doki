@@ -76,6 +76,7 @@ export function AdminAiEngineTab() {
   const [confirmRestart, setConfirmRestart] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [autotune, setAutotune] = useState<AutotuneInfo | null>(null)
+  const [mode, setMode] = useState<'automatic' | 'manual' | null>(null)
 
   const loadAutotune = () => {
     fetch('/api/admin/gpu/engine-autotune', { credentials: 'include' })
@@ -84,10 +85,32 @@ export function AdminAiEngineTab() {
       .catch(() => {})
   }
 
+  const setResourceMode = async (next: 'automatic' | 'manual') => {
+    setMode(next)
+    setBusy('/resource-mode')
+    try {
+      const r = await fetch('/api/admin/gpu/resource-mode', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: next }),
+      })
+      if (!r.ok) throw new Error(`${r.status}`)
+      toast.success(next === 'automatic'
+        ? 'Automatic: resources are managed for best performance. Restart the engine to apply now.'
+        : 'Manual: your pinned model and device settings now take effect.')
+      loadAutotune(); refresh()
+    } catch (e) { toast.error(`Failed: ${e instanceof Error ? e.message : e}`) }
+    setBusy(null)
+  }
+
   useEffect(() => {
     fetch('/api/admin/gpu/engine-guards', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((g) => { if (g) setGuards(g as EngineGuards) })
+      .catch(() => {})
+    fetch('/api/admin/gpu/resource-mode', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (m) setMode(m.mode as 'automatic' | 'manual') })
       .catch(() => {})
     loadAutotune()
   }, [])
@@ -136,6 +159,41 @@ export function AdminAiEngineTab() {
 
   return (
     <div className="space-y-3 p-3">
+      {/* THE one switch: automatic owns all placement, manual exposes the knobs. */}
+      {mode && (
+        <Card variant="surface" className="border-border/50 p-3 space-y-2">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Zap className="size-3" /> Resource management
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            {(['automatic', 'manual'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => void setResourceMode(m)}
+                disabled={busy === '/resource-mode'}
+                className={cn(
+                  'rounded-card border p-2.5 text-left transition-all disabled:opacity-60',
+                  mode === m ? 'border-brand/60 bg-brand/[0.07]' : 'border-border hover:border-foreground/20',
+                )}
+              >
+                <span className="block text-sm font-semibold capitalize">{m}</span>
+                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                  {m === 'automatic'
+                    ? 'The system fits the model, voice, and image work to your hardware (GPU/CPU) for best performance.'
+                    : 'You pin the model and devices yourself; automatic fitting is off.'}
+                </span>
+              </button>
+            ))}
+          </div>
+          {mode === 'automatic' && (
+            <p className="text-[11px] text-muted-foreground">
+              Model, context size, voice backend, and image device are all chosen automatically and rebalanced as your hardware changes. Any manual pins are ignored while this is on.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* Auto-managed engine: VRAM-fit model + context, with a spill warning. */}
       {autotune && (
         <Card variant="surface" className="border-border/50 p-3 space-y-2">

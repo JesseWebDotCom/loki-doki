@@ -9,10 +9,11 @@ import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
 import { getRemoteModelOverride } from '@/lib/remoteEngine'
 import { resolveEngineAutotune, getCachedAutotune } from '@/lib/engineAutotune'
+import { isAutomatic } from '@/lib/resourceMode'
 
 // The chat context window, auto-fitted to VRAM by the engine autotuner (see
 // engineAutotune.ts). Read by BOTH the warmup and the real chat turn so their
-// num_ctx always matches — a mismatch forces a runner re-init on the first turn.
+// num_ctx always matches (a mismatch forces a runner re-init on the first turn).
 // Falls back to 8192 until the autotune has resolved.
 export function autotunedNumCtx(): number {
   return getCachedAutotune()?.recommendedNumCtx ?? 8192
@@ -67,11 +68,12 @@ export async function getModel(): Promise<string> {
   const remote = getRemoteModelOverride()
   if (remote) return remote
   const setting = (await getSetting('model')) ?? process.env.MODEL
-  // Auto-manage by default: no explicit pick (or 'auto') → the VRAM-fitted
-  // recommendation, so an oversized model never silently spills to CPU. An explicit
-  // model always wins (the operator pinned it on purpose).
+  // Automatic mode owns model selection: it uses the VRAM-fitted recommendation and
+  // IGNORES any pinned model, so an oversized pin (e.g. a 12B on an 8GB card) can
+  // never silently spill to CPU. Manual mode honours an explicit pin ('auto' there
+  // still means "fit it for me"). See lib/resourceMode.ts.
   let model: string
-  if (!setting || setting === 'auto') {
+  if (isAutomatic() || !setting || setting === 'auto') {
     model = getCachedAutotune()?.recommendedModel ?? 'llama3.1:8b'
   } else {
     model = setting

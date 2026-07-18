@@ -12,6 +12,7 @@ import { getModel, getWarmupPromise } from '@/lib/models'
 import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig, resolveGpuPlacement } from '@/lib/hwfit'
 import { resolveEngineGuards } from '@/lib/engineGuards'
 import { resolveEngineAutotune } from '@/lib/engineAutotune'
+import { resolveResourceMode } from '@/lib/resourceMode'
 import {
   pullOllama,
   downloadHfFile,
@@ -342,6 +343,9 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   // Same deal for the admin engine guards (max loaded models, KV cache type, …): the
   // spawn env is synchronous, so the persisted values must be cached before the spawn.
   try { await resolveEngineGuards() } catch { /* defaults apply */ }
+  // The one resource switch (automatic|manual) gates every subsystem's auto-vs-manual
+  // placement; cache it before the first getModel()/spawn reads it.
+  try { await resolveResourceMode() } catch { /* defaults to automatic */ }
   // VRAM-fit the chat model + context BEFORE warmup/first spawn, so an auto-managed
   // model never lands oversized and spilling. Cached for getModel()/autotunedNumCtx().
   try { await resolveEngineAutotune() } catch { /* no NVIDIA tooling — safe defaults */ }
