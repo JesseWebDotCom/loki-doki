@@ -80,10 +80,22 @@ Windows/NVIDIA prod box as-is.
 | 1.5 Spoken ack on tool turns (voice surfaces) | DONE | backend `companionTurn.ts` |
 | 3.10 Trim `TTS_MUTE_GRACE_MS` 400→250 | DONE | `useHandsFree.ts` |
 | 6a. Runtime-tunable endpoint silence timeout | DONE | `lib/voice/config.ts` (`voice.endpoint_silence_ms`), `routes/stt.ts`, `stt-capture.ts` |
+| 6c. Smart multi-platform device selection (voice sidecar) | DONE | `scripts/voice-server.ts` |
 | 6b. Smart Turn v3 semantic endpointing | PENDING (prod-gated) | needs the 8MB ONNX model fetched + its exact I/O verified on prod |
 | 7. Native whisper.cpp / GPU STT sidecar | PENDING (prod-gated) | needs the Windows CUDA/CPU binary fetched + VRAM measured |
 | 8. Speculative generation on partial transcript | DEFERRED (gated behind 6b; blind abort rates too high) | n/a |
 | 9. Kokoro CPU-first / GPU acceleration | PENDING (prod-gated) | CPU is the default per the steer; GPU only if CPU misses target |
+
+**Multi-platform device selection (6c):** the voice sidecar now auto-detects the best
+backend the runtime can actually use per machine and falls back to CPU everywhere else,
+so the same build runs well on NVIDIA, non-NVIDIA, Mac, and Windows hosts. It picks
+`cuda` only on **Linux x64 with an NVIDIA GPU** (the one place onnxruntime-node ships the
+CUDA EP), runs `cpu` otherwise, honors a `VOICE_DEVICE` override, and demotes a failed GPU
+init to CPU at load time so it never hard-crashes. The chosen device is logged at startup
+and returned from `/health`. This keeps the GPU free for the LLM on shared boxes (CPU-first)
+while opportunistically accelerating where CUDA genuinely works. Native GPU backends for
+Windows (whisper.cpp CUDA / DirectML) and Mac (Metal/CoreML) are separate sidecar binaries,
+tracked under items 7/9 below.
 
 **Why 6b/7/9 are not shipped as code here:** they depend on model/binary artifacts
 (Smart Turn's ONNX, whisper.cpp's `whisper-server`, a CUDA/DML Kokoro build) that must be
