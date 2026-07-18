@@ -76,6 +76,35 @@ export async function listEvents(limit = 50, kind?: string): Promise<FrigateEven
   return ((await r.json()) as { events: FrigateEvent[] }).events
 }
 
+export interface FrigateSearchHit {
+  id: string
+  camera: string | null
+  label: string | null
+  subLabel: string | null
+  title: string | null
+  description: string | null
+  snapshotUrl: string | null
+  clipUrl: string | null
+  createdAt: number  // epoch ms
+  score: number
+}
+
+/** Natural-language footage search ("the dog in the backyard yesterday"). */
+export async function searchFrigateEvents(q: string): Promise<FrigateSearchHit[]> {
+  const r = await fetch(`/api/frigate/search?q=${encodeURIComponent(q)}`, opts)
+  if (!r.ok) return []
+  return ((await r.json()) as { hits: FrigateSearchHit[] }).hits ?? []
+}
+
+export interface CameraDigest { digest: string | null; eventCount: number; model: string | null }
+
+/** Daily AI activity digest for one camera. */
+export async function getCameraDigest(camera: string): Promise<CameraDigest> {
+  const r = await fetch(`/api/frigate/digest?camera=${encodeURIComponent(camera)}`, opts)
+  if (!r.ok) return { digest: null, eventCount: 0, model: null }
+  return (await r.json()) as CameraDigest
+}
+
 // ── Admin config ──────────────────────────────────────────────────────────────
 export async function getFrigateConfig(): Promise<FrigateConfig> {
   const r = await fetch('/api/admin/frigate/config', opts)

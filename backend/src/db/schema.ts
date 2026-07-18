@@ -1376,6 +1376,10 @@ export const frigateEvents = sqliteTable('frigate_events', {
   clipUrl: text('clip_url'),
   announce: integer('announce', { mode: 'boolean' }).notNull().default(false),
   spoken: integer('spoken', { mode: 'boolean' }).notNull().default(false),
+  // Lazily-populated nomic embedding of the event text, for natural-language footage
+  // search. Filled on first search encounter (see lib/frigate/search.ts), not on the
+  // ingest hot path. JSON-encoded number[] like the other embedding columns.
+  embedding: text('embedding'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 

@@ -22,6 +22,8 @@ import { ollamaChat } from '@/llm/ollama'
 import { logger } from '@/lib/logger'
 import { getFrigateConfig } from '@/lib/frigate/config'
 import { logShimDescription, pendingAnnouncements, claimAnnouncement, recentEvents } from '@/lib/frigate/events'
+import { searchFrigateEvents } from '@/lib/frigate/search'
+import { buildCameraDigest } from '@/lib/frigate/digest'
 
 const frigate = new Hono<AppEnv>()
 
@@ -153,6 +155,23 @@ frigate.get('/events', requireAuth, async (c) => {
   const limit = parseInt(c.req.query('limit') ?? '50')
   const kind = c.req.query('kind') || undefined
   return c.json({ events: await recentEvents(Number.isFinite(limit) ? limit : 50, kind) })
+})
+
+// Natural-language footage search ("the dog in the backyard yesterday").
+frigate.get('/search', requireAuth, async (c) => {
+  const q = c.req.query('q')?.trim()
+  if (!q) return c.json({ hits: [] })
+  const hits = await searchFrigateEvents(q, { limit: 20, now: Date.now() })
+  return c.json({ hits })
+})
+
+// Daily AI activity digest for one camera.
+frigate.get('/digest', requireAuth, async (c) => {
+  const camera = c.req.query('camera')?.trim()
+  if (!camera) return c.json({ error: 'camera required' }, 400)
+  const hours = parseInt(c.req.query('hours') ?? '24')
+  const digest = await buildCameraDigest(camera, { hours: Number.isFinite(hours) ? hours : 24, now: Date.now() })
+  return c.json(digest)
 })
 
 // ── Live view ────────────────────────────────────────────────────────────────────

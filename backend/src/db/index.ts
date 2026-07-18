@@ -2539,6 +2539,8 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_frigate_events_created_at ON frigate_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_frigate_events_announce ON frigate_events(announce, spoken);
   `)
+  // Lazily-populated nomic embedding of the event text, for natural-language footage search.
+  addColumn('frigate_events', 'embedding', 'TEXT')
 
   // Physical Pod devices (ESP32 voice satellites). Each is bound to a user (and
   // optional companion + wake word) and authenticates the Wyoming gateway socket

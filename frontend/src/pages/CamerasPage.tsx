@@ -1,18 +1,21 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, Play, Video, VideoOff } from 'lucide-react'
+import { Camera, Play, Video, VideoOff, Search, X } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
+import { AiGeneratedBadge } from '@/components/shared/AiGeneratedBadge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/context/AuthContext'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { getFrigateStatus, listEvents, type FrigateEvent } from '@/lib/frigate/api'
+import { getFrigateStatus, listEvents, searchFrigateEvents, getCameraDigest, type FrigateEvent, type FrigateSearchHit } from '@/lib/frigate/api'
 import { LiveCameras } from '@/components/cameras/LiveCameras'
 
 const NOOP = () => {}
@@ -87,10 +90,25 @@ function EventDialog({ event, onOpenChange }: { event: FrigateEvent | null; onOp
   )
 }
 
+/** A search hit carries an epoch-ms createdAt; the card/dialog want a FrigateEvent shape. */
+function hitToEvent(h: FrigateSearchHit): FrigateEvent {
+  return {
+    id: h.id,
+    camera: h.camera,
+    label: h.label,
+    subLabel: h.subLabel,
+    snapshotUrl: h.snapshotUrl,
+    clipUrl: h.clipUrl,
+    createdAt: new Date(h.createdAt).toISOString(),
+  } as FrigateEvent
+}
+
 export function CamerasPage() {
   const { user } = useAuth()
   const [cameraFilter, setCameraFilter] = useState<string | null>(null)
   const [active, setActive] = useState<FrigateEvent | null>(null)
+  const [searchDraft, setSearchDraft] = useState('')
+  const [query, setQuery] = useState('')
 
   usePublishUIContext({
     label: 'Cameras',
@@ -118,6 +136,19 @@ export function CamerasPage() {
     return cameraFilter ? list.filter((e) => e.camera === cameraFilter) : list
   }, [events, cameraFilter])
 
+  const { data: searchHits, isFetching: searching } = useQuery({
+    queryKey: ['frigate-search', query],
+    queryFn: () => searchFrigateEvents(query),
+    enabled: enabled && query.trim().length > 1,
+  })
+
+  // Daily activity digest, shown when a single camera is selected.
+  const { data: digest } = useQuery({
+    queryKey: ['frigate-digest', cameraFilter],
+    queryFn: () => getCameraDigest(cameraFilter!),
+    enabled: enabled && !!cameraFilter,
+  })
+
   return (
     <PageShell>
       <PageContainer className="pb-10">
@@ -138,6 +169,47 @@ export function CamerasPage() {
             {/* Live first: "what's happening now" beats "what happened earlier". */}
             <LiveCameras />
 
+            {/* Natural-language footage search. */}
+            <form
+              className="mb-4 flex items-center gap-2"
+              onSubmit={(e) => { e.preventDefault(); setQuery(searchDraft) }}
+            >
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search footage: the dog in the backyard, a package at the door…"
+                  className="pl-9"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => { setSearchDraft(''); setQuery('') }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-accent"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+              <Button type="submit" variant="secondary" disabled={searchDraft.trim().length < 2}>Search</Button>
+            </form>
+
+            {query.trim().length > 1 ? (
+              searching ? (
+                <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+              ) : !searchHits?.length ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
+                  <Search className="size-8 opacity-40" /><p className="text-sm">Nothing matched "{query}".</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {searchHits.map((h) => <EventCard key={h.id} event={hitToEvent(h)} onOpen={() => setActive(hitToEvent(h))} />)}
+                </div>
+              )
+            ) : (
+            <>
             {cameras.length > 1 && (
               <ChipRow className="mb-4">
                 <Chip label="All cameras" active={cameraFilter === null} onClick={() => setCameraFilter(null)} />
@@ -145,6 +217,12 @@ export function CamerasPage() {
                   <Chip key={c} label={c} active={cameraFilter === c} onClick={() => setCameraFilter(c)} />
                 ))}
               </ChipRow>
+            )}
+            {cameraFilter && digest?.digest && (
+              <Card className="mb-4 p-3">
+                <AiGeneratedBadge label="Summarized by Loki" tone="brand" className="mb-1.5" />
+                <p className="text-sm leading-snug text-foreground">{digest.digest}</p>
+              </Card>
             )}
             {isLoading ? (
               <SkeletonCards count={8} className="grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" />
@@ -156,6 +234,8 @@ export function CamerasPage() {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {filtered.map((e) => <EventCard key={e.id} event={e} onOpen={() => setActive(e)} />)}
               </div>
+            )}
+            </>
             )}
           </>
         )}
