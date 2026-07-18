@@ -702,6 +702,16 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
   const [pendingEntry, setPendingEntry] = useState<CatalogEntry | null>(null)
   const abortRefs = useRef<Map<string, AbortController>>(new Map())
   const featureSwitches = useFeatureSwitches()
+  // Automatic resource mode overrides the pinned chat model, so the swap/active UI
+  // below needs an honest banner (a swap here downloads + pins, which automatic
+  // ignores). Null until loaded; banner renders only when known-automatic.
+  const [autoResources, setAutoResources] = useState<boolean | null>(null)
+  useEffect(() => {
+    fetch('/api/admin/gpu/resource-mode', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (m) setAutoResources(m.mode === 'automatic') })
+      .catch(() => {})
+  }, [])
 
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError('')
@@ -977,6 +987,19 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
             )}
           </Card>
 
+          {autoResources === true && (
+            <div className="rounded-card border border-brand/30 bg-brand/10 px-4 py-3 flex items-start gap-3">
+              <Bot className="size-4 shrink-0 text-brand mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-brand">Chat model is managed automatically</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  The active model is chosen to fit your hardware for best performance. Installing another model
+                  here downloads it for automatic to use, but the pick stays automatic. To pin a specific model,
+                  switch Resource management to Manual under System &gt; AI engine.
+                </p>
+              </div>
+            </div>
+          )}
           {activeTierLlm && (
             <ModelInstallRow
               entry={activeTierLlm}

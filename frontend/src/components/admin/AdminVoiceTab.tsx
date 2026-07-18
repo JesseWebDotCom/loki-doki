@@ -348,6 +348,9 @@ export function VoiceEngine() {
   const [wakePrime, setWakePrime] = useState(false)
   const [endpointMs, setEndpointMs] = useState(700)
   const [timing, setTiming] = useState<VoiceTurnTiming | null>(getLastVoiceTiming())
+  // Automatic resource mode owns the compute device; the picker becomes read-only
+  // with a pointer to the master switch so a click here never silently no-ops.
+  const [autoResources, setAutoResources] = useState<boolean | null>(null)
 
   const loadDevice = useCallback(async () => {
     try {
@@ -374,6 +377,12 @@ export function VoiceEngine() {
   }, [])
 
   useEffect(() => { void loadDevice(); void loadSettings() }, [loadDevice, loadSettings])
+  useEffect(() => {
+    fetch('/api/admin/gpu/resource-mode', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (m) setAutoResources(m.mode === 'automatic') })
+      .catch(() => {})
+  }, [])
   // Live-update the readout when a voice turn completes anywhere in the app.
   useEffect(() => onVoiceTiming(setTiming), [])
 
@@ -447,7 +456,13 @@ export function VoiceEngine() {
           {info?.gpus?.length ? <span>GPU: <span className="font-medium text-foreground">{info.gpus.join(', ')}</span></span> : null}
         </div>
 
-        {/* Device selector (segmented) */}
+        {/* Device selector (segmented). Read-only under automatic resource mode. */}
+        {autoResources === true && (
+          <p className="rounded-card border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-semibold text-brand">Managed automatically.</span> The voice engine picks the best
+            device for this machine. To force one, switch Resource management to Manual under System &gt; AI engine.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(info?.options ?? ['auto', 'cpu']).map((opt) => {
             const active = selected === opt
@@ -457,7 +472,7 @@ export function VoiceEngine() {
                 key={opt}
                 type="button"
                 onClick={() => void pick(opt)}
-                disabled={saving}
+                disabled={saving || autoResources === true}
                 className={cn(
                   'flex flex-col items-start gap-1 rounded-card border p-3 text-left transition-all disabled:opacity-60',
                   active ? 'border-brand/60 bg-brand/[0.07] shadow-sm shadow-brand/10' : 'border-border hover:border-foreground/20',
