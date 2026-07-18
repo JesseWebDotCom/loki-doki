@@ -5,12 +5,14 @@
 // progress stream, process.exit(0).
 //
 // Update pipeline (never `reset --hard` — the server checkout is respected):
-//   dirty check → git fetch → merge --ff-only @{u} → bun install (both
-//   workspaces) → staged frontend build (dist-staging, swapped in only on
-//   success) → stop sidecars → exit. A failed build leaves the running app and
-//   its dist intact. Launcher stamp files (.loki-install-stamp /
-//   .loki-build-stamp) are re-touched so the next manual launch doesn't redo
-//   the work (run.ps1 compares them by mtime against pulled sources).
+//   dirty check → git fetch → merge --ff-only @{u} → bun install (per
+//   workspace, only if that workspace's package.json/bun.lock changed) →
+//   staged frontend build (dist-staging, swapped in only on success, only if
+//   frontend/ changed) → stop sidecars → exit. A failed build leaves the
+//   running app and its dist intact. Launcher stamp files
+//   (.loki-install-stamp / .loki-build-stamp) are re-touched on every step
+//   actually run so the next manual launch doesn't redo the work (run.ps1
+//   compares them by mtime against pulled sources).
 //
 // Progress uses the boot-singleton pattern (routes/system.ts): events are
 // buffered and replayed to (re)connecting SSE clients, so a page refresh or a
@@ -422,10 +424,19 @@ async function runUpdatePipeline(): Promise<void> {
     const launcherChanged = /^run(-dev)?\.(ps1|sh)$/m.test(changedFiles)
     step('merge', 'Applying the update', 'ok', `${beforeShort} → ${afterShort}`)
 
-    for (const [key, dir, label] of [
-      ['deps-backend', BACKEND_DIR, 'Refreshing backend dependencies'],
-      ['deps-frontend', FRONTEND_DIR, 'Refreshing frontend dependencies'],
+    // Only reinstall/rebuild what the pulled commits actually touched — mirrors
+    // ensure_deps/ensure_frontend_build in run.sh/run.ps1, which stamp-gate the
+    // same way on manual launch. Without this, any update (even a backend-only
+    // or docs-only change) paid for a full `bun install` in both workspaces plus
+    // a full tsc + vite build every time.
+    for (const [key, dir, label, depsChanged] of [
+      ['deps-backend', BACKEND_DIR, 'Refreshing backend dependencies', /^backend\/(package\.json|bun\.lock)$/m.test(changedFiles)],
+      ['deps-frontend', FRONTEND_DIR, 'Refreshing frontend dependencies', /^frontend\/(package\.json|bun\.lock)$/m.test(changedFiles)],
     ] as const) {
+      if (!depsChanged) {
+        step(key, label, 'skip', 'No dependency changes in this update')
+        continue
+      }
       step(key, label, 'run')
       // process.execPath = the running Bun binary; safer than resolving 'bun'
       // from PATH (the scheduled/console environment may differ).
@@ -434,8 +445,11 @@ async function runUpdatePipeline(): Promise<void> {
       step(key, label, 'ok')
     }
 
+    const frontendChanged = /^frontend\//m.test(changedFiles)
     if (process.env.NODE_ENV === 'development') {
       step('build', 'Rebuilding the app', 'skip', 'Dev mode serves the UI through Vite; no bundle to build')
+    } else if (!frontendChanged) {
+      step('build', 'Rebuilding the app', 'skip', 'No frontend changes in this update')
     } else {
       step('build', 'Rebuilding the app', 'run')
       await buildFrontendStaged(onLine)
