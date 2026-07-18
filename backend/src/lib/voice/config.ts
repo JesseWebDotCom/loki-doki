@@ -35,3 +35,20 @@ export async function appDefaultVoice(): Promise<string> {
 export async function appDefaultWakeword(): Promise<string> {
   return (await setting('voice.app_default_wakeword')) ?? 'hey_jarvis'
 }
+
+/** Trailing-silence endpoint timeout (seconds) for STT utterance finalization.
+ *  The single biggest tunable in the voice latency budget: production local
+ *  assistants run ~0.25s (aggressive) to ~1.25s (relaxed), Home Assistant Assist
+ *  defaults 0.7s. Exposed as a runtime setting (DB `voice.endpoint_silence_ms` →
+ *  env `VOICE_ENDPOINT_SILENCE_MS` → 700) so prod can dial it in on its own
+ *  acoustics without a rebuild. Phase 1.1 overlaps the STT decode with this wait,
+ *  so time cut here is close to a 1:1 latency cut. Clamped to a sane [0.3, 2.0]s.
+ *  See docs/internal/voice-latency.md. (Semantic turn detection, i.e. Smart Turn
+ *  v3, is the way to push below ~0.5s safely; that is prod-hardware-gated, so until
+ *  it lands this fixed timeout stays the conservative floor.) */
+export async function endpointSilenceS(): Promise<number> {
+  const raw = (await setting('voice.endpoint_silence_ms')) ?? process.env.VOICE_ENDPOINT_SILENCE_MS
+  const ms = raw ? Number(raw) : NaN
+  const s = Number.isFinite(ms) ? ms / 1000 : 0.7
+  return Math.min(2.0, Math.max(0.3, s))
+}

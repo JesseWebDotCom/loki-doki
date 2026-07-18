@@ -79,10 +79,33 @@ Windows/NVIDIA prod box as-is.
 | 1.4 Wake-window pre-roll replay on ONNX wake | DONE | `useHandsFree.ts` |
 | 1.5 Spoken ack on tool turns (voice surfaces) | DONE | backend `companionTurn.ts` |
 | 3.10 Trim `TTS_MUTE_GRACE_MS` 400→250 | DONE | `useHandsFree.ts` |
-| 6. Smart Turn v3 semantic endpointing | PENDING (needs model + prod validation) | — |
-| 7. Native whisper.cpp / GPU STT sidecar | PENDING (needs Windows CUDA binary + VRAM measurement) | — |
-| 8. Speculative generation on partial transcript | DEFERRED (gated behind item 6; blind abort rates too high) | — |
-| 9. Kokoro on GPU (CUDA/DML sidecar) | PENDING (needs prod validation; DML needs opset-22 re-export) | — |
+| 6a. Runtime-tunable endpoint silence timeout | DONE | `lib/voice/config.ts` (`voice.endpoint_silence_ms`), `routes/stt.ts`, `stt-capture.ts` |
+| 6b. Smart Turn v3 semantic endpointing | PENDING (prod-gated) | needs the 8MB ONNX model fetched + its exact I/O verified on prod |
+| 7. Native whisper.cpp / GPU STT sidecar | PENDING (prod-gated) | needs the Windows CUDA/CPU binary fetched + VRAM measured |
+| 8. Speculative generation on partial transcript | DEFERRED (gated behind 6b; blind abort rates too high) | n/a |
+| 9. Kokoro CPU-first / GPU acceleration | PENDING (prod-gated) | CPU is the default per the steer; GPU only if CPU misses target |
+
+**Why 6b/7/9 are not shipped as code here:** they depend on model/binary artifacts
+(Smart Turn's ONNX, whisper.cpp's `whisper-server`, a CUDA/DML Kokoro build) that must be
+fetched, run, and **measured on the Windows/NVIDIA prod box**: their exact tensor I/O,
+VRAM footprint, and real latency can't be validated from a dev checkout. Writing blind
+ONNX preprocessing or a native-binary manager and landing it on the live `main` branch
+would be shipping untested inference plumbing. The tunable endpoint (6a) is the safe,
+correct slice of the endpointing win that ships today: it lets prod dial the single
+biggest latency line (the fixed silence wait) down from 0.7s toward ~0.4–0.5s and measure
+the effect, with Phase 1.1 already overlapping the STT decode so the cut is ~1:1. The
+right way to land 6b/7/9 is a focused session ON the prod box, where the artifacts can be
+fetched and their I/O verified before wiring.
+
+**CPU-first steer (2026-07-18):** on the 8GB prod card the LLM owns the VRAM, so keep
+voice on CPU wherever it still meets the latency budget and treat GPU placement as
+measure-first, not the default. Concretely for the pending items: endpointing stays on
+CPU (it already is); STT defaults to whisper.cpp on **CPU** (base.en ~15x realtime,
+~200ms for a 3s utterance) and only moves to CUDA if a measurement proves CPU misses
+the budget; and Kokoro TTS (item 9) is now **measure-first on CPU** rather than
+GPU-by-default: move it to the GPU only if CPU synthesis misses the first-audio target
+AND the VRAM budget genuinely has room. Rationale: a voice model spilling to WDDM
+sysmem beside the LLM is an order-of-magnitude latency cliff, worse than staying on CPU.
 
 Notes on the deltas from the original plan:
 - **1.3 was scaled back on purpose.** `useCompanionVoice.ts` documents that aggressive
@@ -170,8 +193,11 @@ benchmark. Everything below gets judged against this.
 
 ### Phase 3: TTS acceleration + polish
 
-9. **Kokoro to the GPU on prod, via a native sidecar.** CPU Kokoro q4 (~450 ms/sentence) is
-   the floor blocker once Phases 1-2 land. On CUDA, Kokoro-82M runs RTF ~0.03 to 0.05:
+9. **Kokoro acceleration (CPU-first; GPU only if measured necessary).** CPU Kokoro q4
+   (~450 ms/sentence, and faster on a desktop core than on the turbo-clamped prod laptop)
+   may already meet the first-audio target once Phases 1-2 land, so measure it before
+   reaching for the GPU, since the 8GB card is LLM-first (see the CPU-first steer above).
+   If CPU misses the target AND the VRAM budget has room, then: on CUDA, Kokoro-82M runs RTF ~0.03 to 0.05:
    first-sentence synth drops to ~60 to 100 ms, and the model is only ~330 MB of VRAM, the
    one voice model worth GPU residency on the 8 GB card. Routes, in preference order:
    (a) sherpa-onnx Windows CUDA build serving Kokoro (policy flag on the runtime's origin,

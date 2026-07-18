@@ -3,7 +3,14 @@ import { getCookie } from 'hono/cookie'
 import type { createBunWebSocket } from 'hono/bun'
 import { resolveSession } from '@/middleware/auth'
 import { SttSession } from '@/lib/voice/sttSession'
+import { endpointSilenceS } from '@/lib/voice/config'
 import type { AppEnv } from '@/types'
+
+// Clamp a client-supplied endpoint timeout to a sane range so a malformed hello
+// can neither cut people off (too low) nor hang the turn (too high).
+function clampTimeoutS(s: number): number {
+  return Math.min(2.0, Math.max(0.3, s))
+}
 
 type UpgradeWebSocket = ReturnType<typeof createBunWebSocket>['upgradeWebSocket']
 
@@ -29,6 +36,11 @@ export function createSttRoute(upgradeWebSocket: UpgradeWebSocket) {
       // the upgraded socket. Close with 4401 if unauthenticated.
       const token = getCookie(c, 'session')
       const user = token ? await resolveSession(token) : null
+
+      // Resolve the endpoint-silence default once per socket (the app setting is the
+      // authority; the client only overrides it explicitly). Read here in the async
+      // upgrade callback so the sync onMessage/hello handler can use it directly.
+      const endpointDefaultS = await endpointSilenceS()
 
       let session: SttSession | null = null
 
@@ -59,7 +71,9 @@ export function createSttRoute(upgradeWebSocket: UpgradeWebSocket) {
               session = new SttSession(
                 {
                   sampleRate: h.sample_rate ?? 16000,
-                  silenceTimeoutS: h.silence_timeout_s ?? 0.7,
+                  // Client override wins if present (e.g. the whisper-wake path's
+                  // deliberate 0.8s); otherwise the runtime-tunable app setting.
+                  silenceTimeoutS: clampTimeoutS(h.silence_timeout_s ?? endpointDefaultS),
                   partialIntervalS: h.partial_interval_s ?? 0.4,
                   hotwords: h.hotwords ?? '',
                 },
