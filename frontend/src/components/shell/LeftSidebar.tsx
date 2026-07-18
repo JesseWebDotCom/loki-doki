@@ -72,6 +72,9 @@ import { useConnectivity } from "@/hooks/useConnectivity";
 import { useNotifications } from "@/hooks/useNotifications";
 import { notifIcon, notifLabel, timeAgo } from "@/lib/notifications";
 import { toast } from "@/lib/toast";
+import { useServerUpdateStatus } from "@/context/ServerUpdateStatusContext";
+import { useServerMaintenance } from "@/hooks/useServerMaintenance";
+import { ServerMaintenanceDialog } from "@/components/shared/ServerMaintenanceDialog";
 
 interface AppEntry {
   id: string;
@@ -378,6 +381,23 @@ export function LeftSidebar() {
   const desktopStatus = useDesktopAppStatus()
   const { unreadCount, notifications, digest, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
+  const isAdmin = user?.role === "admin"
+  const { status: serverUpdateStatus } = useServerUpdateStatus()
+  const updatesAvailable = isAdmin ? (serverUpdateStatus?.behind ?? 0) : 0
+  const serverMaintenance = useServerMaintenance()
+  const [confirmUpdate, setConfirmUpdate] = useState(false)
+
+  // An update kicked off elsewhere (Admin > Server, another admin, auto mode) is
+  // still running: attach so the shared progress dialog shows up here too, not
+  // just on the admin page.
+  useEffect(() => {
+    if (!isAdmin || serverMaintenance.flow !== "idle") return
+    if (serverUpdateStatus?.phase === "updating" || serverUpdateStatus?.phase === "restarting") {
+      serverMaintenance.attachUpdateStream()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, serverUpdateStatus?.phase])
+
   const presence = usePresenceStatus(user?.id)
   const currentStatusPreset = STATUS_PRESETS.find((p) => p.state === presence.current)
 
@@ -557,7 +577,19 @@ export function LeftSidebar() {
               ? "from-destructive/[0.08] via-destructive/[0.02]"
               : "from-brand/[0.08] via-brand/[0.02]",
           )} />
-          <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
+          {isAdmin && updatesAvailable > 0 ? (
+            <button
+              type="button"
+              onClick={() => setConfirmUpdate(true)}
+              title={`${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} available: click to update and restart`}
+              className="relative shrink-0 rounded-control transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
+              <BadgeCount count={updatesAvailable} />
+            </button>
+          ) : (
+            <BrandMark glow className={cn("relative", isWide ? "size-8" : "size-7")} />
+          )}
           {isWide && (
             <div className="relative min-w-0">
               <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">Loki Doki</p>
@@ -877,6 +909,25 @@ export function LeftSidebar() {
       />
       <TesterDialog open={testerOpen} onOpenChange={setTesterOpen} />
       <DesktopAppDialog open={desktopAppOpen} onOpenChange={setDesktopAppOpen} />
+      {isAdmin && (
+        <>
+          <ConfirmDialog
+            open={confirmUpdate}
+            onOpenChange={setConfirmUpdate}
+            title="Update and restart?"
+            description={`${updatesAvailable} update${updatesAvailable === 1 ? "" : "s"} ready. The server pulls the latest code, refreshes dependencies, rebuilds the app, and restarts. This can take a few minutes; the app keeps running until the restart at the end.`}
+            confirmLabel="Update"
+            onConfirm={() => { setConfirmUpdate(false); void serverMaintenance.startUpdate() }}
+          />
+          <ServerMaintenanceDialog
+            flow={serverMaintenance.flow}
+            steps={serverMaintenance.steps}
+            logLines={serverMaintenance.logLines}
+            error={serverMaintenance.error}
+            onDismissError={serverMaintenance.dismissError}
+          />
+        </>
+      )}
       <ConfirmDialog
         open={confirmOffline}
         onOpenChange={setConfirmOffline}
