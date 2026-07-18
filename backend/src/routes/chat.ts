@@ -14,6 +14,7 @@ import { triggerJudgeForConversation } from '@/memory/sweep'
 import { chunkAndEmbedDocument } from '@/lib/docChunks'
 import type { ContentDials } from '@/lib/contentPolicy'
 import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
+import { getAppSetting } from '@/lib/settings'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
 import { logger } from '@/lib/logger'
@@ -401,13 +402,23 @@ chat.post('/prime', requireAuth, async (c) => {
   if (primeInFlight.has(user.id)) return c.json({ ok: false, skipped: 'in-flight' })
 
   const body = await c.req.json().catch(() => ({}))
-  const { conversationId, characterId, uiContext, clientLat, clientLng, clientTz } = body as {
+  const { conversationId, characterId, uiContext, clientLat, clientLng, clientTz, reason } = body as {
     conversationId?: string
     characterId?: string
     uiContext?: string | null
     clientLat?: number | null
     clientLng?: number | null
     clientTz?: string | null
+    reason?: string
+  }
+
+  // The wake-time prime (reason:'wake') is OFF by default: on a single-runner Ollama
+  // box it can occupy the slot right as the spoken turn arrives, so a quick "hi"
+  // queues behind the prefill and answers LATER than with no prime at all. Opt in via
+  // `voice.wake_prime_enabled` once measured. The conversation-open prime (no reason)
+  // is unaffected — it fires while the user is idle, not racing a turn.
+  if (reason === 'wake' && (await getAppSetting('voice.wake_prime_enabled')) !== true) {
+    return c.json({ ok: false, skipped: 'wake-prime-disabled' })
   }
 
   const [ctx, existingRelation] = await Promise.all([

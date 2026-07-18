@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { speak } from '@/lib/voice/voicePlaybackStore'
 import { toast } from '@/lib/toast'
+import { ToggleRow } from '@/components/shared/ToggleRow'
+import { getLastVoiceTiming, onVoiceTiming, type VoiceTurnTiming } from '@/lib/voice/voice-timing'
 
 // ── Static Kokoro voice catalog ──────────────────────────────────────────────
 const VOICE_CATALOG: Record<string, { character: string[] }> = {
@@ -341,6 +343,11 @@ export function VoiceEngine() {
   const [restarting, setRestarting] = useState(false)
   const [benching, setBenching] = useState(false)
   const [bench, setBench] = useState<BenchResult | null>(null)
+  // Latency behaviour toggles + endpoint timeout, and the last measured voice turn.
+  const [toolAck, setToolAck] = useState(false)
+  const [wakePrime, setWakePrime] = useState(false)
+  const [endpointMs, setEndpointMs] = useState(700)
+  const [timing, setTiming] = useState<VoiceTurnTiming | null>(getLastVoiceTiming())
 
   const loadDevice = useCallback(async () => {
     try {
@@ -353,7 +360,32 @@ export function VoiceEngine() {
     } catch { /* offline */ }
   }, [])
 
-  useEffect(() => { void loadDevice() }, [loadDevice])
+  const loadSettings = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/voice/settings', { credentials: 'include' })
+      if (r.ok) {
+        const s = (await r.json() as { settings: Record<string, unknown> }).settings ?? {}
+        setToolAck(s['voice.tool_ack_enabled'] === true)
+        setWakePrime(s['voice.wake_prime_enabled'] === true)
+        const ms = Number(s['voice.endpoint_silence_ms'])
+        setEndpointMs(Number.isFinite(ms) && ms > 0 ? ms : 700)
+      }
+    } catch { /* offline */ }
+  }, [])
+
+  useEffect(() => { void loadDevice(); void loadSettings() }, [loadDevice, loadSettings])
+  // Live-update the readout when a voice turn completes anywhere in the app.
+  useEffect(() => onVoiceTiming(setTiming), [])
+
+  const saveSetting = useCallback(async (key: string, value: unknown) => {
+    const cur = await fetch('/api/admin/voice/settings', { credentials: 'include' })
+    const settings = cur.ok ? (await cur.json() as { settings: Record<string, unknown> }).settings : {}
+    await fetch('/api/admin/voice/settings', {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...settings, [key]: value }),
+    })
+  }, [])
 
   const pick = async (device: string) => {
     setSelected(device)
@@ -473,6 +505,59 @@ export function VoiceEngine() {
             {bench.heard && <p className="mt-2 text-xs text-muted-foreground">Heard back: &ldquo;{bench.heard}&rdquo;</p>}
           </div>
         )}
+
+        {/* Endpoint speed: how long of a pause ends your turn. Lower = snappier, but
+            too low clips people who pause mid-thought. */}
+        <div className="space-y-2 border-t border-border/60 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Response speed</p>
+          <p className="text-xs text-muted-foreground">How long a pause means you&rsquo;re done talking. Lower is snappier; too low can cut you off mid-sentence.</p>
+          <div className="grid grid-cols-5 gap-2">
+            {[400, 500, 600, 700, 800].map((ms) => (
+              <button
+                key={ms}
+                type="button"
+                onClick={() => { setEndpointMs(ms); void saveSetting('voice.endpoint_silence_ms', ms) }}
+                className={cn(
+                  'rounded-card border py-2 text-sm font-semibold transition-all',
+                  endpointMs === ms ? 'border-brand/60 bg-brand/[0.07] text-brand' : 'border-border hover:border-foreground/20',
+                )}
+              >
+                {(ms / 1000).toFixed(1)}s
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Latency behaviour toggles (both default off; they can add delay). */}
+        <div className="space-y-2 border-t border-border/60 pt-4">
+          <ToggleRow
+            title="Say a quick acknowledgment on tool turns"
+            description="Speaks a short 'one sec' before answers that need a lookup (weather, search). Fills the wait, but delays the actual answer."
+            checked={toolAck}
+            onCheckedChange={() => { const v = !toolAck; setToolAck(v); void saveSetting('voice.tool_ack_enabled', v) }}
+          />
+          <ToggleRow
+            title="Warm up the model on wake"
+            description="Pre-loads the language model the moment the wake word fires. Can help long chats, but on a single-GPU box it may queue ahead of a quick reply and make simple answers slower."
+            checked={wakePrime}
+            onCheckedChange={() => { const v = !wakePrime; setWakePrime(v); void saveSetting('voice.wake_prime_enabled', v) }}
+          />
+        </div>
+
+        {/* Live timing readout: last completed voice turn, so you can see which stage is slow. */}
+        <div className="space-y-2 border-t border-border/60 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Last voice turn</p>
+          {timing ? (
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+              <span className="text-2xl font-bold tabular-nums">{(timing.totalMs / 1000).toFixed(1)}<span className="text-sm font-medium text-muted-foreground">s total</span></span>
+              {timing.endpointToFinalMs != null && <span className="text-xs text-muted-foreground">transcribe {timing.endpointToFinalMs} ms</span>}
+              {timing.finalToFirstTokenMs != null && <span className="text-xs text-muted-foreground">think {timing.finalToFirstTokenMs} ms</span>}
+              {timing.firstTokenToAudioMs != null && <span className="text-xs text-muted-foreground">speak {timing.firstTokenToAudioMs} ms</span>}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Say something hands-free, then come back here to see the breakdown (endpoint to transcript to first word).</p>
+          )}
+        </div>
       </div>
     </Card>
   )

@@ -31,6 +31,10 @@ const SETTING_KEYS = [
   'voice.device',
   // Trailing-silence endpoint timeout in ms (STT finalization). See lib/voice/config.
   'voice.endpoint_silence_ms',
+  // Speak a short "one sec" on tool turns (default off — the filler delays the answer).
+  'voice.tool_ack_enabled',
+  // Prefill the LLM prompt on wake (default off — can queue ahead of a quick turn).
+  'voice.wake_prime_enabled',
 ] as const
 
 adminVoice.get('/settings', requireAdmin, async (c) => {

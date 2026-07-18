@@ -26,6 +26,26 @@ let cur: TurnMarks = {}
 // reporting. Guards against a typed send's first-audio logging a stale timeline.
 let active = false
 
+// The last completed turn's breakdown, exposed so the admin Voice engine panel can
+// show a live readout (which stage is slow) without scraping the console.
+export interface VoiceTurnTiming {
+  endpointToFinalMs: number | null
+  finalToFirstTokenMs: number | null
+  firstTokenToAudioMs: number | null
+  totalMs: number
+  at: number
+}
+let lastTiming: VoiceTurnTiming | null = null
+const timingSubs = new Set<(t: VoiceTurnTiming) => void>()
+
+export function getLastVoiceTiming(): VoiceTurnTiming | null {
+  return lastTiming
+}
+export function onVoiceTiming(fn: (t: VoiceTurnTiming) => void): () => void {
+  timingSubs.add(fn)
+  return () => { timingSubs.delete(fn) }
+}
+
 /** Record one stage of the current voice turn on the frontend clock. */
 export function markVoice(name: VoiceMark): void {
   const t = performance.now()
@@ -71,5 +91,13 @@ function report(): void {
   const total = speechEnd != null ? firstAudio - speechEnd : firstAudio - final
   const totalLabel = speechEnd != null ? 'endpoint→audio' : 'final→audio'
   console.info(`[VOICE-TIMING] ${totalLabel}(total)=${total.toFixed(0)}ms · ${parts.join(' · ')}`)
+  lastTiming = {
+    endpointToFinalMs: speechEnd != null ? Math.round(final - speechEnd) : null,
+    finalToFirstTokenMs: firstToken != null ? Math.round(firstToken - final) : null,
+    firstTokenToAudioMs: firstToken != null ? Math.round(firstAudio - firstToken) : null,
+    totalMs: Math.round(total),
+    at: Date.now(),
+  }
+  for (const fn of timingSubs) fn(lastTiming)
   resetVoiceTiming()
 }
