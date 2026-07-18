@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { DeviceDetailDialog, type HAEntity } from '@/components/homeassistant/DeviceDetailDialog'
 import { DeviceCard, isEntityOn, isUnavailable, type CardAction } from '@/components/homeassistant/DeviceCard'
+import { HA_FAVORITES_KEY, HA_RECENTS_KEY, idList, pushHaRecent, saveHaRecents } from '@/lib/haRecents'
 import { cn } from '@/lib/cn'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -363,6 +364,7 @@ export function HomeAssistantPage() {
   const [selectedTab, setSelectedTab] = useState(ALL_TAB)
   const [sheetId, setSheetId] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<string[]>([])
+  const [recents, setRecents] = useState<string[]>([])
   const [bulkBusy, setBulkBusy] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
@@ -377,11 +379,20 @@ export function HomeAssistantPage() {
     fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((prefs: Record<string, unknown> | null) => {
-        const fav = prefs?.['ha.favorites']
-        if (Array.isArray(fav)) setFavorites(fav.filter((v): v is string => typeof v === 'string'))
+        setFavorites(idList(prefs?.[HA_FAVORITES_KEY]))
+        setRecents(idList(prefs?.[HA_RECENTS_KEY]))
       })
       .catch(() => {})
   }, [user?.id])
+
+  // Feeds the dock's Devices tab: any device controlled here lands in Recent.
+  function recordRecent(entityId: string) {
+    setRecents((prev) => {
+      const next = pushHaRecent(prev, entityId)
+      if (user?.id) saveHaRecents(user.id, next)
+      return next
+    })
+  }
 
   function toggleFavorite(entity: HAEntity) {
     if (!user?.id) return
@@ -393,7 +404,7 @@ export function HomeAssistantPage() {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 'ha.favorites': next }),
+      body: JSON.stringify({ [HA_FAVORITES_KEY]: next }),
     }).catch(() => {})
   }
 
@@ -444,6 +455,7 @@ export function HomeAssistantPage() {
         if (optimistic) setOverrides((prev) => ({ ...prev, [entity.entity_id]: prevState }))
         setErrorId(entity.entity_id)
       } else {
+        recordRecent(entity.entity_id)
         await queryClient.refetchQueries({ queryKey: ['home-assistant-entities'] })
         setOverrides((prev) => { const next = { ...prev }; delete next[entity.entity_id]; return next })
       }

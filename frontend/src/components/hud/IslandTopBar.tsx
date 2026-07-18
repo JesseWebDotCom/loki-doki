@@ -1,6 +1,7 @@
-import { Activity, AppWindow, Bell, CalendarDays, CloudSun, Command, FolderUp, Home, Music, Settings, Timer, Zap } from 'lucide-react'
+import { Activity, AppWindow, Bell, CalendarDays, CloudSun, Command, FolderUp, Home, Lamp, Music, Settings, Timer, Zap } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
+import { useInstalledTools, isAppVisible } from '@/hooks/useInstalledTools'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useServerHealth } from '@/context/ServerHealthContext'
 import { useBattery } from './useBattery'
@@ -11,14 +12,23 @@ import { NOTCH_CORE_W } from './IslandCompact'
 // RIGHT shoulder, and a dead center gap where the physical notch cuts the
 // screen. Content below the bar is therefore always notch-safe.
 
-export type IslandTab = 'home' | 'actions' | 'music' | 'weather' | 'calendar' | 'shelf' | 'focus' | 'stats' | 'settings'
+export type IslandTab = 'home' | 'actions' | 'devices' | 'music' | 'weather' | 'calendar' | 'shelf' | 'focus' | 'stats' | 'settings'
 
 /** Cycle order for the side chevrons; settings is gear-only by design. */
-export const ISLAND_TABS: IslandTab[] = ['home', 'actions', 'music', 'weather', 'calendar', 'shelf', 'focus', 'stats']
+export const ISLAND_TABS: IslandTab[] = ['home', 'actions', 'devices', 'music', 'weather', 'calendar', 'shelf', 'focus', 'stats']
+
+/** Tabs visible on this install: Devices only exists when the Home Assistant
+ *  app is installed, matching launcher visibility. Drives both the tab bar
+ *  and the chevron/swipe cycle so hidden tabs are never reachable. */
+export function useIslandTabs(): IslandTab[] {
+  const { enabledToolIds } = useInstalledTools()
+  return ISLAND_TABS.filter((t) => t !== 'devices' || isAppVisible('homeAssistant', enabledToolIds))
+}
 
 const TAB_META: { tab: IslandTab; icon: typeof Home; label: string }[] = [
   { tab: 'home', icon: Home, label: 'Home' },
   { tab: 'actions', icon: Command, label: 'Actions' },
+  { tab: 'devices', icon: Lamp, label: 'Devices' },
   { tab: 'music', icon: Music, label: 'Music' },
   { tab: 'weather', icon: CloudSun, label: 'Weather' },
   { tab: 'calendar', icon: CalendarDays, label: 'Calendar' },
@@ -54,12 +64,13 @@ export function IslandTopBar({ tab, setTab, topInset }: {
   const { unreadCount } = useNotifications()
   const { reachable } = useServerHealth()
   const battery = useBattery()
+  const visibleTabs = useIslandTabs()
 
   return (
     <div className="flex items-center" style={{ height: Math.max(topInset, 36) }}>
       {/* Left shoulder: module tabs */}
       <div className="flex flex-1 items-center gap-0.5">
-        {TAB_META.map((m) => (
+        {TAB_META.filter((m) => visibleTabs.includes(m.tab)).map((m) => (
           <Button
             key={m.tab}
             variant="ghost"

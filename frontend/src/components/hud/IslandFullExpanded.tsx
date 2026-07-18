@@ -12,9 +12,10 @@ import { Indicator } from '@/components/shell/CompanionDock'
 import { useCompanionEngine } from '@/components/shell/CompanionEngineContext'
 import { PendingActionButtons } from '@/components/companion/PendingActionButtons'
 import { useVisionStatus } from '@/hooks/useVisionStatus'
-import { IslandTopBar, ISLAND_TABS, type IslandTab } from './IslandTopBar'
+import { IslandTopBar, useIslandTabs, type IslandTab } from './IslandTopBar'
 import { IslandPageHome } from './pages/IslandPageHome'
 import { IslandPageActions } from './pages/IslandPageActions'
+import { IslandPageDevices } from './pages/IslandPageDevices'
 import { IslandPageMusic } from './pages/IslandPageMusic'
 import { IslandPageWeather } from './pages/IslandPageWeather'
 import { IslandPageCalendar } from './pages/IslandPageCalendar'
@@ -46,10 +47,11 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
   // Web Audio analyser lives in this window), behind all panel content.
   const showStrip = radio.visualizerEnabled && nowPlaying?.tier === 1 && nowPlaying.source === 'radio'
 
+  const cycleTabs = useIslandTabs()
   const cycleTab = (dir: 1 | -1) => {
-    const i = ISLAND_TABS.indexOf(tab)
-    const next = i === -1 ? 0 : (i + dir + ISLAND_TABS.length) % ISLAND_TABS.length
-    setTab(ISLAND_TABS[next]!)
+    const i = cycleTabs.indexOf(tab)
+    const next = i === -1 ? 0 : (i + dir + cycleTabs.length) % cycleTabs.length
+    setTab(cycleTabs[next]!)
   }
 
   // Swipe page navigation: a horizontal two-finger trackpad scroll (wheel
@@ -139,6 +141,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
         >
           {tab === 'home' && <IslandPageHome nowPlaying={nowPlaying} />}
           {tab === 'actions' && <IslandPageActions />}
+          {tab === 'devices' && <IslandPageDevices />}
           {tab === 'music' && <IslandPageMusic onStarted={() => setTab('home')} />}
           {tab === 'weather' && <IslandPageWeather />}
           {tab === 'calendar' && <IslandPageCalendar />}
