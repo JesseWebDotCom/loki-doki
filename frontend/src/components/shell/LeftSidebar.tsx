@@ -67,6 +67,7 @@ import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { TesterDialog } from "@/components/diagnostics/TesterDialog";
 import { DesktopAppDialog } from "@/components/shared/DesktopAppDialog";
+import { useDesktopAppStatus } from "@/lib/desktopApp";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useNotifications } from "@/hooks/useNotifications";
 import { notifIcon, notifLabel, timeAgo } from "@/lib/notifications";
@@ -374,6 +375,7 @@ export function LeftSidebar() {
   const [launcherOpen, setLauncherOpen] = useState(false)
   const [testerOpen, setTesterOpen] = useState(false)
   const [desktopAppOpen, setDesktopAppOpen] = useState(false)
+  const desktopStatus = useDesktopAppStatus()
   const { unreadCount, notifications, digest, loadNotifications, markRead, markAllRead } = useNotifications()
   const [notifOpen, setNotifOpen] = useState(false)
   const presence = usePresenceStatus(user?.id)
@@ -692,16 +694,31 @@ export function LeftSidebar() {
                   <FlaskConical className="size-4" />
                   Tester
                 </DropdownMenuItem>
-                {/* Doki Dock installer, pointless when already inside the shell. */}
-                {!window.lokiDesktop && (
-                  <DropdownMenuItem
-                    onClick={() => setDesktopAppOpen(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <MonitorDown className="size-4" />
-                    Get the desktop app
-                  </DropdownMenuItem>
-                )}
+                {/* Doki Dock: an installer in the browser; inside the shell it
+                    shows installed / update-available status instead. */}
+                <DropdownMenuItem
+                  onClick={() => setDesktopAppOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <MonitorDown className="size-4" />
+                  {desktopStatus.installed ? "Desktop app" : "Get the desktop app"}
+                  {desktopStatus.installed && (
+                    <span
+                      className={cn(
+                        "ml-auto text-caption",
+                        desktopStatus.updateAvailable
+                          ? "font-medium text-primary"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {desktopStatus.updateAvailable
+                        ? desktopStatus.latestVersion
+                          ? `Update to v${desktopStatus.latestVersion}`
+                          : "Update available"
+                        : "Installed"}
+                    </span>
+                  )}
+                </DropdownMenuItem>
                 {connectivity && (
                   <DropdownMenuItem
                     onClick={toggleConnectivity}

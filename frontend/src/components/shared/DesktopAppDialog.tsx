@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { formatBytes } from '@/lib/archiveCategories'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/cn'
+import { useDesktopAppStatus } from '@/lib/desktopApp'
 
 // "Get the desktop app" dialog, opened from the profile menu. Fully local:
 // installers are built by this server from the bundled desktop/ source
@@ -52,6 +53,7 @@ export function DesktopAppDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { user } = useAuth()
+  const desktopStatus = useDesktopAppStatus()
   const [release, setRelease] = useState<DesktopReleaseInfo | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -179,6 +181,33 @@ export function DesktopAppDialog({
           </p>
         ) : release ? (
           <div className="space-y-4">
+            {desktopStatus.installed && (
+              <div
+                className={cn(
+                  'rounded-control p-3 text-xs',
+                  desktopStatus.updateAvailable
+                    ? 'bg-primary/10 text-foreground'
+                    : 'bg-secondary/60 text-muted-foreground',
+                )}
+              >
+                {desktopStatus.updateAvailable ? (
+                  <>
+                    <p className="font-semibold text-foreground">
+                      Update available{desktopStatus.latestVersion ? ` — v${desktopStatus.latestVersion}` : ''}
+                    </p>
+                    <p className="mt-0.5">
+                      You're running {desktopStatus.installedVersion ? `v${desktopStatus.installedVersion}` : 'an older version'}.
+                      Download the latest below, then reinstall over the current app.
+                    </p>
+                  </>
+                ) : (
+                  <p className="font-semibold text-foreground">
+                    Doki Dock is installed{desktopStatus.installedVersion ? ` (v${desktopStatus.installedVersion})` : ''}
+                    {desktopStatus.installedVersion && desktopStatus.latestVersion ? ' — up to date' : ''}.
+                  </p>
+                )}
+              </div>
+            )}
             {assets.length > 0 && (
               <div className="space-y-2">
                 {assets.map((a) => (

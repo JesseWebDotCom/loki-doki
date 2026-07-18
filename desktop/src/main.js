@@ -112,6 +112,9 @@ function openSetup() {
   })
 }
 
+// Running shell version, for the web app's "Get the desktop app" menu status.
+ipcMain.handle('app:version', () => app.getVersion())
+
 ipcMain.handle('setup:current-url', () => currentSettings.serverUrl)
 
 ipcMain.handle('setup:validate', async (_event, raw) => {

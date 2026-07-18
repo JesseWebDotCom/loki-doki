@@ -7,6 +7,12 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('lokiDesktop', {
   platform: process.platform,
 
+  // Running shell version (app package.json), so the web app can show
+  // installed / update-available state in the "Get the desktop app" menu.
+  getAppVersion() {
+    return ipcRenderer.invoke('app:version')
+  },
+
   // shell → page: hotkey/tray toggled listening
   onSetListening(cb) {
     const handler = (_event, on) => cb(!!on)

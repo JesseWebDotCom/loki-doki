@@ -95,6 +95,8 @@ export interface FsAccessEntry {
 
 export interface LokiDesktopBridge {
   platform: string
+  /** Running shell version (newer shells only); undefined on older installs. */
+  getAppVersion?: () => Promise<string>
   /** Subscribe to listen-toggle commands from the shell (hotkey/tray). Returns unsubscribe. */
   onSetListening: (cb: (on: boolean) => void) => () => void
   /** Hotkey pressed while the HUD is visible: flip between base capsule and composer. Returns unsubscribe. */
