@@ -3988,6 +3988,17 @@ export function runMigrations() {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS podcast_ad_reports_episode_idx ON podcast_ad_reports(episode_id);
+    CREATE TABLE IF NOT EXISTS podcast_ad_fingerprints (
+      id TEXT NOT NULL PRIMARY KEY,
+      show_id TEXT NOT NULL REFERENCES podcast_shows(id) ON DELETE CASCADE,
+      sig TEXT NOT NULL,
+      fp BLOB NOT NULL,
+      frames INTEGER NOT NULL,
+      duration_sec INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(show_id, sig)
+    );
+    CREATE INDEX IF NOT EXISTS podcast_ad_fingerprints_show_idx ON podcast_ad_fingerprints(show_id);
 
     CREATE TABLE IF NOT EXISTS podcast_moments (
       id TEXT NOT NULL PRIMARY KEY,

@@ -305,6 +305,7 @@ export async function runPodcastAdScanJob(
   const { episodeId } = payload
   const [episode] = await db.select({
     id: podcastEpisodes.id, title: podcastEpisodes.title, durationSec: podcastEpisodes.durationSec,
+    assetId: podcastEpisodes.assetId, enclosureUrl: podcastEpisodes.enclosureUrl, showId: podcastEpisodes.showId,
   }).from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId)).limit(1)
   if (!episode) throw new Error(`Unknown episode ${episodeId}`)
 
@@ -359,6 +360,30 @@ export async function runPodcastAdScanJob(
     // missed still get caught (the merge below dedupes overlap with the model's ranges).
     ranges.push(...heuristicAdRanges(transcript.segments))
 
+    // Methods 3 + 4 (audio, best-effort): the two-fetch diff catches dynamically-inserted
+    // ads that carry no text signal (a slick brand ad), and the known-ad memory catches
+    // recurring sponsor reads. Both operate on the downloaded copy's timeline (same as the
+    // transcript), so their ranges union cleanly. Any failure adds nothing.
+    let canonicalFp: Uint32Array | null = null
+    let diffRanges: { startSec: number; endSec: number; kind: AdSegment['kind']; confidence: number }[] = []
+    try {
+      const fp = await import('@/lib/podcast/adFingerprint')
+      // total 0 -> the client shows this note verbatim instead of a percentage.
+      const audioNote = (note: string) => onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, note })
+      audioNote('Comparing audio for inserted ads')
+      const res = await fp.detectDaiAdsByDiff(
+        { id: episodeId, assetId: episode.assetId, enclosureUrl: episode.enclosureUrl, showId: episode.showId },
+        signal,
+        audioNote,
+      )
+      canonicalFp = res.canonicalFp
+      diffRanges = res.ranges
+      ranges.push(...diffRanges)
+      ranges.push(...await fp.matchKnownAds(episode.showId, canonicalFp))
+    } catch (err) {
+      logger.warn(`[podcast-ad-scan] audio pass failed for ${episodeId}: ${String(err).slice(0, 160)}`)
+    }
+
     // Times already come straight from transcript segment boundaries (no model-computed
     // seconds), so no snapping is needed; just drop anything too short after the merge.
     const snapped = ranges.filter(r => r.endSec - r.startSec >= MIN_AD_SEC)
@@ -372,6 +397,15 @@ export async function runPodcastAdScanJob(
     })
     onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Ad scan ready' })
     logger.info(`[podcast-ad-scan] "${episode.title}": ${segments.length} ad segment(s) across ${windows.length} window(s)`)
+
+    // Remember the audio-confirmed (diff) ads so this show's recurring sponsor reads are
+    // caught in future episodes. Only the diff ranges (high precision), not LLM guesses.
+    if (canonicalFp && diffRanges.length) {
+      try {
+        const fp = await import('@/lib/podcast/adFingerprint')
+        await fp.rememberAds(episode.showId, diffRanges, canonicalFp)
+      } catch { /* best-effort */ }
+    }
   } catch (err) {
     // Retries re-enter through the scheduler; the terminal-failure hook flips the row
     // to 'failed'. Reset to 'pending' here so the UI shows "queued" between attempts.

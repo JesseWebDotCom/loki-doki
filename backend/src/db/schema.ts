@@ -3996,6 +3996,22 @@ export const podcastAdScans = sqliteTable('podcast_ad_scans', {
   episodeUnique: unique().on(t.episodeId),
 }))
 
+// ChromaPrint-style ad memory: the acoustic fingerprint of a confirmed ad (from the
+// audio two-fetch diff), so a recurring sponsor read is recognized in future episodes of
+// the show without a second fetch. fp is a packed Uint32 sub-fingerprint sequence.
+export const podcastAdFingerprints = sqliteTable('podcast_ad_fingerprints', {
+  id: text('id').primaryKey(),
+  showId: text('show_id').notNull().references(() => podcastShows.id, { onDelete: 'cascade' }),
+  sig: text('sig').notNull(),                 // cheap dedupe key (mid-frame hash : length)
+  fp: blob('fp').notNull(),
+  frames: integer('frames').notNull(),
+  durationSec: integer('duration_sec').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  showIdx: index('podcast_ad_fingerprints_show_idx').on(t.showId),
+  showSigUnique: unique().on(t.showId, t.sig),
+}))
+
 // User corrections to ad detection. kind 'not_ad' disables a detected range,
 // matched by time overlap so it keeps suppressing after a rescan regenerates
 // segments with fresh ids; kind 'missed' records a spot the scan missed and
