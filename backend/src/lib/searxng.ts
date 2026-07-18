@@ -591,7 +591,7 @@ export async function getSearXNGInfo(): Promise<SearXNGInfo> {
 
 // ── query ────────────────────────────────────────────────────────────────────────
 
-export interface SearxResult { title: string; snippet: string; url: string }
+export interface SearxResult { title: string; snippet: string; url: string; thumbnail?: string }
 
 /**
  * Query the local SearXNG JSON API. Returns up to `limit` results, or [] when the
@@ -607,11 +607,19 @@ export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000, 
     const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&safesearch=${safesearch}`
     const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return []
-    const data = await res.json() as { results?: Array<{ title?: string; content?: string; url?: string }> }
+    const data = await res.json() as {
+      results?: Array<{ title?: string; content?: string; url?: string; img_src?: string; thumbnail?: string }>
+    }
     return (data.results ?? [])
       .filter(r => r.url && r.title)
       .slice(0, limit)
-      .map(r => ({ title: r.title!, snippet: r.content ?? '', url: r.url! }))
+      .map(r => ({
+        title: r.title!, snippet: r.content ?? '', url: r.url!,
+        // Some general-category engines (Bing/Brave/Startpage via SearXNG) attach a
+        // thumbnail even outside the images category — opportunistic, most results
+        // won't have one and the frontend falls back to a favicon.
+        thumbnail: r.img_src || r.thumbnail || undefined,
+      }))
   } catch { return [] }
 }
 

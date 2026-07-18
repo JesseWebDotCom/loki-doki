@@ -33,6 +33,9 @@ export interface WebResult {
   snippet: string
   url: string
   engine?: string
+  /** Opportunistic thumbnail (SearXNG-only, when the underlying engine attaches
+   *  one to a general-category result). Absent for most results. */
+  thumbnail?: string
 }
 
 const UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0'
@@ -55,7 +58,7 @@ async function searxng(query: string, limit: number, timeoutMs: number, safesear
   // Returns [] unless the sidecar is installed and 'ready' (self-gated in searxngSearch),
   // so this is a no-op until SearXNG is set up — webSearch then runs purely on the scrapers.
   const results = await searxngSearch(query, limit, timeoutMs, safesearch)
-  return results.map(r => ({ title: r.title, snippet: r.snippet, url: r.url, engine: 'searxng' }))
+  return results.map(r => ({ title: r.title, snippet: r.snippet, url: r.url, engine: 'searxng', thumbnail: r.thumbnail }))
 }
 
 // ── Engine: Google (via google-sr) ───────────────────────────────────────────────

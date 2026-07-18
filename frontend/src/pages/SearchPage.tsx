@@ -8,12 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { AiOverviewCard } from '@/components/search/AiOverviewCard'
+import { SearchResultRow } from '@/components/search/SearchResultRow'
 
 interface WebResult {
   title: string
   snippet: string
   url: string
   engine?: string
+  thumbnail?: string
 }
 
 interface ImageResult {
@@ -34,15 +36,6 @@ async function fetchWebSearch(query: string): Promise<WebSearchResponse> {
   const r = await fetch(`/api/search/web?q=${encodeURIComponent(query)}`, { credentials: 'include' })
   if (!r.ok) throw new Error('Request failed')
   return r.json() as Promise<WebSearchResponse>
-}
-
-function displayUrl(url: string): string {
-  try {
-    const u = new URL(url)
-    return u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : '')
-  } catch {
-    return url
-  }
 }
 
 function SkeletonLines() {
@@ -128,10 +121,11 @@ export function SearchPage() {
   const showLoading = isFetching && !!submittedQuery
   const showNoResults = !isFetching && submittedQuery && data && data.web.length === 0 && data.images.length === 0
   const showResults = !isFetching && data && (data.web.length > 0 || data.images.length > 0)
+  const imageStrip = view === 'web' && data ? data.images.slice(0, 8) : []
 
   return (
     <PageShell>
-      <PageContainer width="narrow" className="flex flex-col gap-6 pt-6 pb-10">
+      <PageContainer width="default" className="pt-6 pb-10">
 
         {/* Empty state */}
         {showEmpty && (
@@ -147,65 +141,94 @@ export function SearchPage() {
           </div>
         )}
 
-        {/* AI Overview: streams independently of the plain link list below, so it
-            never waits on (or blocks) the rest of the page. */}
-        {submittedQuery && <AiOverviewCard query={submittedQuery} />}
+        {/* Two-column layout once a search is underway: AI Overview sits in a right-hand
+            rail (same grid+sticky-aside pattern as the video watch page), the plain
+            results in the main column. The aside is FIRST in DOM (mobile shows the AI
+            answer above the results, which is what you want on a phone) and only moves
+            visually to column 2 at the `xl` breakpoint via explicit grid placement. */}
+        {submittedQuery && (
+          <div className="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[1fr_400px]">
+            <aside className="min-w-0 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1 xl:self-start">
+              <AiOverviewCard query={submittedQuery} />
+            </aside>
 
-        {/* Loading skeleton */}
-        {showLoading && <SkeletonLines />}
+            <div className="min-w-0 space-y-6 xl:col-start-1 xl:row-start-1">
+              {showLoading && <SkeletonLines />}
 
-        {/* No results */}
-        {showNoResults && (
-          <div className="flex flex-col items-center gap-3 py-24 text-center">
-            <SearchIcon className="size-12 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">
-              No results for <span className="font-semibold text-foreground">{submittedQuery}</span>
-            </p>
-          </div>
-        )}
+              {showNoResults && (
+                <div className="flex flex-col items-center gap-3 py-24 text-center">
+                  <SearchIcon className="size-12 text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground">
+                    No results for <span className="font-semibold text-foreground">{submittedQuery}</span>
+                  </p>
+                </div>
+              )}
 
-        {/* Results */}
-        {showResults && data && (
-          <div className="animate-in fade-in space-y-6 duration-300">
-            {view === 'web' && (
-              <ul className="space-y-6">
-                {data.web.map((r, i) => (
-                  <li key={i} className="space-y-1">
-                    <a
-                      href={r.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-lg font-medium text-brand hover:underline"
-                    >
-                      {r.title}
-                    </a>
-                    <p className="text-xs text-muted-foreground">{displayUrl(r.url)}</p>
-                    {r.snippet && <p className="text-sm leading-relaxed text-foreground/90">{r.snippet}</p>}
-                  </li>
-                ))}
-              </ul>
-            )}
+              {showResults && data && (
+                <div className="animate-in fade-in space-y-6 duration-300">
+                  {view === 'web' && (
+                    <>
+                      {imageStrip.length > 0 && (
+                        <div>
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Images</p>
+                            <button
+                              type="button"
+                              onClick={() => setView('images')}
+                              className="text-xs font-medium text-brand hover:underline"
+                            >
+                              See all
+                            </button>
+                          </div>
+                          <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
+                            {imageStrip.map((img, i) => (
+                              <a
+                                key={i}
+                                href={img.imageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="size-28 shrink-0 snap-start overflow-hidden rounded-control border border-border/50 bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
+                              >
+                                <img src={img.thumbnailUrl} alt={img.title} loading="lazy" className="size-full object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-            {view === 'images' && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {data.images.map((img, i) => (
-                  <a
-                    key={i}
-                    href={img.imageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group overflow-hidden rounded-card border bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    <img
-                      src={img.thumbnailUrl}
-                      alt={img.title}
-                      loading="lazy"
-                      className="aspect-square w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  </a>
-                ))}
-              </div>
-            )}
+                      <ul className="divide-y divide-border/40">
+                        {data.web.map((r, i) => (
+                          <li key={i} className="py-4 first:pt-0">
+                            <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+
+                  {view === 'images' && (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-3">
+                      {data.images.map((img, i) => (
+                        <a
+                          key={i}
+                          href={img.imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group overflow-hidden rounded-card border bg-muted/30 shadow-sm transition-shadow hover:shadow-md"
+                        >
+                          <img
+                            src={img.thumbnailUrl}
+                            alt={img.title}
+                            loading="lazy"
+                            className="aspect-square w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </PageContainer>
