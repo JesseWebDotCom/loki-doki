@@ -21,6 +21,8 @@
 // DSP posture: the chain is ADDITIVE and never load-bearing - mixing stays on el.volume,
 // and if the graph fails to attach, playback still works, just un-EQ'd.
 
+import { webAudioBreaksBackgroundPlayback } from '@/lib/platform'
+
 export const EQ_BANDS_HZ = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const
 export type EqGains = number[]   // dB per band, length 10, ±12
 
@@ -69,6 +71,15 @@ function ensureContext(): AudioContext | null {
   if (!Ctor) return null
   try { sharedCtx = new Ctor() } catch { return null }
   return sharedCtx
+}
+
+// Safety net where the graph DOES attach: if the context got suspended while the
+// page was hidden (tab throttling, an audio-session interruption), nudge it back
+// as soon as the page returns to the foreground so playback isn't left silent.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && sharedCtx && sharedCtx.state !== 'running') void sharedCtx.resume?.()
+  })
 }
 
 function tuneAnalyser(a: AnalyserNode) {
@@ -130,6 +141,10 @@ export function setLoudnessTrimDb(el: HTMLMediaElement, db: number): void {
  *  the element was already sourced by something outside this module. Also nudges the shared
  *  context out of 'suspended' - safe to call repeatedly. */
 export function ensureMediaGraph(el: HTMLMediaElement, opts?: { kind?: 'music' | 'voice' }): MediaAudioGraph | null {
+  // iOS: sourcing an element into an AudioContext kills background/lock-screen
+  // playback (the context suspends when the app hides, taking the audio with it).
+  // The chain is additive by contract, so skipping it leaves playback intact.
+  if (webAudioBreaksBackgroundPlayback()) return null
   const actx = ensureContext()
   if (!actx) return null
   void actx.resume?.()

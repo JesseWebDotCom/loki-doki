@@ -7,6 +7,16 @@ export function isIOS(): boolean {
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
 }
 
+/** True where routing media elements through Web Audio breaks background playback:
+ *  iOS suspends the page's AudioContext when the app is backgrounded or the phone
+ *  locks, which silences (and soon pauses) any element sourced into a DSP graph,
+ *  even though the bare element would have kept playing on the lock screen. The
+ *  DSP graphs are additive by contract, so on these platforms they simply must not
+ *  attach: playback works un-EQ'd and survives app switches and the lock screen. */
+export function webAudioBreaksBackgroundPlayback(): boolean {
+  return isIOS()
+}
+
 /** Any WebKit Safari (macOS or iOS) - the engine without programmatic-PiP-on-hide. */
 export function isSafari(): boolean {
   const ua = navigator.userAgent

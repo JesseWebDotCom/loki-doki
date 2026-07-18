@@ -16,6 +16,8 @@
 // the graph is built at most once (WeakMap) and never torn down; the chain is ADDITIVE -
 // if attach fails, playback still works, just without boost/trim.
 
+import { webAudioBreaksBackgroundPlayback } from '@/lib/platform'
+
 export interface PodcastDspSettings {
   voiceBoost: boolean
   trimSilence: boolean
@@ -59,6 +61,14 @@ function ensureContext(): AudioContext | null {
   return sharedCtx
 }
 
+// Same safety net as mediaAudioGraph: a context suspended while hidden would leave
+// the podcast silent after returning to the foreground.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && sharedCtx && sharedCtx.state !== 'running') void sharedCtx.resume?.()
+  })
+}
+
 const ramp = (param: AudioParam, value: number, ctx: AudioContext, tc = 0.05) => {
   try { param.setTargetAtTime(value, ctx.currentTime, tc) } catch { param.value = value }
 }
@@ -71,6 +81,11 @@ function applyToGraph(g: PodcastGraph) {
 /** Get (or build) the podcast element's graph. Call from a gesture-adjacent moment
  *  (the element's own 'play' event); safe to call repeatedly. */
 export function ensurePodcastGraph(el: HTMLMediaElement): PodcastGraph | null {
+  // iOS: sourcing the element into an AudioContext kills background/lock-screen
+  // playback (the context suspends when the app hides). The no-graph fallback
+  // below (volume/duck/fade on the element itself) covers everything but voice
+  // boost and trim silence, which quietly disable on these platforms.
+  if (webAudioBreaksBackgroundPlayback()) return null
   const ctx = ensureContext()
   if (!ctx) return null
   void ctx.resume?.()

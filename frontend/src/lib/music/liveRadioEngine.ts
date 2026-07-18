@@ -14,6 +14,8 @@
 // proxied, so createMediaElementSource carries real samples (see radioEngine.ts for the full
 // history of the cross-origin-silence gotcha).
 
+import { webAudioBreaksBackgroundPlayback } from '@/lib/platform'
+
 export type LiveRadioMode = 'live' | 'recording'
 
 export interface LiveStationRef { id: string; name: string; favicon?: string | null }
@@ -99,6 +101,9 @@ export class LiveRadioEngine {
    *  so the context isn't born suspended. */
   private ensureAnalyser() {
     if (this.analyser || !this.el) return
+    // iOS: the analyser tap would route playback through an AudioContext, which
+    // suspends when the app hides and kills lock-screen audio. Visualizer only.
+    if (webAudioBreaksBackgroundPlayback()) return
     try {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       if (!Ctor) return

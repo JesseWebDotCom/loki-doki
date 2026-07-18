@@ -364,7 +364,9 @@ export function HomeAssistantPage() {
   const [selectedTab, setSelectedTab] = useState(ALL_TAB)
   const [sheetId, setSheetId] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<string[]>([])
-  const [recents, setRecents] = useState<string[]>([])
+  // Recents are write-only here (the dock's Devices tab reads them); keep the
+  // setter, drop the unused value so tsc's noUnusedLocals gate stays green.
+  const [, setRecents] = useState<string[]>([])
   const [bulkBusy, setBulkBusy] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
