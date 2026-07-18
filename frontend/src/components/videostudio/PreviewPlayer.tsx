@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { useEditor } from '@/components/videostudio/editorStore'
 import { edlDurationSec, locate } from '@/components/videostudio/edl'
 import { studioStreamUrl } from '@/lib/videos/studioApi'
+import { useCompatSource } from '@/hooks/use-compat-source'
 
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60)
@@ -28,6 +29,10 @@ export function PreviewPlayer() {
   const loc = useMemo(() => locate(state.edl, state.playheadSec), [state.edl, state.playheadSec])
   const activeClip = loc ? state.edl.video[loc.index] ?? null : null
 
+  // Uploaded bin sources can be mkv/mov/hevc the browser can't decode: on a media error
+  // this swaps to (and if needed, queues) a server-transcoded rendition of the clip.
+  const compat = useCompatSource(videoRef, activeClip ? `/api/videos/studio/media/${activeClip.assetId}/compat` : null)
+
   // Keep the element bound to the active clip's source + position. Only hard-seek when
   // the drift is visible (paused scrubbing or a cut); while playing, the element's own
   // clock is the source of truth between cuts.
@@ -36,6 +41,13 @@ export function PreviewPlayer() {
     if (!video || !activeClip || !loc) return
     const want = studioStreamUrl(activeClip.assetId)
     const absolute = new URL(want, window.location.origin).href
+    if (compat.active) {
+      // The compat hook re-pointed the element at a transcoded rendition; keep clock
+      // duties but never fight it over src.
+      video.playbackRate = activeClip.speed
+      video.muted = activeClip.muted
+      return
+    }
     if (video.src !== absolute) {
       video.src = want
       video.currentTime = loc.sourceSec
@@ -49,7 +61,7 @@ export function PreviewPlayer() {
     if (!playing && Math.abs(video.currentTime - loc.sourceSec) > 0.08) {
       video.currentTime = loc.sourceSec
     }
-  }, [activeClip, loc, playing])
+  }, [activeClip, loc, playing, compat.active])
 
   // rAF master clock: advance the timeline playhead while playing; swap clips at cuts.
   useEffect(() => {
@@ -90,7 +102,15 @@ export function PreviewPlayer() {
         {empty ? (
           <p className="p-8 text-center text-sm text-white/50">Add media from the bin to start editing.</p>
         ) : (
-          <video ref={videoRef} playsInline className="max-h-full max-w-full" />
+          <>
+            <video ref={videoRef} playsInline className="max-h-full max-w-full" />
+            {(compat.preparing || compat.failed) && (
+              <span aria-live="polite"
+                className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs font-medium text-white">
+                {compat.failed ? 'Couldn’t convert this clip' : `Making playable…${compat.progressPct != null ? ` ${compat.progressPct}%` : ''}`}
+              </span>
+            )}
+          </>
         )}
       </div>
       <div className="mt-2 flex items-center gap-2">

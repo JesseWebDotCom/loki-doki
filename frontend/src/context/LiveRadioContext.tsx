@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from 'react'
 import { LiveRadioEngine, initialLiveRadioState, type LiveRadioState, type LiveStationRef, type LiveRecordingRef } from '@/lib/music/liveRadioEngine'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { clearNowPlaying, setNowPlaying, setNowPlayingState } from '@/lib/mediaSession'
 import { registerDuckable } from '@/lib/speechDucking'
 import { uuid } from '@/lib/uuid'
 
@@ -56,6 +57,20 @@ export function LiveRadioProvider({ children }: { children: ReactNode }) {
     wasActiveRef.current = state.active
     lastKeyRef.current = key
   }, [state.active, state.station?.id, state.recording?.id])
+
+  // Lock-screen / control-center card for live radio ('liveRadio' coordinator transport).
+  useEffect(() => {
+    if (!state.active) { clearNowPlaying('liveRadio'); return }
+    const title = state.station?.name ?? state.recording?.title ?? 'Live Radio'
+    setNowPlaying('liveRadio', {
+      title,
+      artist: state.recording?.stationName ?? (state.station ? 'Live Radio' : undefined),
+      artworkUrl: state.station?.favicon || undefined,
+    })
+  }, [state.active, state.station, state.recording])
+  useEffect(() => {
+    if (state.active) setNowPlayingState('liveRadio', state.paused ? 'paused' : 'playing')
+  }, [state.active, state.paused])
 
   // Report now-playing to the server so the controller surface + screen devices reflect the
   // active station. Reported as source 'radio' — the backend's NowPlayingSource union is

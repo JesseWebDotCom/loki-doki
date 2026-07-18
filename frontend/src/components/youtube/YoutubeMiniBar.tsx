@@ -7,6 +7,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { registerTransport, acquireAudio } from '@/lib/mediaCoordinator'
+import { clearNowPlaying, setNowPlaying, setNowPlayingPosition, setNowPlayingState } from '@/lib/mediaSession'
+import { useAutoPip } from '@/hooks/use-auto-pip'
 import { CompactMediaBar } from '@/components/shell/CompactMediaBar'
 import { fileUrl, proxyStreamUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { proxyImg } from '@/lib/img'
@@ -38,6 +40,8 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
   const ytRef = useRef<any>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioStreamRef = useRef<HTMLAudioElement>(null)
+  // Docked real-<video> playback pops into PiP on app/tab switch like the full player.
+  useAutoPip(videoRef)
   const vimeoIframeRef = useRef<HTMLIFrameElement | null>(null)
   const vimeoPlayingRef = useRef(false)
   const vimeoPosRef = useRef(0)
@@ -367,11 +371,29 @@ export function YoutubeMiniBar({ visible = true }: { visible?: boolean }) {
           playing: s?.playing ?? false,
         }),
       }).catch(() => {})
+      setNowPlayingState('youtube', s?.playing ? 'playing' : 'paused')
+      setNowPlayingPosition('youtube', s?.t ?? 0, s?.d ?? 0)
     }
     report()
     const iv = setInterval(report, 5000)
     return () => clearInterval(iv)
   }, [track, playing])
+
+  // Lock-screen card while docked (transport routes through the registration above).
+  // Owner-token so an empty dock never wipes the watch page's card for the same source.
+  const npKey = useRef<symbol | null>(null)
+  useEffect(() => {
+    if (!track) {
+      if (npKey.current) { clearNowPlaying('youtube', npKey.current); npKey.current = null }
+      return
+    }
+    npKey.current = setNowPlaying('youtube', {
+      title: track.title,
+      artist: track.author ?? undefined,
+      artworkUrl: track.thumbnail ?? (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg` : undefined),
+    })
+  }, [track])
+  useEffect(() => () => { if (npKey.current) clearNowPlaying('youtube', npKey.current) }, [])
 
   // Tell the device to drop/hide its media bar when THIS tab's video stops; otherwise the
   // last reported snapshot just sits there until its 5-minute staleness timeout. Only fires on

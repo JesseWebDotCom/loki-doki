@@ -415,6 +415,20 @@ musicCollection.get('/local/stream/:id', async (c) => {
   return serveFileRange(c, row.path, mime)
 })
 
+// ── Playability check for a local file (flac is fine; alac/opus/vorbis/ape are not) ──
+// Returns { compatible: true } or an on-demand AAC rendition descriptor (lib/mediacompat).
+musicCollection.get('/local/compat/:id', async (c) => {
+  const [row] = await db.select({ path: musicLocalTracks.path }).from(musicLocalTracks)
+    .where(eq(musicLocalTracks.id, c.req.param('id'))).limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  const { ensureCompat, compatPayload } = await import('@/lib/mediacompat/store')
+  try {
+    return c.json(compatPayload(await ensureCompat(row.path)))
+  } catch {
+    return c.json({ error: 'Not found' }, 404)
+  }
+})
+
 // ── Album art: folder image, else embedded art extracted on demand + cached ───────
 musicCollection.get('/local/art/:id', async (c) => {
   const id = c.req.param('id')

@@ -22,6 +22,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { toast } from '@/lib/toast'
 import { proxyImg } from '@/lib/img'
+import { useCompatSource } from '@/hooks/use-compat-source'
+import { useAutoPip } from '@/hooks/use-auto-pip'
+import { useBackgroundAudio } from '@/hooks/use-background-audio'
+import { resolveCompatAudioUrl } from '@/lib/compatPlayback'
+import { clearNowPlaying, setNowPlaying, setNowPlayingPosition, setNowPlayingState } from '@/lib/mediaSession'
 import { useYoutubeUI, useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/youtube/VideoPlayer'
 import { UpNextRow, VideoCard, watchHref } from '@/components/youtube/VideoCard'
@@ -346,11 +351,22 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
           playing: playingRef.current,
         }),
       }).catch(() => {})
+      // Same heartbeat keeps the lock-screen card honest (transport goes through the
+      // 'youtube' coordinator registration below).
+      setNowPlayingState('youtube', playingRef.current ? 'playing' : 'paused')
+      setNowPlayingPosition('youtube', secRef.current, meta?.durationSec ?? 0)
     }
     report()
     const iv = setInterval(report, 4000)
     return () => clearInterval(iv)
   }, [videoId, title, author, meta?.durationSec])
+
+  // Lock-screen / control-center metadata for this watch page.
+  useEffect(() => {
+    if (!videoId || !title) return
+    const key = setNowPlaying('youtube', { title, artist: author ?? undefined, artworkUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` })
+    return () => clearNowPlaying('youtube', key)
+  }, [videoId, title, author])
 
   // Companion watch-along: publish this video, the live playhead, and the caption lines
   // just spoken into the companion's UI context. Docked/mini playback is covered by
@@ -1114,10 +1130,13 @@ function RelatedTopicsSection({ videoId }: { videoId: string }) {
 /** Attach the playback source to a <video>: native src for files/progressive, hls.js
  *  for manifests (Safari also gets hls.js; its native HLS can't send our auth cookies
  *  cross-origin, but same-origin proxy URLs are fine either way; prefer the consistent path). */
-function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, playback: HubPlayback | null, localUrl: string | null) {
+function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, playback: HubPlayback | null, localUrl: string | null, suspend = false) {
   useEffect(() => {
     const video = videoRef.current
     if (!video || !playback) return
+    // The compat fallback moved the element onto a transcoded rendition; don't yank
+    // the src back to the original file (which just failed to decode).
+    if (suspend) return
 
     if (localUrl) {
       video.src = localUrl
@@ -1143,7 +1162,7 @@ function usePlaybackAttach(videoRef: React.RefObject<HTMLVideoElement | null>, p
       video.src = playback.streamUrl
       return
     }
-  }, [videoRef, playback, localUrl])
+  }, [videoRef, playback, localUrl, suspend])
 }
 
 function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: string }) {
@@ -1302,7 +1321,34 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
     if (el) { el.volume = v; if (v > 0 && el.muted) { el.muted = false; setNativeMuted(false) } }
   }
 
-  usePlaybackAttach(videoRef, data?.playback ?? null, localUrl)
+  // Saved files are normalized at download time, but this is the safety net: a decode
+  // error asks the compat endpoint and swaps to an on-demand transcoded rendition.
+  const compat = useCompatSource(videoRef, localUrl ? `/api/videos/${source}/file/${id}/video/compat` : null)
+  usePlaybackAttach(videoRef, data?.playback ?? null, localUrl, compat.active)
+
+  // Auto-PiP when switching app/tab, and audio-only continuation when the iPhone
+  // screen locks (server extracts the audio track on demand for saved files).
+  useAutoPip(videoRef, { enabled: hasNativeVideo })
+  const getBgAudioSrc = useCallback(() => {
+    if (!localUrl) return null
+    return resolveCompatAudioUrl(`/api/videos/${source}/file/${id}/video/compat?want=audio`)
+  }, [source, id, localUrl])
+  useBackgroundAudio(videoRef, { getAudioSrc: getBgAudioSrc, enabled: hasNativeVideo })
+
+  // Lock-screen card + transport for the native player.
+  useEffect(() => {
+    if (!item || showEmbed) return
+    const key = setNowPlaying('videoHub', {
+      title: item.title,
+      artist: item.creator?.name ?? undefined,
+      artworkUrl: item.thumbnailUrl ? proxyImg(item.thumbnailUrl) : undefined,
+    }, {
+      toggle: () => { const v = videoRef.current; if (!v) return; if (v.paused) void v.play().catch(() => {}); else v.pause() },
+      seekTo: (s) => { const v = videoRef.current; if (v) v.currentTime = s },
+    })
+    return () => clearNowPlaying('videoHub', key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, showEmbed])
 
   // Once the PiP stream swap mounts its <video>, fire the actual PiP request when it can play.
   useEffect(() => {
@@ -1535,8 +1581,9 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   playsInline
                   poster={item.thumbnailUrl ?? undefined}
                   onEnded={onVideoEnded}
-                  onPlay={() => setNativePlaying(true)}
-                  onPause={() => setNativePlaying(false)}
+                  onPlay={() => { setNativePlaying(true); setNowPlayingState('videoHub', 'playing') }}
+                  onPause={() => { setNativePlaying(false); setNowPlayingState('videoHub', 'paused') }}
+                  onTimeUpdate={(e) => { const v = e.currentTarget; setNowPlayingPosition('videoHub', v.currentTime, v.duration || 0, v.playbackRate) }}
                   onDurationChange={(e) => setNativeDuration(e.currentTarget.duration || 0)}
                   onVolumeChange={(e) => setNativeMuted(e.currentTarget.muted)}
                   onLoadedMetadata={(e) => {
@@ -1552,6 +1599,13 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
                   }}
                   className="size-full"
                 />
+                {(compat.preparing || compat.failed) && (
+                  // design-ok(raw-palette-semantic): transient status chip over the video surface
+                  <span aria-live="polite"
+                    className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white">
+                    {compat.failed ? 'Couldn’t convert this file' : `Making playable…${compat.progressPct != null ? ` ${compat.progressPct}%` : ''}`}
+                  </span>
+                )}
                 <PlayerClickToggle playing={nativePlaying} onToggle={toggleNativePlay}
                   gestureHandlers={gestures.handlers} suppressClick={gestures.isHolding}>
                   {gestures.indicator && (

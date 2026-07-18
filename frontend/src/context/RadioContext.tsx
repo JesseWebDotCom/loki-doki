@@ -4,6 +4,7 @@ import { RadioEngine, initialRadioState, type RadioState, type QueuedTrack, type
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory, reportHistoryProgress } from '@/lib/music/catalogApi'
 import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
+import { clearNowPlaying, setNowPlaying, setNowPlayingPosition, setNowPlayingState } from '@/lib/mediaSession'
 import { registerDuckable } from '@/lib/speechDucking'
 import { loadDsp, saveDsp, type DspSettings } from '@/lib/music/dsp'
 import { uuid } from '@/lib/uuid'
@@ -170,6 +171,25 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     window.addEventListener('pagehide', flush)
     return () => window.removeEventListener('pagehide', flush)
   }, [])
+
+  // Lock-screen / control-center card for DJ radio (transport goes through the
+  // 'radio' coordinator registration above).
+  useEffect(() => {
+    const t = state.currentTrack
+    if (!state.active || !t) { clearNowPlaying('radio'); return }
+    setNowPlaying('radio', {
+      title: t.title,
+      artist: t.author ?? undefined,
+      album: state.station?.label,
+      artworkUrl: t.thumbnail ?? (t.videoId ? `https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg` : undefined),
+    })
+  }, [state.active, state.currentTrack, state.station?.label])
+  useEffect(() => {
+    if (state.active) setNowPlayingState('radio', state.paused ? 'paused' : 'playing')
+  }, [state.active, state.paused])
+  useEffect(() => {
+    if (state.active) setNowPlayingPosition('radio', state.positionSec, state.durationSec)
+  }, [state.active, state.positionSec, state.durationSec])
 
   // Id for the current play session (see PodcastPlaybackContext for the full rationale) —
   // freshly minted whenever radio goes active→playing for a NEW station/track combo, i.e.

@@ -858,6 +858,43 @@ export function streamLocalAudio(c: { req: { header(name: string): string | unde
   )
 }
 
+// Playability check for an episode's LOCAL audio (downloaded enclosures keep their
+// original format — ogg/opus won't play on iOS). Same visibility + kid-safe gates as
+// the stream route, so a transcode entry is only ever minted for an episode this user
+// could play. Remote (not-downloaded) episodes report compatible — we proxy those
+// verbatim and can't transcode what we don't store.
+podcastsRoute.get('/episodes/:id/compat', async (c) => {
+  const user = c.get('user')
+  const episodeId = c.req.param('id')
+  const [episode] = await db.select({
+    audioRelPath: podcastEpisodes.audioRelPath, showId: podcastEpisodes.showId, assetId: podcastEpisodes.assetId,
+    title: podcastEpisodes.title, description: podcastEpisodes.description, explicit: podcastEpisodes.explicit,
+  }).from(podcastEpisodes).where(eq(podcastEpisodes.id, episodeId))
+  if (!episode) return c.json({ error: 'Not found' }, 404)
+  const [show] = await db.select({ ownerUserId: podcastShows.ownerUserId, visibility: podcastShows.visibility, source: podcastShows.source })
+    .from(podcastShows).where(eq(podcastShows.id, episode.showId))
+  if (!show || !canSeeShow(show, user)) return c.json({ error: 'Not found' }, 404)
+  if (!(await podcastEpisodeAllowed(user.id, { id: episodeId, title: episode.title, description: episode.description, explicit: episode.explicit }))) {
+    return c.json({ error: 'Not available' }, 403)
+  }
+
+  let absPath: string | null = null
+  if (episode.audioRelPath) {
+    try { absPath = await resolveUserPath(episode.audioRelPath) } catch { /* fall through */ }
+  } else if (episode.assetId) {
+    const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, episode.assetId))
+    if (asset?.status === 'ready' && asset.blobHash) absPath = await blobAbsPath(asset.blobHash)
+  }
+  if (!absPath) return c.json({ compatible: true, kind: 'audio', remote: true })
+
+  const { ensureCompat, compatPayload } = await import('@/lib/mediacompat/store')
+  try {
+    return c.json(compatPayload(await ensureCompat(absPath)))
+  } catch {
+    return c.json({ error: 'File missing' }, 404)
+  }
+})
+
 // Three sources, one endpoint — so the player never cares where audio lives:
 //   1. generated episode → per-user mp3 file (audioRelPath)
 //   2. downloaded RSS episode → shared blob (assetId), read-pinned against GC

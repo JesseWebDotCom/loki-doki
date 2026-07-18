@@ -16,6 +16,8 @@ import { useVideoAmbient } from '@/hooks/use-video-ambient'
 import { getChannelSpeed, setChannelSpeed } from '@/lib/videos/channelSpeed'
 import { applyDsp, ensureMediaGraph } from '@/lib/mediaAudioGraph'
 import { useMediaAnalyser } from '@/hooks/use-media-analyser'
+import { useAutoPip } from '@/hooks/use-auto-pip'
+import { useBackgroundAudio } from '@/hooks/use-background-audio'
 import { AudioVisualizer, useVisualizerPref } from '@/components/shared/AudioVisualizer'
 import { paletteFromColors } from '@/lib/artPalette'
 
@@ -681,6 +683,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   }, !screenLocked)
   // Live spectrum for the audio-only EQ overlay (shares the boost's Web-Audio graph).
   const getAnalyser = useMediaAnalyser(mediaRef, !nativeVideoSrc && !!nativeAudioSrc)
+
+  // Auto-PiP on app/tab switch, and audio-only continuation when an iPhone screen
+  // locks: the video element hands off to a hidden audio element streaming the same
+  // video's audio through the proxy, then hands back on return. Native video only:
+  // the iframe embed has no element to drive, and audio-only mode already survives.
+  const videoElRef = mediaRef as React.RefObject<HTMLVideoElement | null>
+  useAutoPip(videoElRef, { enabled: !!nativeVideoSrc })
+  const getBgAudioSrc = useCallback(
+    () => (localKind === 'audio' ? null : proxyStreamUrl(videoId, 'audio')),
+    [videoId, localKind],
+  )
+  useBackgroundAudio(videoElRef, { getAudioSrc: getBgAudioSrc, enabled: !!nativeVideoSrc })
 
   // PiP state sync: reflect browser-driven exits (e.g. the PiP window's own close
   // button) back into our icon. Native <video> only — no PiP-eligible element while

@@ -7,6 +7,7 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { CompatVideo } from '@/components/shared/CompatVideo'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -409,7 +410,8 @@ export function MyVideosPage() {
             // play - render as a looping <img>, same as the generator's own result view.
             <img src={`/api/image/artifacts/${playing.assetId}`} alt={playing.title} className="aspect-video w-full rounded-card bg-black object-contain" />
           ) : (
-            <video src={studioStreamUrl(playing.assetId)} controls autoPlay playsInline className="aspect-video w-full rounded-card bg-black" />
+            <CompatVideo src={studioStreamUrl(playing.assetId)} compatUrl={`/api/videos/studio/media/${playing.assetId}/compat`}
+              controls autoPlay playsInline className="aspect-video w-full rounded-card bg-black" />
           ))}
         </DialogContent>
       </Dialog>

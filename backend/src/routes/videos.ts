@@ -1560,6 +1560,33 @@ videosRoute.get('/:source/file/:videoId/:kind', async (c) => {
   })
 })
 
+// Playability / audio-rendition check for a saved file. Saved video is normalized to
+// h264/mp4 at download time, so `want=audio` is the main use: an audio-only rendition
+// of the saved video for lock-screen background playback (when no separate audio save
+// exists). Owner-scoped like /file.
+videosRoute.get('/:source/file/:videoId/:kind/compat', async (c) => {
+  const user = c.get('user')
+  const source = c.req.param('source')
+  const kind = c.req.param('kind')
+  if (!isGenericSource(source) || (kind !== 'audio' && kind !== 'video')) return c.json({ error: 'not found' }, 404)
+  const [save] = await db.select().from(videoSaves).where(and(
+    eq(videoSaves.userId, user.id), eq(videoSaves.source, source),
+    eq(videoSaves.videoId, c.req.param('videoId')), eq(videoSaves.kind, kind),
+  )).limit(1)
+  if (!save || save.status !== 'ready' || !save.assetId) return c.json({ error: 'not found' }, 404)
+  const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, save.assetId)).limit(1)
+  if (!asset?.blobHash || asset.status !== 'ready') return c.json({ error: 'not found' }, 404)
+  const absPath = await blobAbsPath(asset.blobHash)
+  if (!existsSync(absPath)) return c.json({ error: 'file missing' }, 404)
+  const { ensureCompat, compatPayload } = await import('@/lib/mediacompat/store')
+  const want = c.req.query('want') === 'audio' ? 'audio' as const : 'auto' as const
+  try {
+    return c.json(compatPayload(await ensureCompat(absPath, want)))
+  } catch {
+    return c.json({ error: 'file missing' }, 404)
+  }
+})
+
 // ── Reddit HLS proxy (v.redd.it only) ───────────────────────────────────────────
 // hls.js loads /api/videos/reddit/hls/:postId/manifest.m3u8; child playlist/segment
 // URIs inside the manifest are relative, so the browser resolves them under the same

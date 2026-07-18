@@ -250,6 +250,26 @@ studioRoute.get('/media/:assetId/stream', async (c) => {
   })
 })
 
+// Playability check for a bin asset: uploads can be mkv/mov/webm/hevc which not every
+// browser decodes. Returns { compatible: true } or the transcode-entry descriptor
+// (status/progress/streamUrl) — see lib/mediacompat. `want=audio` yields an audio-only
+// rendition (lock-screen background playback).
+studioRoute.get('/media/:assetId/compat', async (c) => {
+  const user = c.get('user')
+  const assetId = c.req.param('assetId')
+  if (!(await userOwnsAsset(user.id, assetId))) return c.json({ error: 'not found' }, 404)
+  const src = await assetBlobPath(assetId)
+  if (!src) return c.json({ error: 'not found' }, 404)
+  if (/^(png|jpg|jpeg|webp)$/.test(src.format)) return c.json({ compatible: true, kind: 'image' })
+  const { ensureCompat, compatPayload } = await import('@/lib/mediacompat/store')
+  const want = c.req.query('want') === 'audio' ? 'audio' as const : 'auto' as const
+  try {
+    return c.json(compatPayload(await ensureCompat(src.path, want)))
+  } catch {
+    return c.json({ error: 'not found' }, 404)
+  }
+})
+
 // Export a bin video to another format (animated WebP / GIF / a different video container) via
 // the shared converter. Runs on the blob in place (cleanupSrc: false — never delete the shared
 // blob); progress + download reuse the converter's /stream and /artifacts endpoints.

@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { BookCover } from '@/components/books/BookCover'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
+import { clearNowPlaying, setNowPlaying, setNowPlayingPosition, setNowPlayingState } from '@/lib/mediaSession'
 import { accentOf, DEFAULT_PALETTE, readableOn, useArtPalette } from '@/lib/artPalette'
 import { accentVars } from '@/components/shared/ArtAccentScope'
 import { UltraBlur } from '@/components/shared/UltraBlur'
@@ -170,6 +171,26 @@ export function AudiobookPlayerPage() {
   }, [detail, loading, chapterIdx, multiTrack])
 
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = rate }, [rate])
+
+  // Lock-screen / control-center card. The audiobook player sits outside the media
+  // coordinator, so it hands its own controls to the shared Media Session layer.
+  useEffect(() => {
+    if (!detail) return
+    const key = setNowPlaying('audiobook', {
+      title: detail.title,
+      artist: detail.author ?? undefined,
+      album: currentChapter?.title,
+      artworkUrl: coverArt ?? undefined,
+    }, {
+      toggle: () => { const a = audioRef.current; if (!a) return; if (a.paused) void a.play(); else a.pause() },
+      seekTo: (s) => { const a = audioRef.current; if (a) a.currentTime = s },
+      seekBy: (d) => { const a = audioRef.current; if (a) a.currentTime = Math.max(0, a.currentTime + d) },
+    })
+    return () => clearNowPlaying('audiobook', key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail, chapterIdx])
+  useEffect(() => { if (detail) setNowPlayingState('audiobook', playing ? 'playing' : 'paused') }, [detail, playing])
+  useEffect(() => { if (detail) setNowPlayingPosition('audiobook', pos, dur, rate) }, [detail, pos, dur, rate])
 
   // Cover palette for the UltraBlur backdrop + accent transport (hooks stay above the
   // early returns; coverSrc is null until the book loads, which useArtPalette accepts).

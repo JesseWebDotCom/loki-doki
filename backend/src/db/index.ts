@@ -2718,6 +2718,25 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_voice_memos_user ON voice_memos(user_id, created_at);
   `)
 
+  // Media compat transcode cache — on-demand browser-safe renditions of stored files.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS media_compat_cache (
+      id TEXT NOT NULL PRIMARY KEY,
+      src_path TEXT NOT NULL,
+      variant TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      probe_json TEXT,
+      out_ext TEXT NOT NULL DEFAULT 'mp4',
+      progress_pct INTEGER,
+      size_bytes INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_served_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_compat_src ON media_compat_cache(src_path, variant);
+  `)
+
   // Document RAG — project file attachments + embedded chunks (Phase 5).
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS project_documents (

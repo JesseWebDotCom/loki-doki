@@ -117,6 +117,7 @@ import { videosRoute } from '@/routes/videos'
 import { videoRss } from '@/routes/videoRss'
 import { interestsRoute } from '@/routes/interests'
 import { videoStreamRoute } from '@/routes/videoStream'
+import mediaCompatRoute from '@/routes/mediaCompat'
 import { studioRoute } from '@/routes/videoStudio'
 import { podcastsRoute } from '@/routes/podcasts'
 import { podcastSubscriptionsRoute } from '@/routes/podcastSubscriptions'
@@ -418,6 +419,11 @@ if (firstBoot) {
   // Bound the app-wide /api/img proxy cache (news/article/misc remote images).
   setTimeout(() => void imgSweep(), 90_000)
   setInterval(() => void imgSweep(), 24 * 60 * 60 * 1000)
+  // Bound the on-demand transcode cache (lib/mediacompat): size-cap LRU + age retention.
+  const transcodeSweep = guardedSweep('transcode-cache', () =>
+    import('@/lib/mediacompat/store').then((m) => m.transcodeCacheSweep()))
+  setTimeout(() => void transcodeSweep(), 150_000)
+  setInterval(() => void transcodeSweep(), 24 * 60 * 60 * 1000)
   // Suggestion-rail impression state: reset rotation demotion after idle, drop stale
   // non-dismissed rows (dismissals are kept — see lib/interests/impressions.ts).
   const impressionSweep = guardedSweep('suggestion-impressions', () =>
@@ -712,6 +718,7 @@ app.route('/api/videos', videosRoute)
 app.route('/api/video-rss', videoRss)
 app.route('/api/interests', interestsRoute)
 app.route('/api/vstream', videoStreamRoute)
+app.route('/api/compat', mediaCompatRoute)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/youtube/playlists', ytPlaylists)
 app.route('/api/podcasts', podcastAiRoute)

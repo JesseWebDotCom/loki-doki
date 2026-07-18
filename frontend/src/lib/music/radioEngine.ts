@@ -21,7 +21,8 @@
 import { search as ytSearch, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
 import { getOfflineQueue, offlineAudioUrl, prefetchReady, resolveSong, type OfflineQueue } from '@/lib/music/catalogApi'
-import { isYouTubeRef, streamSrcForRef, artUrlForRef } from '@/lib/music/trackRef'
+import { isYouTubeRef, streamSrcForRef, artUrlForRef, trackSource } from '@/lib/music/trackRef'
+import { localCompatOverride, resolveLocalCompat } from '@/lib/music/localCompat'
 import { ensureMediaGraph, getSharedAnalyser, setLoudnessTrimDb } from '@/lib/mediaAudioGraph'
 import { applyStoredDsp } from '@/lib/music/dsp'
 import { getAudioFacts, getWaveform } from '@/lib/music/metaApi'
@@ -454,9 +455,12 @@ export class RadioEngine {
     const el = this.deckEl(deck)
     // Offline/downloaded playback only exists for YouTube refs - local files stream from
     // their own route regardless of mode (they ARE local), plex refs stream live.
+    // Local refs with a known compat rendition (ALAC/opus/APE the browser can't decode,
+    // transcoded server-side on a previous error) cue that rendition directly.
     el.src = (this.offline || forceLocal) && isYouTubeRef(videoId)
       ? offlineAudioUrl(videoId)
-      : streamSrcForRef(videoId)
+      : localCompatOverride(videoId) ?? streamSrcForRef(videoId)
+    this.armLocalCompat(deck)
     this.deckRefs[deck] = videoId
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
@@ -464,6 +468,30 @@ export class RadioEngine {
     this.applyLoudnessTrim(deck, videoId)
     this.analyzeOutro(deck, videoId)
     this.lookupTempo(deck, videoId)
+  }
+
+  // A deck erroring on a LOCAL file is usually a codec the browser can't decode:
+  // kick off the on-demand transcode and, if the deck is still on that track when the
+  // rendition lands, re-cue it in place. (waitTail may advance the station first on a
+  // slow encode; the override is remembered, so the track plays fine from then on.)
+  // addEventListener, not onerror: waitTail owns the onerror property.
+  private compatArmed = [false, false]
+  private armLocalCompat(deck: number) {
+    if (this.compatArmed[deck]) return
+    this.compatArmed[deck] = true
+    const el = this.deckEl(deck)
+    el.addEventListener('error', () => {
+      const ref = this.deckRefs[deck]
+      if (!ref || trackSource(ref) !== 'local') return
+      void resolveLocalCompat(ref).then((url) => {
+        if (!url || this.deckRefs[deck] !== ref) return
+        const at = el.currentTime || 0
+        el.src = url
+        el.load()
+        el.currentTime = at
+        void el.play().catch(() => { /* paused deck stays paused */ })
+      })
+    })
   }
 
   // ── AutoMix: beat-matched transitions ────────────────────────────────────────────

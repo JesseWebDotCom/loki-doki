@@ -20,6 +20,8 @@ import {
   setPodcastBaseRate, setPodcastVolume, takeSavedSeconds, unduckPodcastAfterSpeech,
 } from '@/lib/podcastAudioGraph'
 import { registerDuckable } from '@/lib/speechDucking'
+import { clearNowPlaying, setNowPlaying, setNowPlayingPosition, setNowPlayingState } from '@/lib/mediaSession'
+import { useCompatSource } from '@/hooks/use-compat-source'
 
 export interface PodcastChapter { title: string; startSec: number }
 export interface TranscriptTurn { speaker: string; text: string }
@@ -616,19 +618,33 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     }
   }, [track, close])
 
+  // Downloaded enclosures keep their original codec (ogg/opus won't play on iOS);
+  // on a decode error this swaps the element to an on-demand AAC rendition.
+  const compat = useCompatSource(audioRef, track ? `/api/podcasts/episodes/${track.episodeId}/compat` : null)
+
   // ── Drive the <audio> element when the track or play-state changes ────────────
   useEffect(() => {
     const el = audioRef.current
     if (!el || !track) return
     const expectedSrc = `/api/podcasts/episodes/${track.episodeId}/stream`
-    if (!el.src.endsWith(expectedSrc)) {
+    // compat.active = the element is deliberately on a transcoded-rendition URL; don't
+    // yank it back to the original (which just errored) on a pause/play re-run.
+    if (!compat.active && !el.src.endsWith(expectedSrc)) {
       el.src = expectedSrc
       el.currentTime = pendingStart.current
       el.playbackRate = rate
     }
     if (playing) el.play().catch(() => {})
     else el.pause()
-  }, [track?.episodeId, playing]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [track?.episodeId, playing, compat.active]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Lock-screen / control-center card (Media Session) ────────────────────────
+  useEffect(() => {
+    if (!track) { clearNowPlaying('podcast'); return }
+    setNowPlaying('podcast', { title: track.title, artist: track.showName, artworkUrl: track.coverUrl })
+  }, [track?.episodeId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (track) setNowPlayingState('podcast', playing ? 'playing' : 'paused') }, [track, playing])
+  useEffect(() => () => clearNowPlaying('podcast'), [])
 
   // ── Audio element event wiring ───────────────────────────────────────────────
   useEffect(() => {
@@ -636,6 +652,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     if (!el) return
     const onTime = () => {
       setPositionSec(el.currentTime)
+      setNowPlayingPosition('podcast', el.currentTime, el.duration || durRef.current || 0, el.playbackRate)
       // Math.abs so a backward seek also persists (a forward-only gate would skip saving until
       // the playhead climbs back past the last-saved position).
       if (track && Math.abs(el.currentTime - lastSaved.current) >= 10) {

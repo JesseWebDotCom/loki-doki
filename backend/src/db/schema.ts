@@ -2672,6 +2672,27 @@ export const voiceMemos = sqliteTable('voice_memos', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Media compat transcode cache ───────────────────────────────────────────────
+// On-demand renditions of stored media files that can't play in every browser
+// (mkv/avi/hevc uploads, flac/opus/alac local music, ogg podcast enclosures).
+// One row per (source file identity, variant); the file lives in
+// data/cache/transcode/<id>.<outExt>. Bounded by the LRU/age sweep in
+// lib/mediacompat/store.ts — this is a cache, never the only copy of anything.
+export const mediaCompatCache = sqliteTable('media_compat_cache', {
+  id: text('id').primaryKey(),                    // <hash(path|mtime|size)>-<variant>
+  srcPath: text('src_path').notNull(),
+  variant: text('variant').notNull(),             // 'video' | 'audio' (audio = audio-only rendition)
+  status: text('status', { enum: ['pending', 'running', 'ready', 'failed'] }).notNull().default('pending'),
+  probeJson: text('probe_json'),
+  outExt: text('out_ext').notNull().default('mp4'),
+  progressPct: integer('progress_pct'),
+  sizeBytes: integer('size_bytes'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  lastServedAt: integer('last_served_at', { mode: 'timestamp' }),
+})
+
 // ─── Document RAG (project attachments + chunks + generated docs) ────────────────
 export const projectDocuments = sqliteTable('project_documents', {
   id: text('id').primaryKey(),

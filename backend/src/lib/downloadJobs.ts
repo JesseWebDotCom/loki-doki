@@ -34,8 +34,8 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'video-transcribe' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'video-transcribe' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze' | 'media-compat'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local' | 'transcode'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -43,7 +43,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan', 'video-transcribe'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan', 'video-transcribe', 'media-compat'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -465,6 +465,10 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
           const { failBookGenerateByJobRefId } = await import('@/lib/books/generate/generate')
           await failBookGenerateByJobRefId(job.refId, String(err)).catch(() => {})
         }
+        if (job.type === 'media-compat') {
+          const { failMediaCompatByJobRefId } = await import('@/lib/mediacompat/transcode')
+          await failMediaCompatByJobRefId(job.refId, String(err)).catch(() => {})
+        }
       }
     }
   } finally {
@@ -741,6 +745,12 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runLibraryAnalyzeJob(payload, signal, onProgress)
       return
     }
+    case 'media-compat': {
+      const payload = JSON.parse(job.refId) as import('@/lib/mediacompat/transcode').MediaCompatJobPayload
+      const { runMediaCompatJob } = await import('@/lib/mediacompat/transcode')
+      await runMediaCompatJob(payload, onProgress, signal)
+      return
+    }
   }
 }
 
@@ -795,6 +805,27 @@ export async function enqueueStudioRender(exportId: string, label: string): Prom
     id: randomUUID(), type: 'studio-render', refId: JSON.stringify({ exportId }), variantKey: vk,
     domain: 'studio', sizeClass: 'small', label: label.slice(0, 120), priority: 55,
     status: 'pending', attempts: 0, maxAttempts: 1, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue an on-demand compat transcode (lib/mediacompat). Compute lane, own
+ *  'transcode' domain — encodes serialize one at a time and never touch network slots.
+ *  Coalesced per cache entry: N household users hitting the same unplayable file share
+ *  one job. maxAttempts 2 — one retry absorbs transient contention (file briefly locked
+ *  by a scan), but a codec ffmpeg genuinely can't convert should fail fast and stay failed. */
+export async function enqueueMediaCompat(cacheId: string, label: string): Promise<void> {
+  const vk = `media-compat:${cacheId}`
+  const [existing] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+    .where(and(eq(downloadJobs.variantKey, vk), inArray(downloadJobs.status, ['pending', 'running'])))
+    .limit(1)
+  if (existing) return
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'media-compat', refId: JSON.stringify({ cacheId }), variantKey: vk,
+    domain: 'transcode', sizeClass: 'small', label: label.slice(0, 120), priority: 50,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
   kickScheduler()
