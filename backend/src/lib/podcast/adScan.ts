@@ -86,7 +86,23 @@ const AD_LINES_SYSTEM =
 // bridge gaps up to this many lines between ad-labeled lines.
 const AD_LINE_GAP = 2
 
+// Ads cluster at the episode's open (pre-roll) and close (post-roll). We scan those zones
+// again with a positional prior, since a slick pre-roll is what the general pass most
+// often misses.
+const EDGE_ZONE_SEC = 180
+// Lines around a user-reported "missed" ad, or a positional prior hit, to treat as ad.
+const REPORT_REACH_LINES = 8
+
 interface AdLinesResponse { adLines?: unknown }
+
+// Verification pass (MinusPod): re-check the candidate ads and drop clear non-ads. Kept
+// conservative (only removes what the model is confident is NOT an ad) so it improves
+// precision without eating real ads.
+const AD_VERIFY_SYSTEM =
+  'You are given numbered candidate advertising excerpts from a podcast. For each, decide whether it is genuinely ' +
+  'an advertisement (a sponsor read, commercial, or promo) rather than the hosts\' own conversation or the ' +
+  'episode topic. Return JSON {"notAds": [the numbers of any excerpt that is NOT an advertisement]}. Return ' +
+  '{"notAds": []} if they are all ads. Only list an excerpt as not an ad when you are confident. Do not use em dashes.'
 
 interface RawRange { startSec: number; endSec: number; kind: AdSegment['kind']; confidence: number }
 
@@ -362,6 +378,44 @@ async function extractAndStoreSponsors(showId: string | null, adText: string, mo
   } catch { /* best-effort */ }
 }
 
+/** Positional prior: re-classify just the opening or closing zone with a prompt that
+ *  expects an ad there. Catches pre/post-rolls the general pass missed. */
+async function classifyEdgeZone(segments: TranscriptSegment[], zone: 'opening' | 'closing', model: string, into: Set<number>): Promise<void> {
+  const total = segments[segments.length - 1]!.endSec
+  const idxs: number[] = []
+  for (let i = 0; i < segments.length; i++) {
+    const inZone = zone === 'opening' ? segments[i]!.startSec <= EDGE_ZONE_SEC : segments[i]!.startSec >= total - EDGE_ZONE_SEC
+    if (inZone) idxs.push(i)
+  }
+  if (idxs.length < 2) return
+  const text = idxs.map(i => `[${i}] ${segments[i]!.text}`).join('\n')
+  const note = zone === 'opening'
+    ? 'This is the OPENING of the episode. Podcasts almost always begin with an advertisement (a pre-roll) before the hosts start the show. Label the advertising lines.'
+    : 'This is the END of the episode, which often contains an advertisement (a post-roll). Label the advertising lines.'
+  try {
+    const res = await structuredCall<AdLinesResponse>(model, `${note}\n\nTranscript:\n${text}`, AD_LINES_SYSTEM, { num_predict: 600 }, 'json')
+    collectAdLines(res.adLines, idxs[0]!, idxs[idxs.length - 1]!, into)
+  } catch { /* best-effort */ }
+}
+
+/** Verification pass: one call over all candidate ranges, drop those the model is
+ *  confident are not ads. Failure keeps everything (recall-safe). */
+async function verifyRanges(ranges: RawRange[], segments: TranscriptSegment[], model: string): Promise<RawRange[]> {
+  if (ranges.length < 1) return ranges
+  const excerpts = ranges.map((r, i) => {
+    const t = segments.filter(s => s.endSec > r.startSec && s.startSec < r.endSec).map(s => s.text).join(' ').slice(0, 600)
+    return `[${i}] ${t}`
+  }).join('\n\n')
+  try {
+    const res = await structuredCall<{ notAds?: unknown }>(model, `Candidate ads:\n${excerpts}`, AD_VERIFY_SYSTEM, { num_predict: 100 }, 'json')
+    const reject = new Set((Array.isArray(res.notAds) ? res.notAds : []).map(v => Math.round(Number(v))).filter(n => Number.isFinite(n)))
+    if (!reject.size) return ranges
+    return ranges.filter((_, i) => !reject.has(i))
+  } catch {
+    return ranges
+  }
+}
+
 function mergeRanges(ranges: RawRange[]): RawRange[] {
   const sorted = [...ranges].sort((a, b) => a.startSec - b.startSec)
   const merged: RawRange[] = []
@@ -411,6 +465,16 @@ export async function runPodcastAdScanJob(
     const sponsorHits = flagKnownSponsorLines(segs, knownSponsors, adLines)
     if (sponsorHits) logger.info(`[podcast-ad-scan] ${sponsorHits} known-sponsor mention(s) pre-flagged`)
 
+    // Learn from corrections: an ad the user reported as MISSED is flagged around its
+    // reported position so the rescan actually catches it.
+    const missed = await db.select({ startSec: podcastAdReports.startSec }).from(podcastAdReports)
+      .where(and(eq(podcastAdReports.episodeId, episodeId), eq(podcastAdReports.kind, 'missed'))).catch(() => [])
+    for (const m of missed) {
+      let idx = segs.findIndex(s => s.endSec >= m.startSec)
+      if (idx < 0) idx = segs.length - 1
+      for (let k = Math.max(0, idx - REPORT_REACH_LINES); k <= Math.min(segs.length - 1, idx + REPORT_REACH_LINES); k++) adLines.add(k)
+    }
+
     // ── Per-line ad classification over each window ────────────────────────────────
     // The boundaries fall out of the contiguous ad-labeled lines, so the model never has
     // to judge where a topic changes (which it is bad at) - only "is THIS line an ad".
@@ -441,6 +505,13 @@ export async function runPodcastAdScanJob(
     if (windows.length > 0 && failedWindows === windows.length) {
       throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
+
+    // Positional prior: ads cluster at the open and close; scan those zones again with a
+    // prompt that expects an ad there (catches a missed pre/post-roll).
+    onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Checking pre-roll and post-roll' })
+    await classifyEdgeZone(segs, 'opening', model, adLines)
+    await classifyEdgeZone(segs, 'closing', model, adLines)
+
     ranges.push(...adLinesToRanges(adLines, segs))
 
     // Union the deterministic keyword pass so ads the model missed still get caught (the
@@ -456,8 +527,15 @@ export async function runPodcastAdScanJob(
     // Times already come straight from transcript segment boundaries (no model-computed
     // seconds), so no snapping is needed; just drop anything too short after the merge.
     const snapped = ranges.filter(r => r.endSec - r.startSec >= MIN_AD_SEC)
+    let merged = mergeRanges(snapped)
 
-    const segments: AdSegment[] = mergeRanges(snapped).map(r => ({ id: crypto.randomUUID(), ...r }))
+    // Verification pass (precision): drop candidates the model is confident are not ads.
+    if (merged.length) {
+      onProgress({ completed: windows.length, total: windows.length, speedBps: 0, etaSeconds: 0, note: 'Verifying ads' })
+      merged = await verifyRanges(merged, segs, model)
+    }
+
+    const segments: AdSegment[] = merged.map(r => ({ id: crypto.randomUUID(), ...r }))
 
     await setScanStatus(episodeId, 'ready', {
       segmentsJson: JSON.stringify(segments),
