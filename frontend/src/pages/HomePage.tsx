@@ -761,11 +761,14 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
       .finally(() => setLoading(false));
   }, []);
 
+  // Prefer a story that actually carries a photo for the hero/top tile: hyperlocal items
+  // often have no image, while the world feeds always do. Keeps local-first order within
+  // each group, so a postered local story still beats a world one.
   const stories = [...(payload?.localNews ?? []), ...(payload?.worldNews ?? [])];
-  const topStory = stories[0];
-  const secondStory = stories[1];
+  const ordered = [...stories.filter(s => s.imageUrl), ...stories.filter(s => !s.imageUrl)];
+  const topStory = ordered[0];
+  const secondStory = ordered[1];
   const topScore = payload?.sports[0];
-  const otd = payload?.onThisDay[0];
   const empty = !loading && !payload;
 
   const header = (
@@ -781,7 +784,6 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
     if (payload?.weather) tiles.push({ key: 'wx', label: 'Weather', icon: CloudSun, item: { title: payload.weather } });
     if (topStory) tiles.push({ key: 'top', label: 'Top Story', icon: Newspaper, item: briefToNews(topStory) });
     if (topScore) tiles.push({ key: 'score', label: 'Scores', icon: Trophy, item: briefToNews(topScore) });
-    if (otd) tiles.push({ key: 'otd', label: 'On This Day', icon: CalendarDays, item: briefToNews(otd) });
 
     return (
       <RowShelf title="Morning briefing">
@@ -872,7 +874,6 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
       )}
       <div className="flex flex-1 flex-col divide-y divide-border/40 px-3.5">
         {topScore && <BriefingRow item={briefToNews(topScore)} icon={Trophy} tint="bg-success/15 text-success" label="Scores" />}
-        {otd && <BriefingRow item={briefToNews(otd)} icon={CalendarDays} tint="bg-warning/15 text-warning" label="On this day" />}
         {secondStory && <BriefingRow item={briefToNews(secondStory)} icon={Newspaper} tint="bg-info/15 text-info" label="Also today" />}
       </div>
     </div>
