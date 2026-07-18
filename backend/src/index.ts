@@ -459,6 +459,9 @@ if (firstBoot) {
   // fire before the boot reconcile's own resolveEngineGuards call.
   await resolveEngineGuards().catch(() => {})
   startOllamaAutoUpdate()
+  // Opportunistic background band (lib/idleScheduler): load the admin switch into its
+  // sync cache so the download scheduler's tick can read it without a DB hit.
+  import('@/lib/idleScheduler').then((m) => m.resolveOpportunisticEnabled()).catch(() => {})
   // LLM hygiene watchdog: reap orphaned llama-server runners (children of a crashed/killed
   // `ollama serve` keep squatting VRAM forever and force new loads onto the CPU - observed
   // as a 90-second chat reply). Dead-parent-only matching makes this safe to run blind.
@@ -488,6 +491,25 @@ if (firstBoot) {
   // Music intelligence: daily Mixes For You + Family Blend refresh and the offline
   // auto-cache pass (lib/music/intelJobs). Delayed past boot; per-user failures isolated.
   import('@/lib/music/intelJobs').then((m) => m.startMusicIntelJobs()).catch(() => {})
+
+  // Nightly title warm: queue idle-band trivia/reviews precompute for watchlist titles
+  // so Movies/Shows detail pages open hot instead of paying a cold web+LLM pass.
+  import('@/lib/precompute').then((m) => m.startNightlyTitleWarm()).catch(() => {})
+
+  // Daily-surface warm: Sports and On This Day were cold until their first visitor
+  // (a multi-league ESPN fan-out / Wikimedia fetch). Their source modules now cache
+  // internally (15m / per-day), so one warm pass at boot + hourly keeps first visits
+  // hot; the hourly tick re-fills On This Day right after the date rolls over.
+  const surfaceWarm = () => {
+    import('@/lib/briefing/sources/sports').then((m) => m.sportsToday({ limit: 8 })).catch(() => {})
+    import('@/lib/briefing/sources/onThisDay').then(async (m) => {
+      for (const feed of ['selected', 'births', 'deaths'] as const) {
+        await m.onThisDay({ limit: 12, feed }).catch(() => {})
+      }
+    }).catch(() => {})
+  }
+  setTimeout(surfaceWarm, 75_000)
+  setInterval(surfaceWarm, 60 * 60_000).unref()
   
   // Bookmarks capture engine + auto-update pollers all drive server-side headless Chromium
   // against third-party sites, so they only start when the Server Browser Automation feature

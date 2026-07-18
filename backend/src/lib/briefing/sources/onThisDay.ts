@@ -48,6 +48,37 @@ function formatEntry(e: FeedEntry, feed: OnThisDayFeed): string {
  * Entries for a given feed and date (defaults to today, server-local). Throws on failure
  * so the refresher's allSettled marks the source degraded / the tool reports offline.
  */
+// Day-keyed cache of the FULL feed per (feed, date), so the standalone route (limit 12),
+// the briefing refresher (limit ~3), and the boot warmer share one Wikimedia fetch per
+// feed per day. Limits slice the cached list per call. Bounded: old date keys pruned.
+const feedCache = new Map<string, FeedEntry[]>()
+const feedInFlight = new Map<string, Promise<FeedEntry[]>>()
+
+async function fetchFeedCached(feed: OnThisDayFeed, month: number, day: number, timeoutMs: number): Promise<FeedEntry[]> {
+  const key = `${feed}:${pad2(month)}-${pad2(day)}`
+  const hit = feedCache.get(key)
+  if (hit) return hit
+  const inflight = feedInFlight.get(key)
+  if (inflight) return inflight
+  const p = (async () => {
+    const res = await fetch(
+      `https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/${feed}/${pad2(month)}/${pad2(day)}`,
+      { headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) },
+    )
+    if (!res.ok) throw new Error(`onThisDay(${feed}): ${res.status}`)
+    const data = (await res.json()) as Record<string, FeedEntry[] | undefined>
+    const entries = Array.isArray(data[feed]) ? (data[feed] as FeedEntry[]) : []
+    // Yesterday's keys are dead weight: keep the map to roughly one day's feeds.
+    if (feedCache.size >= 8) {
+      for (const k of feedCache.keys()) if (!k.endsWith(`${pad2(month)}-${pad2(day)}`)) feedCache.delete(k)
+    }
+    feedCache.set(key, entries)
+    return entries
+  })()
+  feedInFlight.set(key, p)
+  try { return await p } finally { feedInFlight.delete(key) }
+}
+
 export async function onThisDay(
   opts: { month?: number; day?: number; limit?: number; feed?: OnThisDayFeed } = {},
   timeoutMs = 5000,
@@ -58,13 +89,7 @@ export async function onThisDay(
   const limit = opts.limit ?? 3
   const feed = opts.feed ?? 'selected'
 
-  const res = await fetch(
-    `https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/${feed}/${pad2(month)}/${pad2(day)}`,
-    { headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) },
-  )
-  if (!res.ok) throw new Error(`onThisDay(${feed}): ${res.status}`)
-  const data = (await res.json()) as Record<string, FeedEntry[] | undefined>
-  const entries = Array.isArray(data[feed]) ? (data[feed] as FeedEntry[]) : []
+  const entries = await fetchFeedCached(feed, month, day, timeoutMs)
   return entries
     .filter((e) => e.text)
     .slice(0, limit)

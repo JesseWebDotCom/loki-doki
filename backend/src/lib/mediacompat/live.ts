@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import type { Context } from 'hono'
 import { ensureFfmpeg } from '@/lib/ffmpeg'
+import { registerBusySignal } from '@/lib/idleScheduler'
 import { logger } from '@/lib/logger'
 import { type CompatProbe, probeCompat } from './probe'
 import { buildConvertArgs, } from './transcode'
@@ -18,6 +19,10 @@ import { getTranscodeCrf, type CompatRow } from './store'
 // background transcode job.
 const MAX_LIVE_PIPES = 2
 let livePipes = 0
+
+// A live pipe means someone is watching an incompatible file RIGHT NOW: hold the
+// opportunistic background band closed so a precompute encode never contends with it.
+registerBusySignal('live-transcode', () => (livePipes > 0 ? `${livePipes} live pipe(s) streaming` : null))
 
 export async function streamLiveTranscode(c: Context, row: CompatRow): Promise<Response> {
   if (livePipes >= MAX_LIVE_PIPES) {

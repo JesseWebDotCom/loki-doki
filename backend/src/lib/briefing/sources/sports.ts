@@ -54,14 +54,35 @@ function summarizeEvent(ev: EspnEvent): string | null {
   return detail ? `${label} (${detail})` : label
 }
 
+// 15-minute per-league cache of the raw scoreboard, so the sports route, the briefing
+// refresher, and the boot warmer share ONE ESPN fetch per league instead of each paying
+// their own (the route and briefing previously double-hit the same endpoints cold).
+const SCOREBOARD_TTL_MS = 15 * 60 * 1000
+const scoreboardCache = new Map<string, { events: EspnEvent[]; expiresAt: number }>()
+const scoreboardInFlight = new Map<string, Promise<EspnEvent[]>>()
+
+async function fetchScoreboard(league: LeagueRef, timeoutMs: number): Promise<EspnEvent[]> {
+  const hit = scoreboardCache.get(league.path)
+  if (hit && Date.now() < hit.expiresAt) return hit.events
+  const inflight = scoreboardInFlight.get(league.path)
+  if (inflight) return inflight
+  const p = (async () => {
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard`, {
+      headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) throw new Error(`sports ${league.key}: ${res.status}`)
+    const data = (await res.json()) as { events?: EspnEvent[] }
+    const events = Array.isArray(data.events) ? data.events : []
+    scoreboardCache.set(league.path, { events, expiresAt: Date.now() + SCOREBOARD_TTL_MS })
+    return events
+  })()
+  scoreboardInFlight.set(league.path, p)
+  try { return await p } finally { scoreboardInFlight.delete(league.path) }
+}
+
 async function fetchLeague(league: LeagueRef, perLeague: number, timeoutMs: number): Promise<BriefingItem[]> {
-  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard`, {
-    headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' },
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  if (!res.ok) throw new Error(`sports ${league.key}: ${res.status}`)
-  const data = (await res.json()) as { events?: EspnEvent[] }
-  const events = Array.isArray(data.events) ? data.events : []
+  const events = await fetchScoreboard(league, timeoutMs)
   // Prefer in-progress/final games over far-future ones for the briefing.
   const ranked = [...events].sort((a, b) => {
     const rank = (e: EspnEvent) => (e.status?.type?.state === 'in' ? 0 : e.status?.type?.state === 'post' ? 1 : 2)

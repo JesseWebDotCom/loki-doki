@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
-import { getOrFetchProxyImage } from '@/lib/imageProxy'
+import { getOrFetchProxyImageResized } from '@/lib/imageProxy'
 import type { AppEnv } from '@/types'
 
 const imgRoute = new Hono<AppEnv>()
@@ -13,7 +13,9 @@ imgRoute.get('/', requireAuth, async (c) => {
   const u = c.req.query('u')
   if (!u) return c.json({ error: 'Query param u is required' }, 400)
 
-  const img = await getOrFetchProxyImage(u)
+  // Optional ?w= width hint: serves a bucketed webp downscale for card/grid renders
+  // (see lib/imageResize). Omitted or unresizable → original bytes, as always.
+  const img = await getOrFetchProxyImageResized(u, c.req.query('w'))
   if (!img) return c.json({ error: 'Image unavailable' }, 404)
 
   return new Response(new Uint8Array(img.data), {

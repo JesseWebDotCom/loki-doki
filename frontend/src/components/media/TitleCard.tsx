@@ -73,7 +73,7 @@ export function TitleCard({ item, fluid, className }: { item: PosterItem; fluid?
       <div className="relative aspect-[2/3] overflow-hidden rounded-card bg-muted shadow-sm ring-1 ring-border/40 transition-transform group-hover:scale-[1.03] group-active:scale-[0.99]">
         {item.poster && ok ? (
           <img
-            src={mediaImg(item.poster)}
+            src={mediaImg(item.poster, 480)}
             alt={item.title}
             loading="lazy"
             className="size-full object-cover"

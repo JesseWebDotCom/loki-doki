@@ -162,7 +162,7 @@ export function ShowsCalendarPage() {
             <Link key={`${e.show.id}-${i}`} to={`/shows/${e.show.id}`}
               className="flex items-center gap-3 rounded-card border border-border/50 bg-card/40 p-3 transition-colors hover:border-brand/40">
               {e.show.poster ? (
-                <img src={mediaImg(e.show.poster)} alt={e.show.name} loading="lazy" className="h-16 w-11 shrink-0 rounded-control object-cover ring-1 ring-border/40" />
+                <img src={mediaImg(e.show.poster, 240)} alt={e.show.name} loading="lazy" className="h-16 w-11 shrink-0 rounded-control object-cover ring-1 ring-border/40" />
               ) : (
                 <div className="flex h-16 w-11 shrink-0 items-center justify-center rounded-control bg-muted"><Tv className="size-4 text-muted-foreground/40" /></div>
               )}

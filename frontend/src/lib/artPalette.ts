@@ -30,6 +30,29 @@ export const DEFAULT_PALETTE: Palette = {
 
 const cache = new Map<string, Palette>()
 
+// Extraction is pure per URL, so persist results across reloads: the Map is seeded from
+// localStorage at module load and written back (debounced, newest-300) after each new
+// extraction. Before this, every navigation/reload re-decoded and re-histogrammed the
+// same covers; now only art never seen on this device pays the canvas pass.
+const LS_KEY = 'artPalette.cache.v1'
+const LS_MAX = 300
+try {
+  const raw = localStorage.getItem(LS_KEY)
+  if (raw) for (const [k, v] of JSON.parse(raw) as [string, Palette][]) cache.set(k, v)
+} catch { /* corrupt/unavailable storage, start empty */ }
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+function schedulePersist(): void {
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    try {
+      const entries = [...cache.entries()].slice(-LS_MAX)
+      localStorage.setItem(LS_KEY, JSON.stringify(entries))
+    } catch { /* quota/unavailable, in-memory cache still works */ }
+  }, 2000)
+}
+
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   r /= 255; g /= 255; b /= 255
   const max = Math.max(r, g, b), min = Math.min(r, g, b)
@@ -159,6 +182,7 @@ export function useArtPalette(url: string | null | undefined): Palette {
     img.onload = () => {
       const p = extract(img)
       cache.set(url, p)
+      schedulePersist()
       if (alive) setPalette(p)
     }
     img.onerror = () => { if (alive) setPalette(DEFAULT_PALETTE) }

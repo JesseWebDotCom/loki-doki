@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { and, asc, desc, eq, inArray, isNull, lte, notInArray, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lte, notInArray, or } from 'drizzle-orm'
 import { db } from '@/db'
 import { downloadJobs } from '@/db/schema'
 import { emitNotification } from '@/lib/notify'
@@ -30,12 +30,13 @@ import { buildRegion } from '@/lib/maps/build'
 import { getInstallComponent, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { bootFollowedUncleanShutdown, osBootTimeMs } from '@/lib/dirtyBoot'
+import { backgroundGateSnapshot, OPPORTUNISTIC_PRIORITY, shouldRunOpportunistic } from '@/lib/idleScheduler'
 import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'video-transcribe' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze' | 'media-compat'
-export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local' | 'transcode'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'yt-live-record' | 'podcast-generate' | 'podcast-download' | 'podcast-transcribe' | 'podcast-ad-scan' | 'bookmark-archive' | 'bookmark-thumb' | 'radio-record' | 'narration-render' | 'book-download' | 'book-tts-render' | 'book-generate' | 'clip_download' | 'video-media' | 'video-transcribe' | 'studio-render' | 'plex-provision' | 'plex-sync' | 'plex-cut' | 'media-enhance' | 'audio-analyze' | 'stem-separate' | 'lyric-align' | 'studio-source' | 'music-scan' | 'music-plex-sync' | 'music-analyze' | 'media-compat' | 'precompute'
+export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local' | 'podcast' | 'radio' | 'narration' | 'books' | 'clipper' | 'youtube' | 'youtube-live' | 'plex' | 'plex-cut' | 'media-enhance' | 'reddit' | 'tiktok' | 'vimeo' | 'studio' | 'stem-audio' | 'music-local' | 'transcode' | 'precompute'
 // CPU-bound jobs that run in their own compute lane, independent of the network-download
 // concurrency budget (see tick() below) — a map build or an ffmpeg re-encode competing for
 // one of MAX_CONCURRENT network slots would otherwise block unrelated downloads for no
@@ -43,7 +44,7 @@ export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | '
 // Set<string> (not Set<JobType>) because raw DB rows type `type` as plain string (no enum
 // column) — same reason the STALL_WATCHED_TYPES comparisons below use runningList's cast
 // entries but candidates.find() below needs to check the wider raw-row type too.
-const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan', 'video-transcribe', 'media-compat'] satisfies JobType[])
+const COMPUTE_LANE_TYPES = new Set<string>(['map', 'plex-cut', 'media-enhance', 'studio-render', 'audio-analyze', 'stem-separate', 'lyric-align', 'music-scan', 'music-analyze', 'podcast-transcribe', 'podcast-ad-scan', 'video-transcribe', 'media-compat', 'precompute'] satisfies JobType[])
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
 const MAX_CONCURRENT = 4
@@ -305,8 +306,14 @@ async function tick(): Promise<void> {
         .orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
       const largeDomains = new Set(runningList.filter((r) => r.sizeClass === 'large' && !COMPUTE_LANE_TYPES.has(r.type)).map((r) => r.domain))
       const domainsRunning = new Set(runningList.map((r) => r.domain))
+      // One idle-gate verdict per pass: jobs in the opportunistic band (precompute
+      // work nobody is waiting on) only dispatch while the system is idle. They stay
+      // 'pending' otherwise: the 5s safety-net tick re-evaluates, so work resumes
+      // by itself once the household goes quiet. User-requested jobs are never gated.
+      const opportunisticGo = shouldRunOpportunistic()
       const next = candidates.find((j) => {
         if (running.has(j.id)) return false
+        if (j.priority >= OPPORTUNISTIC_PRIORITY && !opportunisticGo) return false
         if (!prereqMet(j)) return false
         if (COMPUTE_LANE_TYPES.has(j.type)) {
           // Crash-boot cooldown: see computeLaneHeldUntil above.
@@ -602,6 +609,11 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runPodcastDownloadJob(payload, onProgress, signal)
       return
     }
+    case 'precompute': {
+      const { runPrecomputeJob } = await import('@/lib/precompute')
+      await runPrecomputeJob(job.refId)  // refId = JSON PrecomputePayload
+      return
+    }
     case 'podcast-transcribe': {
       const { runPodcastTranscribeJob } = await import('@/lib/podcast/transcribe')
       const payload = JSON.parse(job.refId)
@@ -815,16 +827,46 @@ export async function enqueueStudioRender(exportId: string, label: string): Prom
  *  Coalesced per cache entry: N household users hitting the same unplayable file share
  *  one job. maxAttempts 2 — one retry absorbs transient contention (file briefly locked
  *  by a scan), but a codec ffmpeg genuinely can't convert should fail fast and stay failed. */
-export async function enqueueMediaCompat(cacheId: string, label: string): Promise<void> {
+export async function enqueueMediaCompat(cacheId: string, label: string, opts?: { priority?: number }): Promise<void> {
   const vk = `media-compat:${cacheId}`
-  const [existing] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+  const priority = opts?.priority ?? 50
+  const [existing] = await db.select({ id: downloadJobs.id, priority: downloadJobs.priority, status: downloadJobs.status }).from(downloadJobs)
     .where(and(eq(downloadJobs.variantKey, vk), inArray(downloadJobs.status, ['pending', 'running'])))
+    .limit(1)
+  if (existing) {
+    // An ingest-time precompute parked this encode in the opportunistic band, and now a
+    // user actually hit play: escalate the pending job to the requested (more urgent)
+    // priority so it stops waiting for an idle moment. Never de-escalates.
+    if (existing.status === 'pending' && priority < existing.priority) {
+      await db.update(downloadJobs).set({ priority, updatedAt: new Date() }).where(eq(downloadJobs.id, existing.id))
+      kickScheduler()
+    }
+    return
+  }
+  const now = new Date()
+  await db.insert(downloadJobs).values({
+    id: randomUUID(), type: 'media-compat', refId: JSON.stringify({ cacheId }), variantKey: vk,
+    domain: 'transcode', sizeClass: 'small', label: label.slice(0, 120), priority,
+    status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
+    progress: null, createdAt: now, updatedAt: now,
+  })
+  kickScheduler()
+}
+
+/** Enqueue one opportunistic LLM precompute unit (see lib/precompute.ts). variantKey
+ *  coalesces re-enqueues from repeated feed polls; terminal rows are left alone (a
+ *  completed unit is warm, a failed one isn't worth hammering: its cache-side ensure*
+ *  still runs lazily on first user open, exactly as before this feature existed). */
+export async function enqueuePrecomputeJob(key: string, label: string, payloadJson: string): Promise<void> {
+  const vk = `precompute:${key}`
+  const [existing] = await db.select({ id: downloadJobs.id }).from(downloadJobs)
+    .where(eq(downloadJobs.variantKey, vk))
     .limit(1)
   if (existing) return
   const now = new Date()
   await db.insert(downloadJobs).values({
-    id: randomUUID(), type: 'media-compat', refId: JSON.stringify({ cacheId }), variantKey: vk,
-    domain: 'transcode', sizeClass: 'small', label: label.slice(0, 120), priority: 50,
+    id: randomUUID(), type: 'precompute', refId: payloadJson, variantKey: vk,
+    domain: 'precompute', sizeClass: 'small', label: label.slice(0, 120), priority: OPPORTUNISTIC_PRIORITY,
     status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
     progress: null, createdAt: now, updatedAt: now,
   })
@@ -1429,6 +1471,28 @@ export async function getJobsStatus() {
   // (per-app "preparing" badges iterate `jobs`); the widget reads `setup` / `content`.
   const combined = summarize([...setupRows, ...contentRows])
   return { ...combined, setup, content }
+}
+
+/** Snapshot for the Admin "Background activity" card: the idle-gate verdict plus the
+ *  opportunistic band's queue state (what is waiting for an idle moment, what is
+ *  running now, what finished recently). Separate from getJobsStatus so the widely
+ *  polled jobs endpoint keeps its exact shape. */
+export async function getBackgroundActivity() {
+  const gate = backgroundGateSnapshot()
+  const rows = await db.select().from(downloadJobs)
+    .where(and(
+      gte(downloadJobs.priority, OPPORTUNISTIC_PRIORITY),
+      inArray(downloadJobs.status, ['pending', 'running', 'completed', 'failed']),
+    ))
+    .orderBy(desc(downloadJobs.updatedAt))
+    .limit(100)
+  return {
+    gate,
+    jobs: rows.map((r) => ({
+      id: r.id, type: r.type, label: r.label, status: r.status,
+      progress: parseProgressBlob(r.progress), updatedAt: r.updatedAt,
+    })),
+  }
 }
 
 export async function retryJob(id: string): Promise<void> {

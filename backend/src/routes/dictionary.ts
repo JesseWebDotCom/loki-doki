@@ -36,6 +36,8 @@ dictionaryRoute.get('/', requireAuth, async (c) => {
 
   const key = q.toLowerCase()
 
+  // Definitions are effectively immutable; let the browser reuse a lookup for a day.
+  c.header('Cache-Control', 'private, max-age=86400')
   const cached = cache.get(key)
   if (cached && cached.expiresAt > Date.now()) {
     return c.json(cached.data)

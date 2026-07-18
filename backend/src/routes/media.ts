@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
-import { getOrFetchMediaImage } from '@/lib/titles/imageProxy'
+import { getOrFetchMediaImageResized } from '@/lib/titles/imageProxy'
 import type { AppEnv } from '@/types'
 
 const mediaRoute = new Hono<AppEnv>()
@@ -13,7 +13,8 @@ mediaRoute.get('/img', requireAuth, async (c) => {
   const u = c.req.query('u')
   if (!u) return c.json({ error: 'Query param u is required' }, 400)
 
-  const img = await getOrFetchMediaImage(u)
+  // Optional ?w= width hint: bucketed webp downscale for grids (lib/imageResize).
+  const img = await getOrFetchMediaImageResized(u, c.req.query('w'))
   if (!img) return c.json({ error: 'Image unavailable' }, 404)
 
   return new Response(new Uint8Array(img.data), {

@@ -210,6 +210,8 @@ export async function scanLocalFolder(
     let updated = 0
     let done = 0
     const seen = new Set<string>()
+    const freshPaths: string[] = []
+    const freshRefs: string[] = []
 
     for (const file of files) {
       if (signal.aborted) throw new Error('aborted')
@@ -219,6 +221,7 @@ export async function scanLocalFolder(
         done++
         continue // unchanged — the whole point of the incremental scan
       }
+      freshPaths.push(file.path)
       const row = await parseTrackFile(file)
       let trackId: string
       if (prior) {
@@ -234,6 +237,7 @@ export async function scanLocalFolder(
       if (typeof row.advisory === 'number') {
         void upsertAdvisory(localRef(trackId), row.advisory, 'tag', { title: row.title, artist: row.artist })
       }
+      freshRefs.push(localRef(trackId))
       done++
       if (done % 20 === 0 || done === files.length) onProgress(done, files.length)
     }
@@ -247,6 +251,28 @@ export async function scanLocalFolder(
     await db.update(musicLocalFolders).set({
       lastScanAt: now, lastScanStatus: 'ok', lastScanError: null, trackCount: files.length,
     }).where(eq(musicLocalFolders.id, folderId))
+
+    // Ingest-time playability for files that arrived outside the app: probe the fresh
+    // arrivals and park incompatible ones (flac/wma/ape) in the opportunistic band so
+    // first play never waits on an encode. Sequential + capped to bound ffprobe spawns
+    // on a giant first import; overflow simply stays on the lazy first-play path.
+    const PRECOMPUTE_CAP = 40
+    if (freshPaths.length) {
+      const batch = freshPaths.slice(0, PRECOMPUTE_CAP)
+      void import('@/lib/mediacompat/store').then(async (m) => {
+        for (const p of batch) await m.precomputeCompat(p)
+      }).catch(() => {})
+      if (freshPaths.length > batch.length) {
+        logger.info(`[music-local] compat precompute capped at ${PRECOMPUTE_CAP}/${freshPaths.length} fresh files (rest stay lazy)`)
+      }
+    }
+    // Audio facts (loudness + waveform) used to be scanned on FIRST PLAY (a ~2s lag on
+    // normalization); scan fresh arrivals now instead. Same cap, in-process queue is
+    // concurrency-1 and dedupes, so this never floods; overflow fills in lazily on play.
+    if (freshRefs.length) {
+      const { queueAudioScan } = await import('@/lib/music/audioScan')
+      for (const ref of freshRefs.slice(0, PRECOMPUTE_CAP)) queueAudioScan(ref)
+    }
 
     return { added, updated, removed: deadIds.length, total: files.length }
   } catch (err) {

@@ -38,6 +38,18 @@ function hashUrl(url: string): string {
   return createHash('sha256').update(url).digest('hex')
 }
 
+/** Width-hinted accessor (?w=): bucketed webp downscale beside the original, falling
+ *  back to the original whenever resizing isn't possible. Mirrors lib/imageProxy. */
+export async function getOrFetchMediaImageResized(rawUrl: string, w: string | undefined): Promise<{ data: Buffer; contentType: string } | null> {
+  const orig = await getOrFetchMediaImage(rawUrl)
+  if (!orig) return null
+  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(w)
+  if (!bucket) return orig
+  const variant = await getResizedVariant(join(CACHE_DIR, hashUrl(rawUrl)), orig.contentType, bucket)
+  return variant ?? orig
+}
+
 /** Read-through accessor used by the /api/media/img proxy. Returns null for a forbidden
  *  host or an upstream failure. */
 export async function getOrFetchMediaImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {

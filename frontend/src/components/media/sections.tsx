@@ -387,7 +387,7 @@ export function MediaStationButton({ title, posterUrl, kind, showId }: {
           <DialogHeader>
             <div className="mb-3 flex items-center gap-3">
               {posterUrl && (
-                <img src={mediaImg(posterUrl)} alt={title}
+                <img src={mediaImg(posterUrl, 240)} alt={title}
                   className="size-14 shrink-0 rounded-control object-cover shadow ring-1 ring-border/40" />
               )}
               <div className="min-w-0">
@@ -545,7 +545,7 @@ function CastCard({ member }: { member: ShowCastMember }) {
       <div className="mx-auto size-[96px] overflow-hidden rounded-full bg-muted ring-1 ring-border/40">
         {member.image && ok ? (
           <img
-            src={mediaImg(member.image)}
+            src={mediaImg(member.image, 240)}
             alt={member.name}
             loading="lazy"
             className="size-full object-cover"

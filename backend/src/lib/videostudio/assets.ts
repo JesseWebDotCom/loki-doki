@@ -197,6 +197,13 @@ export async function ingestUpload(userId: string, fileName: string, bytes: Uint
       const { enqueueMinePlacement } = await import('@/lib/videostudio/plexExport')
       void enqueueMinePlacement(id).catch(() => {})
     }
+    if (kind !== 'image') {
+      // Ingest-time playability: an mkv/hevc/wav upload gets its browser-safe rendition
+      // rendered during an idle moment instead of when the editor first previews it.
+      void blobAbsPath(hash)
+        .then(async (p) => (await import('@/lib/mediacompat/store')).precomputeCompat(p))
+        .catch(() => {})
+    }
     return { id }
   } catch (err) {
     await db.update(studioMedia).set({ status: 'failed', error: String(err).slice(0, 500), updatedAt: new Date() }).where(eq(studioMedia.id, id))

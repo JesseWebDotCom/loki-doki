@@ -487,6 +487,9 @@ musicCollection.post('/upload', async (c) => {
   try {
     const trackId = await indexUploadedFile(dest)
     const [row] = await db.select().from(musicLocalTracks).where(eq(musicLocalTracks.id, trackId)).limit(1)
+    // Ingest-time playability: flac/wma/etc. gets its browser-safe rendition rendered
+    // during an idle moment instead of on first play.
+    void import('@/lib/mediacompat/store').then((m) => m.precomputeCompat(dest)).catch(() => {})
     return c.json({ track: row ? trackDto(row) : null })
   } catch (err) {
     await fs.rm(dest, { force: true })  // don't leave unindexable bytes behind

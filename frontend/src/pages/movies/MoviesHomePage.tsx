@@ -6,7 +6,7 @@ import { MediaBillboard, type BillboardItem } from '@/components/media/MediaBill
 import { Spinner } from '@/components/ui/spinner'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
-import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
+import { moviesHomeQueryOptions, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
 import { getWatchlist } from '@/lib/library/api'
 import { PlexShelves } from '@/pages/shows/ShowsHomePage'
 import { InTheatersSection } from '@/components/media/InTheatersSection'
@@ -58,11 +58,7 @@ function SearchGrid({ q }: { q: string }) {
 }
 
 function HomeShelves() {
-  const { data: shelves, isLoading } = useQuery({
-    queryKey: ['movies-home'],
-    queryFn: getMoviesHome,
-    staleTime: 30 * 60 * 1000,
-  })
+  const { data: shelves, isLoading } = useQuery(moviesHomeQueryOptions())
   const { data: watchlist } = useQuery({ queryKey: ['watchlist', 'movie'], queryFn: () => getWatchlist('movie'), staleTime: 60 * 1000 })
 
   const watchlistPosters: PosterItem[] = (watchlist ?? []).map((w) => ({

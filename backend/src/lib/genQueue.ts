@@ -15,6 +15,7 @@
 import os from 'node:os'
 import { logger } from '@/lib/logger'
 import { getAppSetting } from '@/lib/settings'
+import { registerBusySignal } from '@/lib/idleScheduler'
 import { releaseCodingGpuForImaging } from '@/lib/codingEngine'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -88,6 +89,10 @@ const lanes: Record<GenType, { running: Set<string>; waiting: string[] }> = {
   vision:  { running: new Set(), waiting: [] },
   convert: { running: new Set(), waiting: [] },
 }
+
+// A user actively waiting on any generation holds the opportunistic background
+// band closed (see lib/idleScheduler.ts).
+registerBusySignal('generation', () => (isQueueIdle() ? null : 'a generation is running or queued'))
 
 /** Effective limits cache — re-read from app_settings at most once per second */
 let limitsCache: { limits: Record<GenType, number>; mode: string; fetchedAt: number } | null = null
