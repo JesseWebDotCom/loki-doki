@@ -11,6 +11,14 @@ import type { AppEnv } from '@/types'
 
 // Direct (non-LLM) web search for the standalone search page + Spotlight preview.
 // Mounted at /api/search/web — distinct from /api/search (local-content search).
+//
+// filterRelevant() (imported above) is a narrow "don't let the LLM synthesize from
+// junk fallback-scraper noise" guard — it belongs on the /answer endpoint's
+// grounding corpus only. It must NOT be applied to the plain `web` list the GET /
+// handler returns: SearXNG has already ranked/deduped/merged across ~20 engines,
+// and re-filtering on top of that silently drops real results whose snippet just
+// doesn't happen to repeat the query's exact tokens (this was previously wired in
+// here by mistake and made web results disappear for many queries).
 
 const webSearchRouter = new Hono<AppEnv>()
 
@@ -42,9 +50,7 @@ webSearchRouter.get('/', requireAuth, async (c) => {
     searxngImageSearch(q, IMAGE_LIMIT, 7000, safesearch === 0 ? 1 : safesearch),
   ])
 
-  const relevant = filterRelevant(q, web)
-
-  return c.json({ web: relevant, images, tier })
+  return c.json({ web, images, tier })
 })
 
 // GET /api/search/web/answer — an LLM-synthesized "AI Overview" over the top web
