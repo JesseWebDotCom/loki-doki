@@ -1,7 +1,33 @@
 # Apple AI Parity Review (July 2026)
 
-Status: proposal, not yet approved. Companion docs: `roadmap` memory (6-phase HA add-on plan),
+Status: proposal reviewed and implemented. All seven phases landed on `main` on 2026-07-17
+(commits prefixed `feat(ai-parity)`). Companion docs: `roadmap` memory (6-phase HA add-on plan),
 `interpretation-presentation-plan.md`, `command-intelligence-plan.md`.
+
+## Implementation status (2026-07-17)
+
+- **P7 foundation (shipped):** `AiGeneratedBadge` shared component + Visual Language rules
+  (label AI content, keep Edit/Undo/Retry adjacent, never summarize safety alerts).
+- **P1 Writing Tools (shipped):** `WritingToolsPopover` + `POST /api/writing-tools` SSE route.
+  Wired into the Note editor; component ready for Canvas and the composer (follow-up).
+- **P2 Notification digest (shipped):** opt-in `/api/notifications/digest`, safety-excluded,
+  cached, `AiGeneratedBadge` in the bell + a settings toggle.
+- **P3 Clean Up (shipped):** SDXL `inpaint` pipeline + `buildInpaintWorkflow` + `CleanUpDialog`
+  brush-mask editor in Imaging. Extend/outpaint and the Generate style-tile strip are follow-ups.
+- **P4 Camera intelligence (shipped):** NL footage search (`/api/frigate/search`, lazy nomic
+  embeddings on a new `frigate_events.embedding` column) + daily per-camera digest
+  (`/api/frigate/digest`) on the Cameras page. Face recognition deferred (consent design).
+- **P5 Translation (shipped):** `/translate` two-party app + `POST /api/translate/text`; Whisper
+  in, local LLM, spoken out. Browser synthesizer covers languages Kokoro lacks; podcast
+  translated-transcript quick win is a follow-up.
+- **P6 Assistant polish (partial):** chat retention (month/year/forever) with a daily sweep +
+  a new Settings > Local AI section (the "nothing leaves the house" report). Ask-from-Spotlight,
+  semantic content index, and desktop screen-awareness are follow-ups (deeper chat/search work).
+
+Below is the original proposal, kept for reference.
+
+---
+
 
 This reviews the AI feature set of current Apple platforms (iOS 26.5 / macOS 26 Tahoe stable,
 plus everything announced at WWDC 2026 for iOS 27 / macOS 27 "Golden Gate", public beta since
