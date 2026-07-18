@@ -55,47 +55,38 @@ const SIGNAL_REACH_SEC = 30
 export const adScanJobRefId = (episodeId: string) =>
   JSON.stringify({ episodeId } satisfies PodcastAdScanPayload)
 
-// The model identifies WHICH numbered lines are ads; the exact start/end times come
-// from those transcript lines on our side. Never ask the model for seconds: it cannot
-// reliably read a [H:MM:SS] stamp and do the arithmetic, and a small error there put
-// the ad markers and auto-skip in the wrong place. Line numbers it can copy verbatim.
-// Pass 1: find every ad and, crucially, WHICH sponsor each one is for. The sponsor label
-// is what pass 2 uses to read outward and grab the whole read.
-const AD_SCAN_SYSTEM =
-  'You find EVERY advertising segment in a podcast transcript excerpt. Every line begins with a line number in ' +
-  'square brackets, like [42]. Return JSON with exactly one key "ads": an array of objects ' +
-  '{"startLine": number, "endLine": number, "sponsor": string, "kind": "sponsor" | "ad" | "promo", "confidence": ' +
-  'number between 0 and 1}. Copy startLine and endLine exactly from the brackets, endLine at or after startLine. ' +
-  '"sponsor" is the product or brand being advertised (for example "Apple Card", "BetterHelp", "ZipRecruiter"), or ' +
-  '"" if you cannot tell. ' +
-  'An ad is a host-read sponsor message, an inserted commercial, a discount code or promo URL read, or a ' +
-  'promotion for another show. It is fine to mark just the core of the ad here; its exact edges are refined later. ' +
-  'An episode usually contains SEVERAL ad breaks, near the start and one or more in the middle. Return all of ' +
-  'them, not only the first. ' +
-  'Editorial discussion of a product or company as the actual topic of the episode is NOT an ad, and neither is ' +
-  'the hosts\' banter. Return {"ads": []} when the excerpt contains no ads. Do not use em dashes.'
+// Per-LINE classification, not boundary detection. Local models are weak at "where does
+// the topic change back to the show" and at spotting salesy speech that reads like normal
+// talk ("it comes in four delicious flavors", "switch to Allstate and save"). So we do not
+// ask for boundaries at all: we ask the model to label each numbered line as advertising
+// or not, one line at a time, and the ad ranges fall out of the contiguous ad lines. The
+// times come from those segments (never model-computed seconds). Few-shot examples anchor
+// the salesy register the model otherwise misses.
+const AD_LINES_SYSTEM =
+  'You label the advertising lines in a podcast transcript. Every line begins with its line number in square ' +
+  'brackets, like [42]. Judge each line ON ITS OWN. ' +
+  'A line is ADVERTISING if it is any part of a sponsor read, commercial, promo, jingle, discount or promo-code ' +
+  'read, or a call to action for a product or service. This INCLUDES product descriptions and slogans even when ' +
+  'they sound conversational. Examples of advertising lines:\n' +
+  '  "This episode is brought to you by Acme."\n' +
+  '  "And it comes in four delicious flavors."\n' +
+  '  "Switch to Allstate and you could save hundreds."\n' +
+  '  "Use code POD for twenty percent off your first order."\n' +
+  '  "Just head to example dot com slash pod."\n' +
+  '  "Terms and conditions apply."\n' +
+  'A line is NOT advertising if it is the hosts\' own conversation, the episode\'s topic, banter, interviewing a ' +
+  'guest, or the intro and sign-off. Examples of NOT advertising:\n' +
+  '  "So what did you actually think of the movie?"\n' +
+  '  "I cannot believe he said that on air."\n' +
+  '  "Our guest today needs no introduction."\n' +
+  'Return JSON {"adLines": [the line numbers, copied exactly from the brackets, that are advertising]}. Return ' +
+  '{"adLines": []} if none. Do not use em dashes.'
 
-// Pass 2: given one ad's sponsor and a tight window around it, return the exact extent of
-// THAT single ad read. Deliberately precise, not greedy: over-extending skips real show.
-const AD_EXPAND_SYSTEM =
-  'You are given a numbered transcript excerpt and told one advertiser whose ad appears in it. Return the exact ' +
-  'boundaries of THAT single ad read as JSON {"startLine": number, "endLine": number, "isAd": boolean}. ' +
-  'startLine is the first line of the ad, including a short lead-in if present (for example "we will be right ' +
-  'back", "this episode is supported by"). endLine is the last line of the ad itself. ' +
-  'Be PRECISE, not greedy. Extend only as far as the text is clearly still part of THIS ad. The moment the hosts ' +
-  'return to their own conversation, the episode\'s topic, banter, or a guest, the ad is OVER: end it on the ' +
-  'previous line. When in doubt, choose the tighter boundary. Never absorb show content, and never include a ' +
-  'different advertiser. ' +
-  'Copy line numbers exactly from the brackets. Set "isAd" false if the marked lines are not actually an ad. Do ' +
-  'not use em dashes.'
+// A single non-ad line inside an ad (a quick host aside) shouldn't split one ad in two:
+// bridge gaps up to this many lines between ad-labeled lines.
+const AD_LINE_GAP = 2
 
-// Lines of context on each side of a seed shown to pass 2. Small on purpose: it both fits
-// a normal ad read and hard-caps how far pass 2 can over-extend.
-const AD_CONTEXT_LINES = 20
-
-interface AdSeed { startIdx: number; endIdx: number; sponsor: string; kind: AdSegment['kind']; confidence: number }
-
-interface AdScanResponse { ads?: unknown }
+interface AdLinesResponse { adLines?: unknown }
 
 interface RawRange { startSec: number; endSec: number; kind: AdSegment['kind']; confidence: number }
 
@@ -251,75 +242,48 @@ function buildWindows(segments: TranscriptSegment[]): { text: string; startIdx: 
   return windows
 }
 
-/** Pass 1: parse the model's ads for one window into line-indexed seeds (with sponsor).
- *  Edges are refined in pass 2, so no length filter here. */
-function normalizeWindowSeeds(raw: unknown, windowStart: number, windowEnd: number, segments: TranscriptSegment[]): AdSeed[] {
-  if (!Array.isArray(raw)) return []
-  const out: AdSeed[] = []
-  for (const a of raw) {
-    if (!a || typeof a !== 'object') continue
-    const o = a as Record<string, unknown>
-    let sL = Math.round(Number(o.startLine ?? o.start))
-    let eL = Math.round(Number(o.endLine ?? o.end))
-    if (!Number.isFinite(sL) || !Number.isFinite(eL)) continue
-    if (eL < sL) [sL, eL] = [eL, sL]
-    // Clamp to the lines this window actually showed the model; outside = hallucination.
-    sL = Math.max(sL, windowStart); eL = Math.min(eL, windowEnd)
-    if (eL < sL || !segments[sL] || !segments[eL]) continue
-    const confidence = Number(o.confidence)
-    if (!Number.isFinite(confidence) || confidence < MIN_CONFIDENCE) continue
-    const kind = String(o.kind) === 'sponsor' ? 'sponsor' : String(o.kind) === 'promo' ? 'promo' : 'ad'
-    const sponsor = String(o.sponsor ?? '').replace(/[^\w .&'/-]/g, '').trim().slice(0, 80)
-    out.push({ startIdx: sL, endIdx: eL, sponsor, kind, confidence })
+/** Collect the ad-labeled line numbers the model returned for one window, keeping only
+ *  valid indices inside the window (anything outside is a hallucination). */
+function collectAdLines(raw: unknown, windowStart: number, windowEnd: number, into: Set<number>): void {
+  if (!Array.isArray(raw)) return
+  for (const v of raw) {
+    // Tolerate "[105]" / "105" as well as a bare number.
+    const n = typeof v === 'number' ? v : parseInt(String(v).replace(/[^\d]/g, ''), 10)
+    const i = Math.round(n)
+    if (Number.isFinite(i) && i >= windowStart && i <= windowEnd) into.add(i)
+  }
+}
+
+/** Turn the set of ad-labeled line indices into time ranges: bridge tiny gaps, take
+ *  contiguous runs, map to the segments' own start/end times, and drop implausibly
+ *  short/long runs. */
+function adLinesToRanges(adSet: Set<number>, segments: TranscriptSegment[]): RawRange[] {
+  if (!adSet.size) return []
+  const flag = new Uint8Array(segments.length)
+  for (const i of adSet) if (i >= 0 && i < segments.length) flag[i] = 1
+  // Bridge single-line (up to AD_LINE_GAP) non-ad gaps so a brief aside doesn't split one ad.
+  let i = 0
+  while (i < flag.length) {
+    if (flag[i]) { i++; continue }
+    let j = i
+    while (j < flag.length && !flag[j]) j++
+    if (i > 0 && j < flag.length && j - i <= AD_LINE_GAP) for (let k = i; k < j; k++) flag[k] = 1
+    i = j
+  }
+  const out: RawRange[] = []
+  i = 0
+  while (i < flag.length) {
+    if (!flag[i]) { i++; continue }
+    let j = i
+    while (j < flag.length && flag[j]) j++
+    const first = segments[i]!, last = segments[j - 1]!
+    const len = last.endSec - first.startSec
+    if (len >= MIN_AD_SEC && len <= MAX_AD_SEC) {
+      out.push({ startSec: Math.max(0, first.startSec), endSec: last.endSec, kind: 'ad', confidence: 0.8 })
+    }
+    i = j
   }
   return out
-}
-
-/** Combine seeds that point at the same ad (overlapping/adjacent line ranges), so each
- *  distinct ad is expanded once in pass 2. */
-function mergeSeeds(seeds: AdSeed[]): AdSeed[] {
-  const sorted = [...seeds].sort((a, b) => a.startIdx - b.startIdx)
-  const merged: AdSeed[] = []
-  for (const s of sorted) {
-    const prev = merged[merged.length - 1]
-    if (prev && s.startIdx <= prev.endIdx + 3) {
-      prev.endIdx = Math.max(prev.endIdx, s.endIdx)
-      prev.confidence = Math.max(prev.confidence, s.confidence)
-      if (!prev.sponsor && s.sponsor) prev.sponsor = s.sponsor
-    } else {
-      merged.push({ ...s })
-    }
-  }
-  return merged.slice(0, MAX_SEGMENTS)
-}
-
-/** Pass 2: read outward from a seed to the full ad for its sponsor. Returns the widened
- *  line range (always covering the seed), or null if the model says it is not an ad. */
-async function expandSeed(seed: AdSeed, segments: TranscriptSegment[], model: string): Promise<{ startIdx: number; endIdx: number } | null> {
-  const ctxStart = Math.max(0, seed.startIdx - AD_CONTEXT_LINES)
-  const ctxEnd = Math.min(segments.length - 1, seed.endIdx + AD_CONTEXT_LINES)
-  const lines: string[] = []
-  for (let i = ctxStart; i <= ctxEnd; i++) lines.push(`[${i}] ${segments[i]!.text}`)
-  const label = seed.sponsor || 'the advertised product'
-  const prompt = [
-    `Advertiser: ${label}`,
-    `An ad for ${label} is around lines ${seed.startIdx} to ${seed.endIdx}. Find where the whole ad starts and ends.`,
-    '',
-    'Transcript:',
-    lines.join('\n'),
-  ].join('\n')
-  const res = await structuredCall<{ startLine?: unknown; endLine?: unknown; isAd?: unknown }>(
-    model, prompt, AD_EXPAND_SYSTEM, { num_predict: 120 }, 'json')
-  if (res.isAd === false) return null
-  let sL = Math.round(Number(res.startLine))
-  let eL = Math.round(Number(res.endLine))
-  if (!Number.isFinite(sL) || !Number.isFinite(eL)) return { startIdx: seed.startIdx, endIdx: seed.endIdx }
-  if (eL < sL) [sL, eL] = [eL, sL]
-  // Result must cover the seed and stay inside the context it was shown.
-  sL = Math.min(seed.startIdx, Math.max(ctxStart, sL))
-  eL = Math.max(seed.endIdx, Math.min(ctxEnd, eL))
-  if (!segments[sL] || !segments[eL] || eL < sL) return { startIdx: seed.startIdx, endIdx: seed.endIdx }
-  return { startIdx: sL, endIdx: eL }
 }
 
 /** Method 2: a deterministic keyword/pattern pass over the whole transcript. Every line
@@ -383,13 +347,15 @@ export async function runPodcastAdScanJob(
     const total = fmtStamp(episode.durationSec ?? segs[segs.length - 1]!.endSec)
     const ranges: RawRange[] = []
 
-    // ── Pass 1: find each ad's core + its sponsor ──────────────────────────────────
-    const seeds: AdSeed[] = []
+    // ── Per-line ad classification over each window ────────────────────────────────
+    // The boundaries fall out of the contiguous ad-labeled lines, so the model never has
+    // to judge where a topic changes (which it is bad at) - only "is THIS line an ad".
+    const adLines = new Set<number>()
     let failedWindows = 0
     for (let w = 0; w < windows.length; w++) {
       if (signal.aborted) throw new Error('Aborted')
       const win = windows[w]!
-      onProgress({ completed: w, total: windows.length + 1, speedBps: 0, etaSeconds: 0, note: `Scanning for ads ${Math.round((w / (windows.length + 1)) * 100)}%` })
+      onProgress({ completed: w, total: windows.length, speedBps: 0, etaSeconds: 0, note: `Scanning for ads ${Math.round((w / windows.length) * 100)}%` })
       const prompt = [
         `Episode title: ${episode.title}`,
         `This excerpt is part of a [${total}] episode. Each transcript line begins with its line number in [brackets].`,
@@ -397,11 +363,11 @@ export async function runPodcastAdScanJob(
         'Transcript:',
         win.text,
       ].join('\n')
-      // format 'json' forces valid JSON; a single window that still fails does not sink
-      // the whole episode.
+      // format 'json' forces valid JSON; num_predict roomy for a window full of ad lines.
+      // A single window that fails does not sink the episode.
       try {
-        const res = await structuredCall<AdScanResponse>(model, prompt, AD_SCAN_SYSTEM, { num_predict: 1200 }, 'json')
-        seeds.push(...normalizeWindowSeeds(res.ads, win.startIdx, win.endIdx, segs))
+        const res = await structuredCall<AdLinesResponse>(model, prompt, AD_LINES_SYSTEM, { num_predict: 1500 }, 'json')
+        collectAdLines(res.adLines, win.startIdx, win.endIdx, adLines)
       } catch (err) {
         failedWindows++
         logger.warn(`[podcast-ad-scan] window ${w + 1}/${windows.length} failed: ${String(err).slice(0, 160)}`)
@@ -412,25 +378,10 @@ export async function runPodcastAdScanJob(
     if (windows.length > 0 && failedWindows === windows.length) {
       throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
+    ranges.push(...adLinesToRanges(adLines, segs))
 
-    // ── Pass 2: read outward from each seed to the ad's full extent ────────────────
-    const mergedSeeds = mergeSeeds(seeds)
-    for (let si = 0; si < mergedSeeds.length; si++) {
-      if (signal.aborted) throw new Error('Aborted')
-      onProgress({ completed: windows.length, total: windows.length + 1, speedBps: 0, etaSeconds: 0, note: `Refining ad boundaries ${si + 1}/${mergedSeeds.length}` })
-      const seed = mergedSeeds[si]!
-      let ex: { startIdx: number; endIdx: number } | null
-      try { ex = await expandSeed(seed, segs, model) }
-      catch { ex = { startIdx: seed.startIdx, endIdx: seed.endIdx } }   // keep the seed on failure
-      if (!ex) continue                                                 // pass 2 says: not an ad
-      const first = segs[ex.startIdx]; const last = segs[ex.endIdx]
-      if (first && last && last.endSec > first.startSec && last.endSec - first.startSec <= MAX_AD_SEC) {
-        ranges.push({ startSec: Math.max(0, first.startSec), endSec: last.endSec, kind: seed.kind, confidence: seed.confidence })
-      }
-    }
-
-    // Method 2: union the deterministic keyword pass so ads the model missed still get
-    // caught (the merge below dedupes overlap).
+    // Union the deterministic keyword pass so ads the model missed still get caught (the
+    // merge below dedupes overlap).
     ranges.push(...heuristicAdRanges(segs))
 
     // NOTE: the audio two-fetch fingerprint diff (adFingerprint.ts) is DISABLED. In the
