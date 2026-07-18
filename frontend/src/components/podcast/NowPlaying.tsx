@@ -180,6 +180,15 @@ export function NowPlaying() {
             <button onClick={retryAdDetection} className="shrink-0 font-medium text-brand hover:underline">Try again</button>
           </p>
         )}
+        {adStatus === 'ready' && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {/* design-ok(raw-palette-semantic): semantic "ad range" amber swatch, matches the seek-bar marks */}
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-amber-400/70" />
+            {adSegments.length > 0
+              ? `${adSegments.length} ad ${adSegments.length === 1 ? 'segment' : 'segments'} marked (amber) and skipped automatically.`
+              : 'No ads detected in this episode.'}
+          </p>
+        )}
       </div>
 
       {/* Transport */}
@@ -310,7 +319,7 @@ export function NowPlaying() {
           : detail.transcript.length === 0 ? (
             <>
               <TranscriptPanel episodeId={track.episodeId} positionSec={positionSec} onSeek={seek}
-                compact className="max-h-[46vh]" />
+                adSegments={adSegments} compact className="max-h-[46vh]" />
               <RouterLink to={`/podcasts/episode/${track.episodeId}`}
                 className="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
                 Open the full episode page <ExternalLink className="size-3" />

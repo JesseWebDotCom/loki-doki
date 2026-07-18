@@ -8,9 +8,19 @@ import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import {
   createSnip, getEpisodeTranscript, transcribeEpisode,
-  type TranscriptSegment,
+  type AdSegment, type TranscriptSegment,
 } from '@/lib/podcast/aiApi'
 import { fmtTime } from '@/lib/podcast/format'
+
+const AD_KIND_LABEL: Record<AdSegment['kind'], string> = { sponsor: 'Sponsor', ad: 'Ad', promo: 'Promo' }
+
+/** The detected ad covering a transcript line (matched at the line's midpoint so a line
+ *  half-in an ad isn't wrongly tagged). */
+function adForLine(seg: TranscriptSegment, ads?: AdSegment[]): AdSegment | null {
+  if (!ads?.length) return null
+  const mid = (seg.startSec + seg.endSec) / 2
+  return ads.find(a => mid >= a.startSec && mid < a.endSec) ?? null
+}
 
 /** Poll while a Whisper job is in flight; a ready/absent transcript needs no polling. */
 const POLL_MS = 5000
@@ -25,7 +35,7 @@ export function transcriptQueryKey(episodeId: string) {
  * lines. Shared by the episode page and the Now Playing transcript tab, so both stay
  * identical. `positionSec`/`onSeek` come from whichever player surface hosts it.
  */
-export function TranscriptPanel({ episodeId, positionSec, onSeek, onSnipped, className, compact = false }: {
+export function TranscriptPanel({ episodeId, positionSec, onSeek, onSnipped, className, compact = false, adSegments }: {
   episodeId: string
   positionSec: number
   onSeek: (sec: number) => void
@@ -33,6 +43,8 @@ export function TranscriptPanel({ episodeId, positionSec, onSeek, onSnipped, cla
   className?: string
   /** Denser type + no header blurb, for the Now Playing side panel. */
   compact?: boolean
+  /** Detected ad ranges to color-code inline (from the player context). */
+  adSegments?: AdSegment[]
 }) {
   const qc = useQueryClient()
   const [query, setQuery] = useState('')
@@ -198,16 +210,25 @@ export function TranscriptPanel({ episodeId, positionSec, onSeek, onSnipped, cla
         className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {rows.length === 0 ? (
           <p className="px-2 py-6 text-center text-sm text-muted-foreground/60">No lines match your search.</p>
-        ) : rows.map(({ segment, index }) => (
-          <TranscriptLine
-            key={index}
-            ref={index === activeIdx ? activeRef : undefined}
-            segment={segment}
-            active={index === activeIdx}
-            compact={compact}
-            onSeek={() => { setFollowing(true); onSeek(segment.startSec) }}
-          />
-        ))}
+        ) : rows.map(({ segment, index }, rowIdx) => {
+          const ad = adForLine(segment, adSegments)
+          // Show the "Sponsor/Ad/Promo" chip only on the first line of a contiguous ad
+          // block (when the previous visible row is not in the same ad).
+          const prev = rows[rowIdx - 1]
+          const adStarts = !!ad && (!prev || adForLine(prev.segment, adSegments)?.id !== ad.id)
+          return (
+            <TranscriptLine
+              key={index}
+              ref={index === activeIdx ? activeRef : undefined}
+              segment={segment}
+              active={index === activeIdx}
+              compact={compact}
+              adLabel={ad ? AD_KIND_LABEL[ad.kind] : null}
+              adStarts={adStarts}
+              onSeek={() => { setFollowing(true); onSeek(segment.startSec) }}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -217,25 +238,36 @@ const TranscriptLine = forwardRef<HTMLButtonElement, {
   segment: TranscriptSegment
   active: boolean
   compact: boolean
+  adLabel?: string | null
+  adStarts?: boolean
   onSeek: () => void
-}>(function TranscriptLine({ segment, active, compact, onSeek }, ref) {
+}>(function TranscriptLine({ segment, active, compact, adLabel, adStarts, onSeek }, ref) {
+  const isAd = !!adLabel
   return (
     <button ref={ref} onClick={onSeek}
       className={cn(
         'flex w-full gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-muted',
         active && 'bg-brand/10',
+        // design-ok(raw-palette-semantic): semantic "ad range" amber, matches the seek-bar ad overlay
+        isAd && 'bg-amber-400/10 hover:bg-amber-400/15',
       )}>
       <span className={cn('shrink-0 pt-0.5 text-xs tabular-nums', active ? 'font-semibold text-brand' : 'text-muted-foreground/60')}>
         {fmtTime(segment.startSec)}
       </span>
       <span className="min-w-0">
+        {adStarts && adLabel && (
+          // design-ok(raw-palette-semantic): semantic "ad" badge amber, distinct from the brand accent
+          <span className="mr-1.5 inline-flex items-center rounded bg-amber-400/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            {adLabel}
+          </span>
+        )}
         {segment.speaker && (
           <span className="mr-1.5 text-xs font-semibold text-brand">{segment.speaker}</span>
         )}
         <span className={cn(
           'leading-relaxed',
           compact ? 'text-xs' : 'text-sm',
-          active ? 'font-medium text-foreground' : 'text-muted-foreground',
+          isAd ? 'text-muted-foreground/70' : active ? 'font-medium text-foreground' : 'text-muted-foreground',
         )}>
           {segment.text}
         </span>
