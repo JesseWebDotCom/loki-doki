@@ -17,7 +17,7 @@ import { filterEpisodesForUser, podcastEpisodeAllowed } from '@/lib/podcast/poli
 import { familyEntrySetsFor, podcastShowAllowed } from '@/lib/family/audioPolicy'
 import { resolveEpisodeTranscript, searchTranscriptWindows } from '@/lib/podcast/transcripts'
 import { enqueueEpisodeTranscription, transcribeJobRefId } from '@/lib/podcast/transcribe'
-import { adScanJobRefId, enqueueAdScan, getAdSegments } from '@/lib/podcast/adScan'
+import { adScanJobRefId, enqueueAdScan, episodeHasLocalAudio, getAdSegments } from '@/lib/podcast/adScan'
 import { buildAskContext, generateEpisodeInsights, getEpisodeInsights } from '@/lib/podcast/ai'
 import { createSnip, deleteSnip, listSnips } from '@/lib/podcast/snips'
 import { logger } from '@/lib/logger'
@@ -137,6 +137,7 @@ podcastAiRoute.get('/episodes/:id/ad-segments', async (c) => {
   const episode = await visibleEpisode(episodeId, user)
   if (!episode) return c.json({ error: 'Not found' }, 404)
   const result = await getAdSegments(episodeId)
+  const audioLocal = await episodeHasLocalAudio(episodeId)
   let progress: { note: string | null; percent: number | null } | null = null
   if (result.status === 'pending' || result.status === 'processing') {
     const [job] = await db.select({ progress: downloadJobs.progress }).from(downloadJobs)
@@ -150,7 +151,7 @@ podcastAiRoute.get('/episodes/:id/ad-segments', async (c) => {
       } catch { progress = null }
     }
   }
-  return c.json({ ...result, progress })
+  return c.json({ ...result, audioLocal, progress })
 })
 
 /** Queue an ad scan. Returns immediately; the player polls the GET above. Requires a
