@@ -20,8 +20,10 @@
 //   3. Mojeek      — independent crawler, scrape-friendly from any IP.
 //   4. Marginalia  — independent indie index, free keyless JSON API.
 //
-// Engines run concurrently; each swallows its own errors and returns []. Results are
-// merged by priority and deduped by URL, so one slow/blocked engine never sinks a query.
+// Tiered: SearXNG runs first and alone (it already fans out across ~20 upstreams);
+// the direct scrapers only fire when SearXNG is absent, down, or thin, running
+// concurrently with each other. Each engine swallows its own errors and returns [].
+// Results are merged by priority and deduped by URL.
 
 import { search as googleSearch, OrganicResult } from 'google-sr'
 import { search as ddgSearch, SafeSearchType } from 'duck-duck-scrape'
@@ -163,18 +165,10 @@ async function marginalia(query: string, limit: number, timeoutMs: number): Prom
 
 // ── Merge ────────────────────────────────────────────────────────────────────────
 
-async function runEngines(q: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
-  const perEngine = Math.max(limit, 10)
-  const lists = await Promise.all([
-    searxng(q, perEngine, timeoutMs, safesearch),
-    safesearch > 0 ? Promise.resolve([]) : google(q, perEngine, timeoutMs),
-    ddg(q, perEngine, timeoutMs, safesearch),
-    safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
-    safesearch > 0 ? Promise.resolve([]) : marginalia(q, perEngine, timeoutMs),
-  ])
-
-  // Merge the FULL fan-out (no early cap): the merged list is cached below and
-  // served to callers with different limits, so trimming happens per-caller.
+// Merge lists in priority order, deduped by URL. No early cap: the merged list is
+// cached below and served to callers with different limits, so trimming happens
+// per-caller.
+function mergeLists(lists: WebResult[][]): WebResult[] {
   const merged: WebResult[] = []
   const seen = new Set<string>()
   for (const list of lists) {
@@ -186,6 +180,31 @@ async function runEngines(q: string, limit: number, timeoutMs: number, safesearc
     }
   }
   return merged
+}
+
+async function runEngines(q: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
+  const perEngine = Math.max(limit, 10)
+
+  // Tier 1: SearXNG alone. It already fans out across ~20 upstream engines with
+  // proper per-engine adapters, so when it delivers there's no reason to ALSO hit
+  // Google/DuckDuckGo/Mojeek/Marginalia directly — the old always-parallel design
+  // doubled our upstream footprint on every query and fed the burst-throttling the
+  // cache below exists to prevent. Returns [] instantly when the sidecar isn't
+  // ready, so a missing/booting SearXNG costs tier 2 nothing.
+  const sx = await searxng(q, perEngine, timeoutMs, safesearch)
+  if (sx.length >= Math.min(limit, 5)) return mergeLists([sx])
+
+  // Tier 2: SearXNG absent, down, or thin — fall back to the direct keyless
+  // scrapers (concurrently), merging whatever SearXNG did return ahead of them.
+  // DuckDuckGo is the one fallback with a safe-search knob, so it's the only one
+  // kid/teen profiles are allowed to reach.
+  const lists = await Promise.all([
+    safesearch > 0 ? Promise.resolve([]) : google(q, perEngine, timeoutMs),
+    ddg(q, perEngine, timeoutMs, safesearch),
+    safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
+    safesearch > 0 ? Promise.resolve([]) : marginalia(q, perEngine, timeoutMs),
+  ])
+  return mergeLists([sx, ...lists])
 }
 
 // ── In-flight dedupe + short cache ───────────────────────────────────────────────
