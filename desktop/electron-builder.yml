@@ -23,6 +23,23 @@ win:
   target:
     - target: nsis
       arch: [x64]
+# Styled install window. Layout (window size + icon centers) is canonical and is
+# mirrored by scripts/make-dmg-background.sh and scripts/make-dsstore.sh so the
+# Windows build path (build-mac-on-windows.ts) produces an identical DMG.
+dmg:
+  background: build/dmg-background.png
+  iconSize: 112
+  window:
+    width: 600
+    height: 420
+  contents:
+    - x: 150
+      y: 215
+      type: file
+    - x: 450
+      y: 215
+      type: link
+      path: /Applications
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

@@ -100,7 +100,16 @@ function openSetup() {
   })
   setupWin.removeMenu?.()
   void setupWin.loadFile(path.join(__dirname, 'setup.html'))
-  setupWin.on('closed', () => { setupWin = null })
+  setupWin.on('closed', () => {
+    setupWin = null
+    // Single boot trigger for first run: whether the user clicked "Open Doki Dock"
+    // (setup:finish closes the window) or dismissed the primer, bring the app up so
+    // a configured hub is never left as a tray-only process. Already-running
+    // (change-server) and not-yet-configured cases skip this.
+    if (currentSettings.serverUrl && !hud && !mainWin && !isQuitting) {
+      bootWindows({ showMainWindow: true })
+    }
+  })
 }
 
 ipcMain.handle('setup:current-url', () => currentSettings.serverUrl)
@@ -120,7 +129,7 @@ ipcMain.handle('setup:save', async (_event, url) => {
     app.relaunch()
     isQuitting = true
     app.exit(0)
-    return
+    return { needsPermissions: false }
   }
   // First configure: an always-on companion should come back after reboot.
   // Only for the packaged app - in dev this would register the bare Electron binary.
@@ -129,10 +138,29 @@ ipcMain.handle('setup:save', async (_event, url) => {
     app.setLoginItemSettings({ openAtLogin: true })
   }
   serverReachable = true
+  // macOS: walk the user through mic (and the screen-awareness quirk) before the
+  // app opens, so the companion can actually hear them on first use. The primer
+  // lives in the same setup window (a second panel); setup:finish boots after it.
+  // Nothing to prime on other platforms, so boot straight away there.
+  if (process.platform === 'darwin') {
+    // Keep the window open for the primer; setup:finish (or dismissal) closes it,
+    // and the 'closed' handler boots the app.
+    setupWin?.setContentSize(480, 560)
+    setupWin?.center()
+    return { needsPermissions: true }
+  }
+  // Other platforms have no primer: closing the window boots via 'closed'.
   setupWin?.close()
-  // First boot: the user still needs to sign in, so open the main window too.
-  bootWindows({ showMainWindow: true })
+  return { needsPermissions: false }
 })
+
+// Primer actions (macOS first run). ensureMacMicAccess pops the OS mic consent
+// once; the screen status is informational (macOS only lists the app under
+// Screen Recording after its first capture, and needs a relaunch to take hold).
+ipcMain.handle('setup:request-mic', () => permissions.ensureMacMicAccess())
+ipcMain.handle('setup:screen-status', () => permissions.getMacScreenAccessStatus())
+// Closing the window is the single boot trigger (see openSetup's 'closed' handler).
+ipcMain.handle('setup:finish', () => { setupWin?.close() })
 
 // ── HUD + listening control ────────────────────────────────────────────────────
 

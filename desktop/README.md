@@ -53,7 +53,49 @@ bun run dist:win   # NSIS .exe (x64), from Windows
 
 CI does the same for both platforms: the `Desktop Build` GitHub Actions workflow runs
 on `workflow_dispatch` and on tags matching `desktop-v*` (tags also publish a GitHub
-Release with the artifacts).
+Release with the artifacts). The macOS job runs on a real macOS runner, so its `.dmg`
+is the styled, verified install image.
+
+### The styled DMG (drag-to-Applications window)
+
+Opening the `.dmg` shows a branded window: the app on the left, an arrow, and the
+Applications folder on the right, with a short note along the bottom about the
+first-open Gatekeeper step. The look is defined by committed assets under `build/`,
+shared by **both** build paths:
+
+- `build/dmg-background.png` (+`@2x`): the window artwork.
+- `build/dmg/DS_Store`: the Finder layout (window size, icon positions, background).
+
+electron-builder consumes them via the `dmg:` block in `electron-builder.yml`. Only
+regenerate when the layout changes (macOS, ImageMagick required):
+
+```sh
+scripts/make-dmg-background.sh   # rebuild the artwork from the brand palette
+scripts/make-dsstore.sh          # re-bake the Finder layout (needs Finder Automation)
+```
+
+Keep the window size and icon centers in those two scripts in sync with the `dmg`
+block in `electron-builder.yml`; that trio is the single source of truth for the layout.
+
+### Building the Mac app (and DMG) on Windows, no Mac
+
+`scripts/build-mac-on-windows.ts` assembles, brands, and ad-hoc signs `Doki Dock.app`
+from a prebuilt Electron darwin zip (see its header for inputs and `rcodesign`). It
+always writes the `.zip`, and also writes the styled `.dmg` when an HFS+ sealer is
+available, reusing the committed layout above. Sealing a folder into a UDIF image needs
+a tool Windows lacks natively, so point `DMGTOOL` at one:
+
+```sh
+# under WSL, using the libdmg-hfsplus reference sealer:
+DMGTOOL="wsl scripts/seal-dmg.sh" RCODESIGN=... \
+  bun run scripts/build-mac-on-windows.ts electron-*-darwin-arm64.zip DokiDock-arm64.zip
+```
+
+`scripts/seal-dmg.sh` needs `hfsprogs` (`mkfs.hfsplus`) plus libdmg-hfsplus's `hfsplus`
+and `dmg` tools. It is the one step that cannot be exercised on macOS, so validate its
+output once (mount the DMG, confirm the styled window). Without `DMGTOOL` the script
+skips the DMG and emits the zip exactly as before. On macOS the same script seals via
+`hdiutil` automatically.
 
 ### macOS Screen Recording permission (screen awareness)
 
@@ -73,9 +115,23 @@ and relaunch** (the grant doesn't apply to a running process). Dev gotchas:
 
 Phase 1 builds are not code-signed:
 
-- **macOS**: Gatekeeper will block the first launch. Right-click the app → Open → Open,
-  or run `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`.
+- **macOS**: Gatekeeper blocks the first launch. On macOS 15+ the old right-click → Open
+  bypass is gone: open the app once (it gets blocked), then go to
+  System Settings → Privacy & Security and click **Open Anyway** (or, from a terminal,
+  `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`). The DMG window and
+  the app's first-run primer both spell this out. The only way to remove the prompt is
+  Developer ID signing + notarization (rcodesign can do both from Windows), not done in
+  Phase 1.
 - **Windows**: SmartScreen will warn. Click **More info → Run anyway**.
+
+### First-run permission primer (macOS)
+
+After the packaged app is connected to a server for the first time, it shows a short
+primer (a second panel in the setup window) that requests **Microphone** access and
+explains the **Screen Recording** quirk (see above) before the app opens. It's macOS
+only and first-run only; changing the server later skips straight to a relaunch. The
+handlers live in `src/main.js` (`setup:request-mic` / `setup:screen-status` /
+`setup:finish`) and the UI in `src/setup.html`.
 
 ## Architecture notes
 

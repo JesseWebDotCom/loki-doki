@@ -295,6 +295,54 @@ function writeZip(entries: OutEntry[], outPath: string) {
   fs.writeFileSync(outPath, Buffer.concat([...chunks, centralBuf, eocd]))
 }
 
+// ── DMG: styled install window (drag-to-Applications) ──────────────────────────
+// The zip stays the primary artifact; the DMG adds the pretty install window.
+// It reuses the SAME Finder layout electron-builder produces on CI, committed as
+// build/dmg/DS_Store + build/dmg-background.png, so no Mac is needed to lay it
+// out. Sealing a folder into a UDIF image still needs an HFS+ writer, which
+// Windows lacks natively:
+//   - macOS: hdiutil (used automatically; this is the branch validated locally).
+//   - Windows/Linux: supply one via the DMGTOOL env var, invoked as
+//       DMGTOOL <root-dir> <out.dmg> <volume-name>
+//     scripts/seal-dmg.sh is a libdmg-hfsplus reference that runs under WSL.
+// The volume name MUST match the one baked into build/dmg/DS_Store ("Doki Dock"),
+// or the background-image alias inside the layout will not resolve.
+const VOLNAME = NAME
+const BUILD = join(DESKTOP, 'build')
+
+// Drop the background + committed Finder layout into the staging dir. Called
+// AFTER writeZip so the zip stays app-only (unchanged) and only the DMG carries
+// the install-window chrome. The /Applications symlink is left to the sealer:
+// hdiutil gets a real symlink here; DMGTOOL adds one itself (see seal-dmg.sh),
+// avoiding a dangling NTFS link on Windows.
+function stageDmgExtras(stageDir: string) {
+  const bgDir = join(stageDir, '.background')
+  fs.mkdirSync(bgDir, { recursive: true })
+  fs.copyFileSync(join(BUILD, 'dmg-background.png'), join(bgDir, 'dmg-background.png'))
+  const bg2x = join(BUILD, 'dmg-background@2x.png')
+  if (fs.existsSync(bg2x)) fs.copyFileSync(bg2x, join(bgDir, 'dmg-background@2x.png'))
+  fs.copyFileSync(join(BUILD, 'dmg', 'DS_Store'), join(stageDir, '.DS_Store'))
+}
+
+function sealDmg(stageDir: string, outDmg: string): boolean {
+  const tool = process.env['DMGTOOL']
+  if (tool) {
+    const r = spawnSync(tool, [stageDir, outDmg, VOLNAME], { encoding: 'utf8', windowsHide: true, shell: true, maxBuffer: 64 * 1024 * 1024 })
+    if (r.status !== 0) { console.error(r.stdout, r.stderr); throw new Error(`DMGTOOL exited ${r.status}`) }
+    return true
+  }
+  if (process.platform === 'darwin') {
+    fs.rmSync(join(stageDir, 'Applications'), { force: true })
+    fs.symlinkSync('/Applications', join(stageDir, 'Applications'), 'dir')
+    spawnSync('SetFile', ['-a', 'V', join(stageDir, '.background')], { encoding: 'utf8' })
+    fs.rmSync(outDmg, { force: true })
+    const r = spawnSync('hdiutil', ['create', '-volname', VOLNAME, '-srcfolder', stageDir, '-format', 'UDZO', '-ov', outDmg], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    if (r.status !== 0) { console.error(r.stdout, r.stderr); throw new Error(`hdiutil exited ${r.status}`) }
+    return true
+  }
+  return false
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────────
 
 const stage = join(DESKTOP, 'release', 'mac-stage-' + (/arm64/.test(zipPath) ? 'arm64' : 'x64'))
@@ -319,6 +367,16 @@ if (sign.status !== 0) {
 }
 console.log((sign.stderr + sign.stdout).trim().split('\n').map((l) => '    ' + l).join('\n'))
 
-console.log('5/5 writing', outZip)
+console.log('5/6 writing', outZip)
 writeZip(walkStage(stage), resolve(outZip))
-console.log('done:', fs.statSync(resolve(outZip)).size, 'bytes')
+console.log('    zip:', fs.statSync(resolve(outZip)).size, 'bytes')
+
+console.log('6/6 assembling DMG')
+stageDmgExtras(stage)
+const outDmg = resolve(outZip).replace(/\.zip$/i, '.dmg')
+if (sealDmg(stage, outDmg)) {
+  console.log('    dmg:', fs.statSync(outDmg).size, 'bytes', outDmg)
+} else {
+  console.log('    skipped: no HFS+ sealer. Set DMGTOOL=path/to/seal-dmg.sh (see')
+  console.log('    scripts/seal-dmg.sh) to also emit the DMG; the zip above is complete.')
+}

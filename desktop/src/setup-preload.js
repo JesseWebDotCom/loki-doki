@@ -8,4 +8,8 @@ contextBridge.exposeInMainWorld('lokiSetup', {
   currentUrl: () => ipcRenderer.invoke('setup:current-url'),
   validate: (url) => ipcRenderer.invoke('setup:validate', url),
   save: (url) => ipcRenderer.invoke('setup:save', url),
+  // First-run permission primer (macOS).
+  requestMic: () => ipcRenderer.invoke('setup:request-mic'),
+  screenStatus: () => ipcRenderer.invoke('setup:screen-status'),
+  finish: () => ipcRenderer.invoke('setup:finish'),
 })

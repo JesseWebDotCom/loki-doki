@@ -9,11 +9,11 @@
   body {
     font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
     display: flex; align-items: center; justify-content: center;
-    height: 100vh; padding: 24px;
+    min-height: 100vh; padding: 24px;
     background: light-dark(#fafafa, #161618);
     color: light-dark(#1c1c1e, #f2f2f4);
   }
-  main { width: 100%; max-width: 360px; }
+  main { width: 100%; max-width: 380px; }
   h1 { font-size: 18px; margin-bottom: 4px; }
   p.hint { color: light-dark(#6e6e73, #98989f); margin-bottom: 16px; }
   input {
@@ -26,24 +26,94 @@
     margin-top: 12px; width: 100%; padding: 10px 12px; font-size: 14px; font-weight: 600;
     border: 0; border-radius: 8px; background: #6366f1; color: #fff; cursor: pointer;
   }
+  button.secondary {
+    background: transparent; color: light-dark(#6366f1, #a5a1ff);
+    border: 1px solid light-dark(#d2d2d7, #3a3a3e);
+  }
   button:disabled { opacity: 0.6; cursor: default; }
   .error { color: #dc2626; margin-top: 10px; min-height: 1.5em; }
+  .hidden { display: none; }
+
+  /* Permission primer */
+  ul.steps { list-style: none; margin: 4px 0 8px; }
+  li.step {
+    display: flex; gap: 12px; padding: 12px 0;
+    border-top: 1px solid light-dark(#ececf0, #2a2a2e);
+  }
+  li.step:first-child { border-top: 0; }
+  .step .icon { font-size: 20px; line-height: 1.4; }
+  .step .body { flex: 1; }
+  .step .title { font-weight: 600; }
+  .step .desc { color: light-dark(#6e6e73, #98989f); font-size: 13px; }
+  .step .status { font-size: 13px; margin-top: 4px; min-height: 1.2em; }
+  .status.ok { color: #16a34a; }
+  .status.warn { color: light-dark(#b45309, #e0a340); }
+  .step button { margin-top: 8px; width: auto; padding: 7px 14px; font-size: 13px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Connect Doki Dock</h1>
-  <p class="hint">Enter your Loki Doki server address.</p>
-  <input id="url" type="text" placeholder="http://192.168.1.10:3000" autofocus spellcheck="false" />
-  <button id="connect">Connect</button>
-  <p class="error" id="error"></p>
+  <!-- Panel 1: connect to the home server -->
+  <section id="connect-panel">
+    <h1>Connect Doki Dock</h1>
+    <p class="hint">Enter your Loki Doki server address.</p>
+    <input id="url" type="text" placeholder="http://192.168.1.10:3000" autofocus spellcheck="false" />
+    <button id="connect">Connect</button>
+    <p class="error" id="error"></p>
+  </section>
+
+  <!-- Panel 2: first-run permissions (macOS) -->
+  <section id="perms-panel" class="hidden">
+    <h1>You're almost set</h1>
+    <p class="hint">Two quick permissions so the companion can hear and (optionally) see you.</p>
+    <ul class="steps">
+      <li class="step">
+        <div class="icon">🎙️</div>
+        <div class="body">
+          <div class="title">Microphone</div>
+          <div class="desc">So you can talk to your companion hands-free.</div>
+          <button id="mic-btn">Allow microphone</button>
+          <div class="status" id="mic-status"></div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="icon">🖥️</div>
+        <div class="body">
+          <div class="title">Screen awareness <span style="font-weight:400;color:#98989f">(optional)</span></div>
+          <div class="desc" id="screen-desc">
+            To let the companion see your screen, ask it about your screen once,
+            then flip Doki Dock on in System Settings › Privacy &amp; Security ›
+            Screen Recording and relaunch. You can do this later.
+          </div>
+          <div class="status" id="screen-status"></div>
+        </div>
+      </li>
+    </ul>
+    <button id="finish">Open Doki Dock</button>
+  </section>
 </main>
 <script>
   const input = document.getElementById('url')
   const button = document.getElementById('connect')
   const error = document.getElementById('error')
+  const connectPanel = document.getElementById('connect-panel')
+  const permsPanel = document.getElementById('perms-panel')
 
   window.lokiSetup.currentUrl().then((url) => { if (url && !input.value) input.value = url })
+
+  function showPerms() {
+    connectPanel.classList.add('hidden')
+    permsPanel.classList.remove('hidden')
+    // Reflect any Screen Recording grant that already exists.
+    window.lokiSetup.screenStatus().then((status) => {
+      const el = document.getElementById('screen-status')
+      if (status === 'granted') {
+        el.textContent = 'Already allowed ✓'
+        el.className = 'status ok'
+        document.getElementById('screen-desc').classList.add('hidden')
+      }
+    }).catch(() => {})
+  }
 
   async function connect() {
     error.textContent = ''
@@ -55,7 +125,10 @@
         error.textContent = result.error || 'Could not reach the server.'
         return
       }
-      await window.lokiSetup.save(result.url)
+      const saved = await window.lokiSetup.save(result.url)
+      // On macOS the window stays open and shows the primer; elsewhere the app
+      // boots and this window closes on its own.
+      if (saved && saved.needsPermissions) showPerms()
     } finally {
       button.disabled = false
       button.textContent = 'Connect'
@@ -64,6 +137,29 @@
 
   button.addEventListener('click', connect)
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect() })
+
+  // Permission primer actions
+  const micBtn = document.getElementById('mic-btn')
+  const micStatus = document.getElementById('mic-status')
+  micBtn.addEventListener('click', async () => {
+    micBtn.disabled = true
+    micBtn.textContent = 'Requesting…'
+    const granted = await window.lokiSetup.requestMic()
+    if (granted) {
+      micStatus.textContent = 'Microphone allowed ✓'
+      micStatus.className = 'status ok'
+      micBtn.textContent = 'Allowed'
+    } else {
+      micStatus.textContent = 'Not allowed. Enable it later in System Settings › Privacy & Security › Microphone.'
+      micStatus.className = 'status warn'
+      micBtn.disabled = false
+      micBtn.textContent = 'Try again'
+    }
+  })
+
+  document.getElementById('finish').addEventListener('click', () => {
+    window.lokiSetup.finish()
+  })
 </script>
 </body>
 </html>
