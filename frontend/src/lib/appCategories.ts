@@ -1,7 +1,7 @@
 import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Film, Gauge, Gift, Home, Image as ImageIcon, Lightbulb,
-  Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
+  Languages, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
   Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, TerminalSquare, Trophy, Tv, UtensilsCrossed, Users, Zap, type LucideIcon,
 } from "lucide-react";
 
@@ -151,6 +151,7 @@ export const APP_GROUPS: AppGroup[] = [
     apps: [
       { id: "time",           to: "/time",           label: "Time",           description: "World clock, alarms & timers",   gradient: "linear-gradient(135deg,#0f172a,#4338ca)", color: "#6366f1", icon: Clock, toolId: "time" },
       { id: "voice-memos",    to: "/voice-memos",    label: "Voice Memos",    description: "Record & transcribe notes",      gradient: "linear-gradient(135deg,#0c4a6e,#0891b2)", color: "#0891b2", icon: Mic },
+      { id: "translate",      to: "/translate",      label: "Translate",      description: "Two-party live translation",     gradient: "linear-gradient(135deg,#0f766e,#0891b2)", color: "#14b8a6", icon: Languages },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },
       { id: "converter",      to: "/converter",      label: "File Converter", description: "Convert images, audio & video",  gradient: "linear-gradient(135deg,#166534,#2563eb)", color: "#2563eb", icon: FileType },
       { id: "reverse-lookup", to: "/reverse-lookup", label: "Reverse Lookup", description: "Property & people by address, name, or phone", gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Search },

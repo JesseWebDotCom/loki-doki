@@ -113,6 +113,7 @@ const ShowsWatchlistPage = lazy(() => import('@/pages/shows/ShowsRailPages').the
 const ShowsFamilyPage = lazy(() => import('@/pages/shows/ShowsRailPages').then((m) => ({ default: m.ShowsFamilyPage })))
 const SkillsPage = lazy(() => import('@/pages/SkillsPage').then((m) => ({ default: m.SkillsPage })))
 const VoiceMemosPage = lazy(() => import('@/pages/VoiceMemosPage').then((m) => ({ default: m.VoiceMemosPage })))
+const TranslatePage = lazy(() => import('@/pages/TranslatePage').then((m) => ({ default: m.TranslatePage })))
 const JokePage = lazy(() => import('@/pages/JokePage').then((m) => ({ default: m.JokePage })))
 const UnitConverterPage = lazy(() => import('@/pages/UnitConverterPage').then((m) => ({ default: m.UnitConverterPage })))
 const SpeedTestPage = lazy(() => import('@/pages/SpeedTestPage').then((m) => ({ default: m.SpeedTestPage })))
@@ -566,6 +567,7 @@ export default function App() {
                 <Route path="/showtimes" element={<Navigate to="/movies/in-theaters" replace />} />
                 <Route path="/skills" element={<SkillsPage />} />
                 <Route path="/voice-memos" element={<VoiceMemosPage />} />
+                <Route path="/translate" element={<TranslatePage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/speed-test" element={<SpeedTestPage />} />
