@@ -171,10 +171,10 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   const downloadFailed = useRef(new Set<string>())
   const swappedToLocal = useRef(new Set<string>())
   const sessionStartedLocal = useRef<boolean | null>(null)
-  // Each detected range fires at most once per play session, so a user who scrubs
-  // back into one deliberately can listen through it (the natural way to verify a
-  // detection) without the player fighting them.
-  const skippedAdIds = useRef(new Set<string>())
+  // Ranges the user marked "Not an ad?" this session. Everything else auto-skips whenever
+  // the playhead is inside it, so rewinding back into an ad skips it again (expected), and
+  // the pre-roll skips even when the episode opens on it.
+  const suppressedAdIds = useRef(new Set<string>())
 
   const pendingStart = useRef(0)
   const lastSaved = useRef(0)
@@ -245,7 +245,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     // passes the old episode's position — for most episodes, never — silently losing resume.
     lastSaved.current = 0
     outroFired.current = false
-    skippedAdIds.current = new Set()
+    suppressedAdIds.current = new Set()
     sessionStartedLocal.current = null
     pendingStart.current = startSec
     // Replaying the episode that's already loaded (e.g. tapping one of its bookmarks):
@@ -436,7 +436,7 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
     if (!el) return
     const wasPlaying = !el.paused
     pendingStart.current = 0
-    skippedAdIds.current = new Set()
+    suppressedAdIds.current = new Set()
     try { el.load() } catch { /* re-fetch same src; now the downloaded blob */ }
     el.currentTime = 0
     setPositionSec(0)
@@ -546,6 +546,9 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
   // (accepted v1 slop; the counter is a rough score, not billing).
   const undoAdSkip = useCallback((seg: AdSegment, fromSec: number) => {
     const el = audioRef.current
+    // Suppress immediately (before the state update lands) so onTime does not re-skip it
+    // while the user is trying to listen through.
+    suppressedAdIds.current.add(seg.id)
     if (el) el.currentTime = fromSec
     setPositionSec(fromSec)
     setAdSegments(prev => prev.filter(a => a.id !== seg.id))
@@ -718,13 +721,14 @@ export function PodcastPlaybackProvider({ children }: { children: ReactNode }) {
         else if (autoplayRef.current) advance()
         else { el.pause(); setPlaying(false) }
       }
-      // Ad skip: seek past a detected range. The endSec - 0.75 lower bound keeps the
-      // landing frame from re-matching the range it just left.
+      // Ad skip: seek past a detected range whenever the playhead is inside it (so a
+      // rewind back into an ad, or opening on a pre-roll, skips again). The endSec - 0.75
+      // lower bound keeps the landing frame from re-matching the range it just left, so
+      // there is no loop. Ranges the user marked "Not an ad?" are left alone.
       if (effectiveSkipAdsRef.current && adSegmentsRef.current.length) {
         const pos = el.currentTime
         const seg = adSegmentsRef.current.find(a => pos >= a.startSec && pos < a.endSec - 0.75)
-        if (seg && !skippedAdIds.current.has(seg.id)) {
-          skippedAdIds.current.add(seg.id)
+        if (seg && !suppressedAdIds.current.has(seg.id)) {
           const target = total > 0 ? Math.min(seg.endSec, total - 0.25) : seg.endSec
           const saved = Math.max(0, target - pos)
           el.currentTime = target

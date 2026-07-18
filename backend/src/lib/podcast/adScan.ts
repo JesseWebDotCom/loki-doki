@@ -71,25 +71,27 @@ const AD_SCAN_SYSTEM =
   'An ad is a host-read sponsor message, an inserted commercial, a discount code or promo URL read, or a ' +
   'promotion for another show. It is fine to mark just the core of the ad here; its exact edges are refined later. ' +
   'An episode usually contains SEVERAL ad breaks, near the start and one or more in the middle. Return all of ' +
-  'them, not only the first. When unsure whether a stretch is an ad, include it. ' +
-  'Editorial discussion of a product or company as the actual topic of the episode is NOT an ad. Return ' +
-  '{"ads": []} when the excerpt contains no ads. Do not use em dashes.'
+  'them, not only the first. ' +
+  'Editorial discussion of a product or company as the actual topic of the episode is NOT an ad, and neither is ' +
+  'the hosts\' banter. Return {"ads": []} when the excerpt contains no ads. Do not use em dashes.'
 
-// Pass 2: given one ad's sponsor and a window around it, return the FULL extent of that
-// single ad read (lead-in through hand-off), reading outward from the seed.
+// Pass 2: given one ad's sponsor and a tight window around it, return the exact extent of
+// THAT single ad read. Deliberately precise, not greedy: over-extending skips real show.
 const AD_EXPAND_SYSTEM =
-  'You are given a numbered transcript excerpt and told one advertiser whose ad appears in it. Find the FULL extent ' +
-  'of THAT single ad read. Return JSON {"startLine": number, "endLine": number, "isAd": boolean}. ' +
-  'startLine is the first line of the ad INCLUDING the lead-in (for example "we will be right back", "today\'s ' +
-  'episode is supported by", "let me tell you about"). endLine is the last line before the show\'s own content ' +
-  'resumes (for example "and we are back", "welcome back"). Include the whole read: the pitch, the offer, any promo ' +
-  'code or URL, and the terms and conditions. Do NOT include a different advertiser\'s ad or the hosts\' own ' +
-  'discussion of the show. Copy line numbers exactly from the brackets. Set "isAd" false only if this is genuinely ' +
-  'not an advertisement. Do not use em dashes.'
+  'You are given a numbered transcript excerpt and told one advertiser whose ad appears in it. Return the exact ' +
+  'boundaries of THAT single ad read as JSON {"startLine": number, "endLine": number, "isAd": boolean}. ' +
+  'startLine is the first line of the ad, including a short lead-in if present (for example "we will be right ' +
+  'back", "this episode is supported by"). endLine is the last line of the ad itself. ' +
+  'Be PRECISE, not greedy. Extend only as far as the text is clearly still part of THIS ad. The moment the hosts ' +
+  'return to their own conversation, the episode\'s topic, banter, or a guest, the ad is OVER: end it on the ' +
+  'previous line. When in doubt, choose the tighter boundary. Never absorb show content, and never include a ' +
+  'different advertiser. ' +
+  'Copy line numbers exactly from the brackets. Set "isAd" false if the marked lines are not actually an ad. Do ' +
+  'not use em dashes.'
 
-// Lines of context on each side of a seed given to pass 2 (an ad read is typically well
-// under this, so the full ad plus its lead-in and hand-off fit in the window).
-const AD_CONTEXT_LINES = 45
+// Lines of context on each side of a seed shown to pass 2. Small on purpose: it both fits
+// a normal ad read and hard-caps how far pass 2 can over-extend.
+const AD_CONTEXT_LINES = 20
 
 interface AdSeed { startIdx: number; endIdx: number; sponsor: string; kind: AdSegment['kind']; confidence: number }
 
