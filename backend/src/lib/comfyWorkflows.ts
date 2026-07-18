@@ -2,6 +2,15 @@ import type { ComfyUILaunchConfig } from '@/lib/hwfit'
 
 export type ComfyUIPrompt = Record<string, { class_type: string; inputs: Record<string, unknown> }>
 
+// One character LoRA confined to its own vertical slice of the frame (txt2img
+// only). Requires ComfyUI's core LoRA-hook nodes; callers must gate on
+// supportsLoraHooks() and fall back to global loraIds stacking when absent.
+export interface CharacterRegion {
+  loraFile: string   // filename without extension
+  weight: number
+  prompt: string     // region-scoped prompt (the character's trigger tokens)
+}
+
 export interface WorkflowContext {
   config: ComfyUILaunchConfig
   checkpoint: string        // filename, e.g. "juggernaut-xl-ragnarok.safetensors"
@@ -15,8 +24,9 @@ export interface WorkflowContext {
   sampler: string           // default "dpmpp_2m"
   scheduler: string         // default "karras"
   seed: number
-  loraIds: string[]         // filenames without extension
+  loraIds: string[]         // filenames without extension (applied globally)
   loraWeights: number[]
+  characterRegions?: CharacterRegion[]  // 2+ entries = per-region LoRA hooks (txt2img only)
   hiresUpscale: boolean
   upscaleDenoise: number    // 0.30 for ESRGAN path, 0.40 for bislerp fallback
   esrganModel?: string      // filename in upscale_models/, e.g. "4x-NMKD-Siax_200k.pth"
@@ -92,6 +102,99 @@ function chainLoras(
   return { modelRef, clipRef }
 }
 
+// ── Multi-character regional prompting (LoRA hooks) ──────────────────────────
+// Two character LoRAs stacked globally fight over every pixel and the stronger
+// one wins both bodies (two Mordecais, no Rigby). Instead, each character LoRA
+// becomes a CreateHookLora whose conditioning is confined to a vertical column
+// mask: the LoRA weights only apply where its conditioning applies. The base
+// prompt still covers the full frame so scene and style stay coherent.
+// Core nodes since ComfyUI v0.3.7; gate on supportsLoraHooks().
+
+// Cached probe: does this ComfyUI expose the core LoRA-hook nodes?
+let hooksProbe: { url: string; ok: boolean; at: number } | null = null
+
+export async function supportsLoraHooks(comfyBaseUrl: string): Promise<boolean> {
+  if (hooksProbe && hooksProbe.url === comfyBaseUrl && Date.now() - hooksProbe.at < 10 * 60_000) {
+    return hooksProbe.ok
+  }
+  let ok = false
+  try {
+    const r = await fetch(`${comfyBaseUrl}/object_info/CreateHookLora`, { signal: AbortSignal.timeout(3_000) })
+    if (r.ok) {
+      const data = await r.json() as Record<string, unknown>
+      ok = !!data && typeof data === 'object' && 'CreateHookLora' in data
+    }
+  } catch { /* treat as unsupported */ }
+  hooksProbe = { url: comfyBaseUrl, ok, at: Date.now() }
+  return ok
+}
+
+function buildCharacterRegionConditioning(
+  nodes: ComfyUIPrompt,
+  nextId: () => string,
+  clipRef: NodeRef,
+  regions: CharacterRegion[],
+  width: number,
+  height: number,
+  basePosRef: NodeRef,
+): NodeRef {
+  let combined = basePosRef
+  const cols = regions.length
+  const colW = Math.floor(width / cols)
+
+  for (let i = 0; i < cols; i++) {
+    const region = regions[i]
+
+    const hookId = nextId()
+    nodes[hookId] = {
+      class_type: 'CreateHookLora',
+      inputs: {
+        lora_name:      region.loraFile + '.safetensors',
+        strength_model: region.weight,
+        strength_clip:  region.weight,
+      },
+    }
+
+    // apply_to_conds attaches the hook to every conditioning this CLIP encodes,
+    // so the LoRA also shapes the text embedding of its own trigger tokens.
+    const clipHookId = nextId()
+    nodes[clipHookId] = {
+      class_type: 'SetClipHooks',
+      inputs: { clip: clipRef, hooks: [hookId, 0], apply_to_conds: true, schedule_clip: false },
+    }
+
+    const encId = nextId()
+    nodes[encId] = { class_type: 'CLIPTextEncode', inputs: { text: region.prompt, clip: [clipHookId, 0] } }
+
+    // Vertical column mask: zeros everywhere, ones over this character's slice.
+    // The last column absorbs any rounding remainder.
+    const sliceW = i === cols - 1 ? width - colW * i : colW
+    const bgId = nextId()
+    nodes[bgId] = { class_type: 'SolidMask', inputs: { value: 0.0, width, height } }
+    const fgId = nextId()
+    nodes[fgId] = { class_type: 'SolidMask', inputs: { value: 1.0, width: sliceW, height } }
+    const maskId = nextId()
+    nodes[maskId] = {
+      class_type: 'MaskComposite',
+      inputs: { destination: [bgId, 0], source: [fgId, 0], x: colW * i, y: 0, operation: 'add' },
+    }
+
+    const condMaskId = nextId()
+    nodes[condMaskId] = {
+      class_type: 'ConditioningSetMask',
+      inputs: { conditioning: [encId, 0], mask: [maskId, 0], strength: 1.0, set_cond_area: 'default' },
+    }
+
+    const combineId = nextId()
+    nodes[combineId] = {
+      class_type: 'ConditioningCombine',
+      inputs: { conditioning_1: combined, conditioning_2: [condMaskId, 0] },
+    }
+    combined = [combineId, 0]
+  }
+  return combined
+}
+
 // ── Txt2Img ───────────────────────────────────────────────────────────────────
 
 export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
@@ -111,6 +214,13 @@ export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
   const posId = nextId()
   nodes[posId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.positive, clip: clipRef } }
 
+  let posRef: NodeRef = [posId, 0]
+  if (ctx.characterRegions && ctx.characterRegions.length >= 2) {
+    posRef = buildCharacterRegionConditioning(
+      nodes, nextId, clipRef, ctx.characterRegions, ctx.width, ctx.height, posRef,
+    )
+  }
+
   const negId = nextId()
   nodes[negId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.negative, clip: clipRef } }
 
@@ -122,7 +232,7 @@ export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
     class_type: 'KSampler',
     inputs: {
       model:        modelRef,
-      positive:     [posId, 0],
+      positive:     posRef,
       negative:     [negId, 0],
       latent_image: [latentId, 0],
       seed:         ctx.seed,
@@ -166,7 +276,7 @@ export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
         class_type: 'KSampler',
         inputs: {
           model:        modelRef,
-          positive:     [posId, 0],
+          positive:     posRef,
           negative:     [negId, 0],
           latent_image: [reencodeId, 0],
           seed:         ctx.seed + 1,
@@ -191,7 +301,7 @@ export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
         class_type: 'KSampler',
         inputs: {
           model:        modelRef,
-          positive:     [posId, 0],
+          positive:     posRef,
           negative:     [negId, 0],
           latent_image: [upId, 0],
           seed:         ctx.seed + 1,

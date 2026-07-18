@@ -40,9 +40,12 @@ import {
   buildPhotoRestoreWorkflow,
   uploadComfyImage,
   detectSamplerPreset,
+  supportsLoraHooks,
   SAMPLER_PROFILES,
 } from '@/lib/comfyWorkflows'
-import type { ComfyUIPrompt } from '@/lib/comfyWorkflows'
+import type { ComfyUIPrompt, CharacterRegion } from '@/lib/comfyWorkflows'
+import { sanitizeTriggerTokens, planLoraTokens } from '@/lib/loraTokens'
+import { resolveLoraFile } from '@/lib/loraFiles'
 import { buildPrompt, selectResolution } from '@/lib/promptPipeline'
 import { detectStyle, applyStyleToPrompt, applyVectorizeBias } from '@/lib/imageStyles'
 import type { ImageStyle } from '@/lib/imageStyles'
@@ -304,8 +307,9 @@ interface ComfyGenPayload {
   sampler: string
   scheduler: string
   seed: number
-  loraIds: string[]       // basenames without extension
+  loraIds: string[]       // basenames without extension (applied globally)
   loraWeights: number[]
+  characterRegions?: CharacterRegion[]  // txt2img: per-region character LoRA hooks
   hiresUpscale: boolean
   esrganModel?: string        // filename in upscale_models/ when ESRGAN is installed
   // Pipeline
@@ -365,9 +369,10 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
         sampler:        payload.sampler,
         scheduler:      payload.scheduler,
         seed:           payload.seed,
-        loraIds:        payload.loraIds,
-        loraWeights:    payload.loraWeights,
-        hiresUpscale:   payload.hiresUpscale,
+        loraIds:          payload.loraIds,
+        loraWeights:      payload.loraWeights,
+        characterRegions: payload.characterRegions,
+        hiresUpscale:     payload.hiresUpscale,
         esrganModel:    payload.esrganModel,
         upscaleDenoise: payload.esrganModel ? 0.30 : 0.40,
       }
@@ -964,6 +969,10 @@ async function buildAndEnqueueJob(params: {
   let positive = ''
   let negative = ''
   let resolvedLoras: SelectedLora[] = []
+  // When regional prompting is active, character LoRAs move into
+  // characterRegions and only the remaining (stylistic) LoRAs stack globally.
+  let globalLoras: SelectedLora[] | null = null
+  let characterRegions: CharacterRegion[] | undefined
   // SVD-XT is trained at 1024×576; default to that for image-to-video (do NOT shrink
   // it — SVD degrades badly off its training resolution). Text-to-video (AnimateDiff)
   // defaults to 768²: compute scales with pixels × frames, so 768² is ~1.8x faster
@@ -1005,21 +1014,47 @@ async function buildAndEnqueueJob(params: {
       if (loraIds.length > 0) {
         const allowed    = await getUserAllowedLoras(params.userId, params.isAdmin)
         const allowedMap = new Map(allowed.map(l => [l.id, l]))
-        resolvedLoras = loraIds
-          .map(id => allowedMap.get(id))
-          .filter((l): l is NonNullable<typeof l> => l !== undefined && existsSync(l.filePath))
-          .map(l => ({
+        for (const id of loraIds) {
+          const l = allowedMap.get(id)
+          if (!l) continue
+          // Self-healing: repairs a stale DB path when the file was renamed on
+          // disk. Only a genuinely missing file is skipped (and logged, so it
+          // never disappears silently again).
+          const filePath = await resolveLoraFile(l)
+          if (!filePath) {
+            logger.warn(`[image] LoRA "${l.name}" skipped: model file missing on disk (${l.filePath})`)
+            continue
+          }
+          resolvedLoras.push({
             id: l.id,
-            filename: basename(l.filePath, '.safetensors'),
+            filename: basename(filePath, '.safetensors'),
             weight: params.loraWeights?.[l.id] ?? l.defaultWeight,
-            triggerTokens: (() => { try { return JSON.parse(l.triggerTokens) as string[] } catch { return [] } })(),
+            triggerTokens: (() => { try { return sanitizeTriggerTokens(JSON.parse(l.triggerTokens)) } catch { return [] } })(),
             isStylisticLora: (l.isStylisticLora ?? false) || l.styleLabel !== null,
-          }))
+          })
+        }
       } else {
         resolvedLoras = await selectLoras(prompt, params.userId, params.isAdmin, routerModel)
       }
 
-      const loraTokens      = resolvedLoras.flatMap(l => l.triggerTokens)
+      // Trigger-token hygiene + multi-character planning. Two character LoRAs
+      // both injecting "solo"/"1boy" collapse a two-subject prompt into one
+      // duplicated character; the plan replaces them with aggregate count tags
+      // and, when ComfyUI supports LoRA hooks, confines each character LoRA to
+      // its own region of the frame instead of stacking both globally.
+      const tokenPlan = planLoraTokens(resolvedLoras.map(l => l.triggerTokens))
+      let loraTokens = tokenPlan.globalTokens
+      if (tokenPlan.multiCharacter && pipeline === 'txt2img' && await supportsLoraHooks(comfyUrl())) {
+        characterRegions = tokenPlan.characters.map(ch => ({
+          loraFile: resolvedLoras[ch.index].filename,
+          weight:   resolvedLoras[ch.index].weight,
+          prompt:   ch.regionTokens.join(', '),
+        }))
+        const characterIdx = new Set(tokenPlan.characters.map(ch => ch.index))
+        globalLoras = resolvedLoras.filter((_, i) => !characterIdx.has(i))
+        loraTokens  = tokenPlan.baseTokens
+        logger.info(`[image] regional prompting active: ${characterRegions.length} character LoRAs split into columns`)
+      }
       const isStylisticLora = style !== 'photorealistic' || resolvedLoras.some(l => l.isStylisticLora)
 
       const qualityNegative  = 'deformed, ugly, bad anatomy, bad hands, watermark, text, blurry, low quality'
@@ -1093,8 +1128,9 @@ async function buildAndEnqueueJob(params: {
     sampler,
     scheduler,
     seed,
-    loraIds:      resolvedLoras.map(l => l.filename),
-    loraWeights:  resolvedLoras.map(l => l.weight),
+    loraIds:      (globalLoras ?? resolvedLoras).map(l => l.filename),
+    loraWeights:  (globalLoras ?? resolvedLoras).map(l => l.weight),
+    characterRegions,
     hiresUpscale,
     esrganModel,
     pipeline,
@@ -1136,7 +1172,7 @@ async function buildAndEnqueueJob(params: {
     run: makeComfyRun(imageId, genPayload, startedAt),
   })
 
-  return { imageId, job, width, height, steps, hiresUpscale, isAdult }
+  return { imageId, job, width, height, steps, hiresUpscale, isAdult, resolvedLoraIds: resolvedLoras.map(l => l.id) }
 }
 
 // ── Tool entry point ───────────────────────────────────────────────────────────
@@ -1418,17 +1454,20 @@ function autoShortLabel(name: string): string {
 image.get('/loras', requireAuth, async (c) => {
   const user  = c.get('user')
   const loras = await getUserAllowedLoras(user.id, user.role === 'admin')
-  return c.json(loras.map(l => ({
+  return c.json(await Promise.all(loras.map(async l => ({
     id: l.id,
     name: l.name,
     description: l.description,
     categoryId: l.categoryId,
-    triggerTokens: JSON.parse(l.triggerTokens) as string[],
+    triggerTokens: (() => { try { return sanitizeTriggerTokens(JSON.parse(l.triggerTokens)) } catch { return [] } })(),
     defaultWeight: l.defaultWeight,
     thumbnailUrl: l.thumbnailUrl,
     styleLabel: l.styleLabel ?? autoShortLabel(l.name),
     isAdult: l.isAdult ?? false,
-  })))
+    // False only when the model file is missing AND could not be auto-repaired
+    // from data/loras. The picker badges these instead of silently dropping them.
+    available: (await resolveLoraFile(l)) !== null,
+  }))))
 })
 
 image.post('/generate', requireAuth, async (c) => {
@@ -1576,13 +1615,15 @@ image.post('/generate', requireAuth, async (c) => {
 
   if (!result) return c.json({ error: 'Image generation service is not running' }, 503)
 
-  const { imageId, job, width, height, steps, hiresUpscale, isAdult } = result
+  const { imageId, job, width, height, steps, hiresUpscale, isAdult, resolvedLoraIds } = result
 
   c.header('X-Accel-Buffering', 'no')
 
   return streamSSE(c, async (stream) => {
     const totalSteps = steps + (hiresUpscale ? 15 : 0)
-    await stream.writeSSE({ event: 'start', data: JSON.stringify({ imageId, genId: job.id, steps: totalSteps, width, height, isAdult }) })
+    // sentLoraIds = the LoRAs that actually made it into the workflow, so the
+    // client's "Sent to model" panel can reflect reality instead of the selection.
+    await stream.writeSSE({ event: 'start', data: JSON.stringify({ imageId, genId: job.id, steps: totalSteps, width, height, isAdult, sentLoraIds: resolvedLoraIds }) })
     await genQueue.subscribeAndTail(stream, job, 0)
   })
 })

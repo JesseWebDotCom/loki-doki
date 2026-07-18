@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react'
-import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle } from 'lucide-react'
+import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CleanUpDialog } from '@/components/imaging/CleanUpDialog'
@@ -46,6 +46,9 @@ interface LoraOption {
   thumbnailUrl: string | null
   styleLabel: string | null
   isAdult: boolean
+  // False when the model file is missing on disk (after the server's
+  // auto-repair attempt failed) - the style cannot be applied.
+  available?: boolean
 }
 
 interface HistoryItem {
@@ -422,7 +425,9 @@ function LoraPicker({
         <p className="text-xs text-muted-foreground py-2 text-center">No styles match "{query}"</p>
       ) : (
         <div className="grid grid-cols-4 gap-2">
-          {filtered.map(l => (
+          {filtered.map(l => {
+            const unavailable = l.available === false
+            return (
             <div
               key={l.id}
               className="relative"
@@ -430,7 +435,13 @@ function LoraPicker({
               onMouseLeave={() => setHoveredId(null)}
             >
               <button
-                onClick={() => onToggle(l.id)}
+                onClick={() => {
+                  if (unavailable) {
+                    toast.error(`"${l.styleLabel ?? l.name}" can't be used: its model file is missing. Re-download it in Admin.`)
+                    return
+                  }
+                  onToggle(l.id)
+                }}
                 className={cn(
                   'flex flex-col items-center gap-1 w-full rounded-card border-2 p-1 transition-colors',
                   selected.has(l.id)
@@ -439,16 +450,21 @@ function LoraPicker({
                 )}
               >
                 {l.thumbnailUrl ? (
-                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-card object-cover" />
+                  <img src={proxyImg(l.thumbnailUrl)} alt="" className={cn('w-full aspect-square rounded-card object-cover', unavailable && 'opacity-40 grayscale')} />
                 ) : (
-                  <div className="w-full aspect-square rounded-card bg-muted flex items-center justify-center">
+                  <div className={cn('w-full aspect-square rounded-card bg-muted flex items-center justify-center', unavailable && 'opacity-40')}>
                     <Palette className="size-5 text-muted-foreground" />
                   </div>
                 )}
-                <span className="text-[10px] text-center leading-tight truncate w-full px-0.5">
+                <span className={cn('text-[10px] text-center leading-tight truncate w-full px-0.5', unavailable && 'text-muted-foreground')}>
                   {l.styleLabel ?? l.name}
                 </span>
               </button>
+              {unavailable && (
+                <span className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-warning pointer-events-none" title="Model file missing">
+                  <TriangleAlert className="size-3" />
+                </span>
+              )}
 
               {hoveredId === l.id && (
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-sheet bg-popover border border-border shadow-2xl z-50 overflow-hidden pointer-events-none">
@@ -457,6 +473,9 @@ function LoraPicker({
                   )}
                   <div className="p-2.5 space-y-1">
                     <p className="text-[11px] font-semibold text-popover-foreground leading-tight">{l.name}</p>
+                    {unavailable && (
+                      <p className="text-[10px] text-warning leading-snug">Model file is missing on disk, so this style can't be applied. Re-download it in Admin.</p>
+                    )}
                     {l.description && (
                       <p className="text-[10px] text-muted-foreground leading-snug line-clamp-4">{l.description}</p>
                     )}
@@ -467,7 +486,8 @@ function LoraPicker({
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -1109,8 +1129,15 @@ export function ImagingPage() {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || gen.status === 'generating') return
     setPending(true)
-    const loraIdList = Array.from(selectedLoras)
-    const selectedLoraObjects = loras.filter(l => loraIdList.includes(l.id))
+    // Never claim a style was sent when its model file is gone: drop it from
+    // the request and say so, instead of letting the backend drop it silently.
+    const allSelected = loras.filter(l => selectedLoras.has(l.id))
+    const missingLoras = allSelected.filter(l => l.available === false)
+    if (missingLoras.length > 0) {
+      toast.warning(`Skipped (model file missing): ${missingLoras.map(l => l.styleLabel ?? l.name).join(', ')}`)
+    }
+    const selectedLoraObjects = allSelected.filter(l => l.available !== false)
+    const loraIdList = selectedLoraObjects.map(l => l.id)
 
     let finalPrompt = prompt.trim()
     let loraWeights: Record<string, number> | undefined

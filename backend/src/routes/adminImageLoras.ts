@@ -21,6 +21,7 @@ import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { detectIsAdult, getAdultKeywords } from '@/lib/adultDetection'
 import { getProtections } from '@/lib/protections'
 import { assertPublicUrl } from '@/lib/ssrfGuard'
+import { sanitizeTriggerTokens } from '@/lib/loraTokens'
 import type { AppEnv } from '@/types'
 
 const adminImageLoras = new Hono<AppEnv>()
@@ -170,16 +171,18 @@ function triggerBackgroundExtract(loraId: string): void {
 
       let description = row.description ?? ''
       let triggerTokens: string[] = []
-      try { triggerTokens = JSON.parse(row.triggerTokens) as string[] } catch { /* ignore */ }
+      try { triggerTokens = sanitizeTriggerTokens(JSON.parse(row.triggerTokens)) } catch { /* ignore */ }
 
-      // Enrich from CivitAI if we have a model ID
+      // Enrich from CivitAI if we have a model ID. trainedWords routinely
+      // contain literal "<lora:...>" syntax and comma-joined tag dumps, so
+      // sanitize before merging (this also scrubs legacy junk on re-extract).
       let civitaiNsfw: boolean | undefined
       if (row.civitaiId) {
         const civitaiMeta = await fetchCivitAIMetadata(Number(row.civitaiId))
         if (civitaiMeta) {
           if (civitaiMeta.description) description = civitaiMeta.description
           if (civitaiMeta.trainedWords.length > 0) {
-            triggerTokens = [...new Set([...triggerTokens, ...civitaiMeta.trainedWords])]
+            triggerTokens = sanitizeTriggerTokens([...triggerTokens, ...civitaiMeta.trainedWords])
           }
           civitaiNsfw = civitaiMeta.nsfw
         }
@@ -322,7 +325,7 @@ adminImageLoras.patch('/:id', requireAdmin, async (c) => {
   if (body.name !== undefined) update['name'] = body.name.trim()
   if (body.description !== undefined) update['description'] = body.description
   if ('categoryId' in body) update['categoryId'] = body.categoryId
-  if (body.triggerTokens !== undefined) update['triggerTokens'] = JSON.stringify(body.triggerTokens)
+  if (body.triggerTokens !== undefined) update['triggerTokens'] = JSON.stringify(sanitizeTriggerTokens(body.triggerTokens))
   if (body.defaultWeight !== undefined) update['defaultWeight'] = body.defaultWeight
   if (body.minWeight !== undefined) update['minWeight'] = body.minWeight
   if (body.maxWeight !== undefined) update['maxWeight'] = body.maxWeight
@@ -413,7 +416,7 @@ adminImageLoras.post('/', requireAdmin, async (c) => {
     sha256: null,
     sizeBytes: typeof stat === 'number' ? stat : null,
     filePath: body.filePath,
-    triggerTokens: JSON.stringify(body.triggerTokens ?? []),
+    triggerTokens: JSON.stringify(sanitizeTriggerTokens(body.triggerTokens ?? [])),
     defaultWeight: body.defaultWeight ?? 1.0,
     minWeight: 0.0,
     maxWeight: 2.0,
@@ -841,7 +844,7 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
       sha256: body.sha256 ?? null,
       sizeBytes: await fileStat.size,
       filePath: destPath,
-      triggerTokens: JSON.stringify(body.triggerTokens ?? []),
+      triggerTokens: JSON.stringify(sanitizeTriggerTokens(body.triggerTokens ?? [])),
       defaultWeight: 1.0,
       minWeight: 0.0,
       maxWeight: 2.0,
@@ -985,7 +988,7 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
         sha256: body.sha256 ?? null,
         sizeBytes: completed,
         filePath: destPath,
-        triggerTokens: JSON.stringify(body.triggerTokens ?? []),
+        triggerTokens: JSON.stringify(sanitizeTriggerTokens(body.triggerTokens ?? [])),
         defaultWeight: 1.0,
         minWeight: 0.0,
         maxWeight: 2.0,
