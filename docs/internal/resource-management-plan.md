@@ -118,7 +118,7 @@ remediation behave under load.
 
 ### Phase 3: dynamic arbitration ("when to switch things around")
 
-**Landed 2026-07-18:** item 11's core — evict-and-restore for image gen — plus the
+**Landed 2026-07-18:** item 11's core (evict-and-restore for image gen) plus the
 proactive re-warm (free ComfyUI VRAM then warm the LLM back after a heavy job, so the
 next chat isn't cold). DONE. Items 10 (explicit priority ladder) and 12 (genQueue
 yield-while-interactive for background jobs like podcast transcription / stems) remain:
