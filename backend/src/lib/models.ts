@@ -1,7 +1,7 @@
 import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { setAppSetting } from '@/lib/settings'
+import { setAppSetting, getAppSetting } from '@/lib/settings'
 import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel, ollamaUnloadModel, setKeepAlivePolicyResolver, type OllamaKeepAlive } from '@/llm/ollama'
 import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
@@ -30,6 +30,33 @@ async function installedTags(): Promise<Set<string> | null> {
     // Ollama unreachable (e.g. during early boot): use the last-known list if any;
     // otherwise report unknown and let the caller trust its candidate.
     return _installedCache?.tags ?? null
+  }
+}
+
+// Self-healing model download (Phase 1.2): in automatic mode, if the VRAM-fitted
+// recommendation isn't pulled, queue it in the background (idempotent, so this is safe
+// to call repeatedly). getModel() runs on the best installed model meanwhile and
+// switches to the recommendation the moment the pull finishes. Cooldown-guarded so the
+// per-turn hot path never spams the queue; gated to post-setup so it never fights the
+// wizard's own initial pull.
+let lastSelfHealAt = 0
+const SELF_HEAL_COOLDOWN_MS = 10 * 60_000
+async function maybeSelfHealModel(recommended: string): Promise<void> {
+  if (!isAutomatic()) return
+  if (Date.now() - lastSelfHealAt < SELF_HEAL_COOLDOWN_MS) return
+  const tags = await installedTags()
+  if (!tags || tags.has(normTag(recommended))) return // already installed, or Ollama unknown
+  if ((await getAppSetting('first_run_complete')) !== true) return // setup owns the first pull
+  const entry = CATALOG.find((m) => m.ollamaTag && normTag(m.ollamaTag) === normTag(recommended))
+  if (!entry) return
+  lastSelfHealAt = Date.now()
+  try {
+    // Dynamic import: downloadJobs imports this module, so a static import would cycle.
+    const { enqueueBackground } = await import('@/lib/downloadJobs')
+    await enqueueBackground({ modelIds: [entry.id] })
+    logger.info(`[resource] self-heal: queued background download of the recommended model ${entry.label} (${recommended})`)
+  } catch (e) {
+    logger.warn(`[resource] self-heal enqueue failed: ${(e as Error).message}`)
   }
 }
 
@@ -114,6 +141,9 @@ export async function getModel(): Promise<string> {
     // Never serve a tag that isn't pulled: an installed pinned model beats a
     // missing recommendation (slower is better than broken).
     model = await pickAvailableModel(recommended, setting ?? null)
+    // If we fell back because the recommendation isn't installed, converge to it in
+    // the background (fire-and-forget, cooldown-guarded). No-op once installed.
+    if (normTag(model) !== normTag(recommended)) void maybeSelfHealModel(recommended)
   } else {
     model = setting
   }

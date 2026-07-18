@@ -62,11 +62,11 @@ sysmem spill is the freeze/lag failure mode); prefer CPU for work CPU does well
    disabled with "Managed automatically" and a link to the master switch; the
    Response-speed presets and behaviour toggles stay live (they are preference, not
    placement). Prevents "I changed it and nothing happened".
-2. **Self-healing model download.** If the autotune recommendation is not installed,
-   automatic currently falls back (correct but slower). Add: queue the recommended
-   model via the existing `downloadJobs` infra in the background, then switch on
-   completion (the `setModelSettingAndUnloadDisplaced` hook already exists). Boot
-   becomes: run with what exists, converge to the ideal.
+2. **Self-healing model download. DONE (2026-07-18).** `models.ts maybeSelfHealModel`:
+   in automatic, when the fitted recommendation isn't pulled, `getModel()` queues it
+   via `enqueueBackground` (idempotent, cooldown-guarded, post-setup only) and keeps
+   running on the best installed model; it switches to the recommendation the moment
+   the pull completes. Boot becomes: run with what exists, converge to the ideal.
 3. **Displaced-model unload on autotune change.** When the automatic pick changes
    (hardware change, model finished downloading), unload the previously-resident
    chat model so both never sit in VRAM together.
