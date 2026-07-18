@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger'
 import { getModel, getWarmupPromise } from '@/lib/models'
 import { seedHardwareDefaults, detectHardware, resolveComfyUILaunchConfig, resolveGpuPlacement } from '@/lib/hwfit'
 import { resolveEngineGuards } from '@/lib/engineGuards'
+import { resolveEngineAutotune } from '@/lib/engineAutotune'
 import {
   pullOllama,
   downloadHfFile,
@@ -341,6 +342,9 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
   // Same deal for the admin engine guards (max loaded models, KV cache type, …): the
   // spawn env is synchronous, so the persisted values must be cached before the spawn.
   try { await resolveEngineGuards() } catch { /* defaults apply */ }
+  // VRAM-fit the chat model + context BEFORE warmup/first spawn, so an auto-managed
+  // model never lands oversized and spilling. Cached for getModel()/autotunedNumCtx().
+  try { await resolveEngineAutotune() } catch { /* no NVIDIA tooling — safe defaults */ }
 
   // ── 0. Kill stale project-owned Ollama binary ────────────────────────────────
   // Only when a system install exists to take over: the CLI-only extracted binary

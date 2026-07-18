@@ -25,6 +25,14 @@ interface EngineGuards {
 const CTX_CHOICES = [16384, 24576, 32768, 49152, 65536]
 const fmtGb = (b: number) => `${(b / 1e9).toFixed(1)} GB`
 
+interface AutotuneInfo {
+  fit: { vramBytes: number; hasGpu: boolean; recommendedModel: string; recommendedNumCtx: number; reason: string }
+  auto: boolean
+  pinnedModel: string | null
+  effectiveModel: string
+  pinnedFit: { fits: boolean; willSpill: boolean; sizeBytes: number } | null
+}
+
 function post(path: string, body?: unknown) {
   return fetch(`/api/admin/gpu${path}`, {
     method: 'POST', credentials: 'include',
@@ -67,13 +75,33 @@ export function AdminAiEngineTab() {
   const [dirty, setDirty] = useState(false)
   const [confirmRestart, setConfirmRestart] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [autotune, setAutotune] = useState<AutotuneInfo | null>(null)
+
+  const loadAutotune = () => {
+    fetch('/api/admin/gpu/engine-autotune', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((a) => { if (a) setAutotune(a as AutotuneInfo) })
+      .catch(() => {})
+  }
 
   useEffect(() => {
     fetch('/api/admin/gpu/engine-guards', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((g) => { if (g) setGuards(g as EngineGuards) })
       .catch(() => {})
+    loadAutotune()
   }, [])
+
+  const switchToAuto = async () => {
+    setBusy('/engine-autotune/apply')
+    try {
+      const r = await post('/engine-autotune/apply')
+      if (!r.ok) throw new Error(`${r.status}`)
+      toast.success('Engine is now auto-managed. Restart the engine to apply immediately.')
+      loadAutotune(); refresh()
+    } catch (e) { toast.error(`Failed: ${e instanceof Error ? e.message : e}`) }
+    setBusy(null)
+  }
 
   const llm = health?.llm
 
@@ -108,6 +136,48 @@ export function AdminAiEngineTab() {
 
   return (
     <div className="space-y-3 p-3">
+      {/* Auto-managed engine: VRAM-fit model + context, with a spill warning. */}
+      {autotune && (
+        <Card variant="surface" className="border-border/50 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Zap className="size-3" /> Auto-managed engine
+            </h3>
+            <Badge variant={autotune.auto ? 'info' : 'secondary'} className="text-[10px]">
+              {autotune.auto ? 'Auto' : 'Pinned'}
+            </Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {autotune.fit.hasGpu
+              ? <span>GPU VRAM: <span className="font-medium text-foreground">{fmtGb(autotune.fit.vramBytes)}</span></span>
+              : <span className="font-medium text-foreground">No NVIDIA GPU detected (running on CPU)</span>}
+            <span>Model: <span className="font-medium text-foreground">{autotune.effectiveModel}</span></span>
+            <span>Context: <span className="font-medium text-foreground">{(autotune.fit.recommendedNumCtx / 1024).toFixed(0)}k</span></span>
+          </div>
+          <p className="text-xs text-muted-foreground">{autotune.fit.reason}</p>
+          {autotune.pinnedFit?.willSpill ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-card border border-warning/40 bg-warning/[0.06] px-3 py-2">
+              <AlertTriangle className="size-4 shrink-0 text-warning" />
+              <p className="min-w-0 flex-1 text-xs text-foreground">
+                <span className="font-semibold">{autotune.pinnedModel}</span> ({fmtGb(autotune.pinnedFit.sizeBytes)}) is larger than this GPU can hold with the router, so it runs partly on CPU and generates slowly. Switch to auto-managed to use <span className="font-semibold">{autotune.fit.recommendedModel}</span>.
+              </p>
+              <Button size="sm" onClick={() => void switchToAuto()} disabled={busy === '/engine-autotune/apply'}>
+                Switch to auto-managed
+              </Button>
+            </div>
+          ) : autotune.auto ? (
+            <p className="text-[11px] text-muted-foreground">Managed for best performance: the model and context are fitted to your hardware automatically.</p>
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="flex-1 text-[11px] text-muted-foreground">A model is pinned. It fits, but auto-management adapts if your hardware changes.</p>
+              <Button variant="outline" size="sm" onClick={() => void switchToAuto()} disabled={busy === '/engine-autotune/apply'}>
+                Auto-manage
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Loaded models */}
       <Card variant="surface" className="border-border/50 p-3 space-y-2">
         <div className="flex items-center justify-between">

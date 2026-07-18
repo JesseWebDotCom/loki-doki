@@ -8,6 +8,9 @@ import {
   type GpuAlertConfigPatch,
 } from '@/lib/gpuMonitor'
 import { getCachedEngineGuards, saveEngineGuards, type EngineGuards } from '@/lib/engineGuards'
+import { getCachedAutotune, resolveEngineAutotune, checkFit } from '@/lib/engineAutotune'
+import { getModel } from '@/lib/models'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { sweepOrphanLlamaRunners } from '@/lib/ollamaHygiene'
 import { restartOllamaServe } from '@/lib/download'
 import { stopCodingEngine, CODING_ENGINE_BASE } from '@/lib/codingEngine'
@@ -51,6 +54,26 @@ adminGpu.post('/reset-baseline', async (c) => {
 // ── AI engine guards + control actions (Admin → System → AI engine) ──────────
 
 adminGpu.get('/engine-guards', (c) => c.json(getCachedEngineGuards()))
+
+// ── Engine auto-tune (VRAM-fit model + context) ──────────────────────────────
+// Reports the detected VRAM, the auto-managed recommendation, the effective model,
+// and, when the operator has pinned a model, whether it fits or spills to CPU.
+adminGpu.get('/engine-autotune', async (c) => {
+  const fit = getCachedAutotune() ?? await resolveEngineAutotune()
+  const setting = (await getAppSetting('model')) as string | null
+  const auto = !setting || setting === 'auto'
+  const effectiveModel = await getModel()
+  const pinnedFit = auto ? null : checkFit(effectiveModel, fit.vramBytes)
+  return c.json({ fit, auto, pinnedModel: auto ? null : setting, effectiveModel, pinnedFit })
+})
+
+// Hand the model choice back to the auto-manager (unpins any explicit model). Takes
+// effect on the next model load; a restart applies it immediately.
+adminGpu.post('/engine-autotune/apply', async (c) => {
+  await setAppSetting('model', 'auto')
+  await audit(c.get('user').id, 'engine_guards_update', { model: 'auto' })
+  return c.json({ ok: true, needsRestart: true })
+})
 
 // Save guards; env is baked at engine spawn, so changes need a restart to take effect.
 adminGpu.put('/engine-guards', async (c) => {
