@@ -53,7 +53,10 @@ export class SttCapture {
           sample_rate: 16000,
           format: 'f32le',
           stt_model: config.sttModel ?? 'base.en',
-          silence_timeout_s: config.silenceTimeoutS ?? 0.7,
+          // Omit when unset so the server's runtime-tunable `voice.endpoint_silence_ms`
+          // is authoritative; only explicit per-path overrides (e.g. whisper-wake's
+          // 0.8s) are sent. JSON.stringify drops undefined keys.
+          silence_timeout_s: config.silenceTimeoutS,
           partial_interval_s: config.partialIntervalS ?? 0.4,
           hotwords: config.hotwords ?? '',
         }),

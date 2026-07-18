@@ -13,6 +13,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { env, pipeline } from '@huggingface/transformers'
 import { KokoroTTS } from 'kokoro-js'
 
@@ -25,8 +26,51 @@ const KOKORO_MODEL = process.env.KOKORO_MODEL ?? 'onnx-community/Kokoro-82M-v1.0
 // near-real-time for these short utterances. Override with WHISPER_MODEL (e.g.
 // onnx-community/whisper-small.en for even better accuracy, or whisper-tiny.en for speed).
 const WHISPER_MODEL = process.env.WHISPER_MODEL ?? 'onnx-community/whisper-base.en'
-// Node uses onnxruntime-node, whose device is 'cpu'. Overridable via VOICE_DEVICE.
-const DEVICE = (process.env.VOICE_DEVICE ?? 'cpu') as 'cpu' | 'wasm'
+// Smart, multi-platform device selection. onnxruntime-node bundles the CUDA
+// execution provider ONLY on Linux x64 (Windows ort-node is CPU/DirectML-only and
+// macOS has no CUDA), so we offer 'cuda' exactly where the runtime can actually use
+// it, and run 'cpu' everywhere else. CPU is also the right default on a shared box:
+// the GPU stays free for the LLM (the 8GB prod card is LLM-first). VOICE_DEVICE
+// overrides the auto-pick. If a GPU load fails at runtime (CUDA runtime missing,
+// OOM), loadWithFallback() demotes to CPU so the sidecar never hard-crashes.
+// Native GPU paths for Windows (whisper.cpp CUDA / DirectML) and Mac (Metal/CoreML)
+// need separate sidecar binaries and are tracked as prod-gated work in
+// docs/internal/voice-latency.md.
+type VoiceDevice = 'cpu' | 'cuda' | 'wasm'
+
+function hasNvidiaGpu(): boolean {
+  try {
+    execFileSync('nvidia-smi', ['-L'], { stdio: 'ignore', timeout: 3000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function detectDevice(): VoiceDevice {
+  const explicit = process.env.VOICE_DEVICE as VoiceDevice | undefined
+  if (explicit) return explicit
+  if (process.platform === 'linux' && process.arch === 'x64' && hasNvidiaGpu()) return 'cuda'
+  return 'cpu'
+}
+
+// `let`, not `const`: a failed non-CPU init demotes this to 'cpu' for the process.
+let DEVICE: VoiceDevice = detectDevice()
+
+// Load a model on the selected device, and on failure of a non-CPU device retry
+// once on CPU and demote the process default so later loads skip the dead GPU path.
+async function loadWithFallback<T>(label: string, load: (device: VoiceDevice) => Promise<T>): Promise<T> {
+  try {
+    return await load(DEVICE)
+  } catch (err) {
+    if (DEVICE !== 'cpu') {
+      console.warn(`[voice-server] ${label} failed on device=${DEVICE} (${(err as Error).message}); falling back to cpu`)
+      DEVICE = 'cpu'
+      return await load('cpu')
+    }
+    throw err
+  }
+}
 // q4 ≈ 2× faster than q8 on CPU (~0.45s vs ~0.8s/sentence) with a small quality
 // cost — the right default for snappy replies. Set KOKORO_DTYPE=q8 for max quality.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,7 +84,7 @@ function getKokoro(): Promise<KokoroTTS> {
   // Don't cache a REJECTED load (e.g. the model was still downloading at startup) —
   // otherwise every later request returns the same failure until the process restarts.
   if (!kokoroPromise) {
-    kokoroPromise = KokoroTTS.from_pretrained(KOKORO_MODEL, { dtype: TTS_DTYPE, device: DEVICE })
+    kokoroPromise = loadWithFallback('kokoro', (device) => KokoroTTS.from_pretrained(KOKORO_MODEL, { dtype: TTS_DTYPE, device }))
       .catch(err => { kokoroPromise = null; throw err })
   }
   return kokoroPromise
@@ -50,7 +94,7 @@ function getKokoro(): Promise<KokoroTTS> {
 let whisperPromise: Promise<any> | null = null
 function getWhisper(): Promise<unknown> {
   if (!whisperPromise) {
-    whisperPromise = pipeline('automatic-speech-recognition', WHISPER_MODEL, { dtype: 'q8', device: DEVICE })
+    whisperPromise = loadWithFallback('whisper', (device) => pipeline('automatic-speech-recognition', WHISPER_MODEL, { dtype: 'q8', device }))
       .catch((err: unknown) => { whisperPromise = null; throw err })
   }
   return whisperPromise
@@ -128,7 +172,7 @@ if (process.argv.includes('warm')) {
 const server = createServer(async (req, res) => {
   try {
     const url = req.url ?? '/'
-    if (url === '/health') return json(res, 200, { ok: true, kokoro: kokoroPromise !== null, whisper: whisperPromise !== null })
+    if (url === '/health') return json(res, 200, { ok: true, kokoro: kokoroPromise !== null, whisper: whisperPromise !== null, device: DEVICE, platform: process.platform, arch: process.arch })
 
     if (url === '/voices') {
       const tts = await getKokoro()
@@ -187,7 +231,7 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  process.stdout.write(`[voice-server] listening on http://localhost:${PORT}\n`)
+  process.stdout.write(`[voice-server] listening on http://localhost:${PORT} (device=${DEVICE} platform=${process.platform}/${process.arch})\n`)
   // Warm models in the background at startup so the first user reply isn't a
   // cold start (model load + graph compile would otherwise add 1–2s).
   void warm(true).catch((e) => process.stdout.write(`[voice-server] warmup failed: ${e}\n`))
