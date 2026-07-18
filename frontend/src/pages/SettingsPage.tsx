@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Bell, Brain, Cpu, Home, Info, Palette, PanelLeft, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Brain, Cpu, Home, Info, Palette, PanelLeft, ShieldCheck, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import type { PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
 import { SettingsDevicesTab } from '@/components/settings/SettingsDevicesTab'
 import { SettingsMemoryTab } from '@/components/settings/SettingsMemoryTab'
+import { SettingsLocalAiTab } from '@/components/settings/SettingsLocalAiTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const SECTIONS: PanelSection[] = [
@@ -24,6 +25,7 @@ const SECTIONS: PanelSection[] = [
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
   { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'memory',        label: 'Memory',          icon: Brain      },
+  { id: 'local-ai',      label: 'Local AI',        icon: ShieldCheck },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
   { id: 'devices',       label: 'Devices',         icon: Cpu        },
   { id: 'about',         label: 'About',           icon: Info       },
@@ -92,6 +94,7 @@ export function SettingsPage() {
           {section === 'appearance'    && <SettingsAppearanceTab />}
           {section === 'content'       && <SettingsPrivacyTab />}
           {section === 'memory'        && <SettingsMemoryTab />}
+          {section === 'local-ai'      && <SettingsLocalAiTab />}
           {section === 'notifications' && <SettingsNotificationsTab />}
           {section === 'devices'       && <SettingsDevicesTab />}
           {section === 'about'         && <SettingsAboutTab />}

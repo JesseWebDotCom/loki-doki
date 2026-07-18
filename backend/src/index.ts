@@ -249,6 +249,7 @@ if (firstBoot) {
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
+  import('@/lib/chatRetention').then((m) => m.startChatRetentionSweep()).catch(() => {})
   import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
   import('@/lib/routines/engine').then((m) => m.startRoutinesEngine()).catch(() => {})
   // DNS filtering is opt-in and fail-safe: only starts if the admin enabled it, and
