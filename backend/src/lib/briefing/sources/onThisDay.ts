@@ -7,9 +7,28 @@ import type { BriefingItem } from '../types'
 
 export type OnThisDayFeed = 'selected' | 'births' | 'deaths' | 'events'
 
+interface FeedPage {
+  thumbnail?: { source?: string; width?: number; height?: number }
+  originalimage?: { source?: string }
+}
 interface FeedEntry {
   year?: number
   text?: string
+  pages?: FeedPage[]
+}
+
+// Wikimedia thumbnails come sized (e.g. `.../330px-Foo.jpg`); bump to a crisper card width.
+function upscaleThumb(url: string): string {
+  return url.replace(/\/\d+px-/, '/640px-')
+}
+
+// First page with usable artwork → a real historical photo/portrait for the card.
+function entryImage(e: FeedEntry): string | undefined {
+  for (const p of e.pages ?? []) {
+    const src = p.thumbnail?.source ?? p.originalimage?.source
+    if (src && /^https?:/i.test(src)) return upscaleThumb(src)
+  }
+  return undefined
 }
 
 function pad2(n: number): string {
@@ -49,5 +68,5 @@ export async function onThisDay(
   return entries
     .filter((e) => e.text)
     .slice(0, limit)
-    .map((e) => ({ title: formatEntry(e, feed) }))
+    .map((e) => ({ title: formatEntry(e, feed), imageUrl: entryImage(e) }))
 }

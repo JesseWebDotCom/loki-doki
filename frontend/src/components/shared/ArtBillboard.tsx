@@ -26,6 +26,9 @@ export interface ArtBillboardItem {
   onClick?: () => void
   pillLabel: string
   PillIcon: LucideIcon
+  /** Per-slide editorial label; overrides the carousel-level eyebrow. Use when a
+   *  single carousel mixes history ("Continue listening") with discovery ("New episode"). */
+  eyebrow?: string
 }
 
 function BillboardSlide({ item, eyebrow }: { item: ArtBillboardItem; eyebrow: string }) {
@@ -39,7 +42,7 @@ function BillboardSlide({ item, eyebrow }: { item: ArtBillboardItem; eyebrow: st
         <BlendedHeroBackdrop art={item.art} color={accent} colorDark={palette.dark} />
       </div>
       <div className="absolute inset-y-0 left-0 flex max-w-xl flex-col justify-center gap-2 p-5 sm:p-9">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{eyebrow}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{item.eyebrow ?? eyebrow}</span>
         <span className="line-clamp-2 text-xl font-extrabold tracking-tight text-white sm:text-4xl">{item.title}</span>
         {item.subtitle && <span className="line-clamp-1 max-w-md text-sm text-white/70">{item.subtitle}</span>}
         <span className="mt-2 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg transition group-hover:scale-105 group-active:scale-95">

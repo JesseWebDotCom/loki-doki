@@ -30,7 +30,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { NewsRow, NewsLink, type NewsItem } from "@/components/shared/NewsCard";
+import { NewsRow, NewsLink, NewsThumb, type NewsItem } from "@/components/shared/NewsCard";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 import { ArtBillboard, type ArtBillboardItem } from "@/components/shared/ArtBillboard";
 import { useNewsReaderMode } from "@/hooks/useNewsReaderMode";
@@ -711,7 +711,7 @@ function WidgetOnThisDay() {
   );
 }
 
-interface BriefingItem { title: string; detail?: string; url?: string }
+interface BriefingItem { title: string; detail?: string; url?: string; imageUrl?: string; summary?: string; publishedAt?: number }
 interface BriefingPayload {
   date: string;
   weather?: string;
@@ -719,6 +719,30 @@ interface BriefingPayload {
   worldNews: BriefingItem[];
   sports: BriefingItem[];
   onThisDay: BriefingItem[];
+}
+
+// Briefing items and news cards share a shape; map so we can reuse NewsThumb/NewsLink
+// (graceful image→placeholder, reader-mode routing) instead of re-inventing them here.
+const briefToNews = (it: BriefingItem): NewsItem => ({
+  title: it.title, url: it.url, source: it.detail,
+  imageUrl: it.imageUrl, summary: it.summary, publishedAt: it.publishedAt,
+});
+
+// Compact secondary row (scores, on-this-day, second story): the item's own photo when it
+// has one, otherwise a tinted icon chip. Clickable only when the item links somewhere.
+function BriefingRow({ item, icon: Icon, tint, label }: { item: NewsItem; icon: LucideIcon; tint: string; label: string }) {
+  const inner = (
+    <div className="group flex items-center gap-2.5 py-2.5">
+      {item.imageUrl
+        ? <img src={proxyImg(item.imageUrl)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover ring-1 ring-inset ring-border/40" />
+        : <div className={cn("grid size-9 shrink-0 place-items-center rounded-control", tint)}><Icon className="size-4" /></div>}
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/50">{label}</p>
+        <p className="line-clamp-1 text-[12.5px] font-medium text-foreground/85 transition-colors group-hover:text-brand">{item.title}</p>
+      </div>
+    </div>
+  );
+  return item.url ? <NewsLink item={item}>{inner}</NewsLink> : inner;
 }
 
 function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
@@ -737,7 +761,9 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
       .finally(() => setLoading(false));
   }, []);
 
-  const topStory = payload?.localNews[0] ?? payload?.worldNews[0];
+  const stories = [...(payload?.localNews ?? []), ...(payload?.worldNews ?? [])];
+  const topStory = stories[0];
+  const secondStory = stories[1];
   const topScore = payload?.sports[0];
   const otd = payload?.onThisDay[0];
   const empty = !loading && !payload;
@@ -749,32 +775,39 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
     </div>
   );
 
+  // ── Row mode: full-width shelf of image-led tiles ─────────────────────────────
   if (displayMode === 'row') {
-    const cards: { label: string; icon: LucideIcon; text: string; url?: string }[] = [];
-    if (payload?.weather) cards.push({ label: 'Weather', icon: CloudSun, text: payload.weather });
-    if (topStory) cards.push({ label: 'Top Story', icon: Newspaper, text: topStory.title, url: topStory.url });
-    if (topScore) cards.push({ label: 'Scores', icon: Trophy, text: topScore.title });
-    if (otd) cards.push({ label: 'On This Day', icon: CalendarDays, text: otd.title });
+    const tiles: { key: string; label: string; icon: LucideIcon; item: NewsItem }[] = [];
+    if (payload?.weather) tiles.push({ key: 'wx', label: 'Weather', icon: CloudSun, item: { title: payload.weather } });
+    if (topStory) tiles.push({ key: 'top', label: 'Top Story', icon: Newspaper, item: briefToNews(topStory) });
+    if (topScore) tiles.push({ key: 'score', label: 'Scores', icon: Trophy, item: briefToNews(topScore) });
+    if (otd) tiles.push({ key: 'otd', label: 'On This Day', icon: CalendarDays, item: briefToNews(otd) });
 
     return (
       <RowShelf title="Morning briefing">
-        {(loading || warming) && <Spinner className="text-muted-foreground/30" />}
+        {(loading || warming) && !payload && <Spinner className="text-muted-foreground/30" />}
         {empty && <p className="px-1 text-[13px] text-muted-foreground/60">No briefing available yet.</p>}
-        {cards.length > 0 && (
+        {tiles.length > 0 && (
           <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {cards.map((c, i) => {
-              const Icon = c.icon;
+            {tiles.map((t) => {
+              const Icon = t.icon;
               const inner = (
-                <div className="group h-full shrink-0 w-[220px] flex flex-col gap-2 rounded-card bg-card/60 ring-1 ring-inset ring-border/40 p-3.5 transition-shadow hover:shadow-lg hover:shadow-black/20">
-                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">
-                    <Icon className="size-3" /><span>{c.label}</span>
+                <div className="group h-full w-[230px] shrink-0 overflow-hidden rounded-card bg-card ring-1 ring-inset ring-border/40 transition-shadow hover:shadow-lg hover:shadow-black/20">
+                  <div className="relative h-24 w-full overflow-hidden">
+                    {t.item.imageUrl
+                      ? <img src={proxyImg(t.item.imageUrl)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                      : <div className="grid size-full place-items-center bg-muted"><Icon className="size-7 text-muted-foreground/40" /></div>}
+                    {t.item.imageUrl && <div className="absolute inset-0 bg-gradient-to-b from-black/45 to-transparent" />}
+                    <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      <Icon className="size-3" />{t.label}
+                    </span>
                   </div>
-                  <p className="line-clamp-3 text-[12px] font-medium leading-snug text-foreground/85">{c.text}</p>
+                  <p className="line-clamp-2 p-3 text-[12.5px] font-medium leading-snug text-foreground/85 transition-colors group-hover:text-brand">{t.item.title}</p>
                 </div>
               );
-              return c.url
-                ? <NewsLink key={i} item={{ title: c.text, url: c.url }}>{inner}</NewsLink>
-                : <div key={i}>{inner}</div>;
+              return t.item.url
+                ? <NewsLink key={t.key} item={t.item}>{inner}</NewsLink>
+                : <div key={t.key}>{inner}</div>;
             })}
           </div>
         )}
@@ -782,33 +815,66 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
     );
   }
 
+  // ── Column mode: a cohesive card with a photo hero + compact rows ─────────────
+  if (empty) {
+    return (
+      <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+        {header}
+        <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>
+      </div>
+    );
+  }
+  if (!payload) {
+    return (
+      <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+        {header}
+        <Spinner className="text-muted-foreground/30" />
+      </div>
+    );
+  }
+
+  const topNews = topStory ? briefToNews(topStory) : null;
+
   return (
-    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
-      {header}
-      {(loading || warming) && <Spinner className="text-muted-foreground/30" />}
-      {empty && <p className="text-[12px] text-muted-foreground/60">No briefing available yet.</p>}
-      {payload && (
-        <div className="space-y-1.5 flex-1">
+    <div className={cn(cardVariants(), "h-full flex flex-col overflow-hidden p-0")}>
+      {topNews ? (
+        <NewsLink item={topNews} className="block">
+          <div className="group relative h-40 w-full overflow-hidden">
+            <NewsThumb item={topNews} className="absolute inset-0 size-full transition-transform duration-500 group-hover:scale-[1.04]" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-black/45" />
+            <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/90 drop-shadow">
+                <Sunrise className="size-3.5" />Morning Briefing
+              </span>
+              {payload.weather && (
+                <span className="inline-flex max-w-[10rem] items-center gap-1 truncate rounded-full bg-black/45 px-2 py-0.5 text-[11px] font-semibold text-white">
+                  <CloudSun className="size-3 shrink-0" /><span className="truncate">{payload.weather}</span>
+                </span>
+              )}
+            </div>
+            <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 p-3.5">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-white/65">{topNews.source ?? 'Top story'}</span>
+              <p className="line-clamp-2 text-[15px] font-bold leading-snug text-white drop-shadow-sm">{topNews.title}</p>
+            </div>
+          </div>
+        </NewsLink>
+      ) : (
+        <div className="relative flex h-24 flex-col justify-between bg-gradient-to-br from-warning/12 to-transparent p-3.5">
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-warning">
+            <Sunrise className="size-3.5" />Morning Briefing
+          </span>
           {payload.weather && (
-            <div className="flex items-center gap-1.5 text-[12px] text-foreground/75">
-              <CloudSun className="size-3.5 shrink-0 text-info" /><span className="truncate">{payload.weather}</span>
-            </div>
-          )}
-          {topStory && (
-            <p className="line-clamp-2 text-[12px] leading-snug text-foreground/70">{topStory.title}</p>
-          )}
-          {topScore && (
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-              <Trophy className="size-3 shrink-0 text-success" /><span className="truncate">{topScore.title}</span>
-            </div>
-          )}
-          {otd && (
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
-              <CalendarDays className="size-3 shrink-0 text-warning" /><span className="truncate">{otd.title}</span>
-            </div>
+            <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-foreground/80">
+              <CloudSun className="size-4 text-info" />{payload.weather}
+            </p>
           )}
         </div>
       )}
+      <div className="flex flex-1 flex-col divide-y divide-border/40 px-3.5">
+        {topScore && <BriefingRow item={briefToNews(topScore)} icon={Trophy} tint="bg-success/15 text-success" label="Scores" />}
+        {otd && <BriefingRow item={briefToNews(otd)} icon={CalendarDays} tint="bg-warning/15 text-warning" label="On this day" />}
+        {secondStory && <BriefingRow item={briefToNews(secondStory)} icon={Newspaper} tint="bg-info/15 text-info" label="Also today" />}
+      </div>
     </div>
   );
 }
@@ -2494,29 +2560,35 @@ function HomeBillboard() {
 
     // Best-first: resume where you left off, then a top story with art, then the
     // newest episode. Capped so the carousel stays short and premium.
+    // Per-slide eyebrow: "Continue listening" is a history claim, so it rides only
+    // on genuine resume items. News and never-played episodes get discovery framing
+    // ("Top story" / "New episode"), never language implying you've already been here.
     const out: ArtBillboardItem[] = [];
     for (const x of cont) out.push({
       key: `resume:${x.episode.id}`, title: x.episode.title, subtitle: x.show.name,
       art: coverUrl(x.show.id), onClick: playEpisode(x), pillLabel: "Resume", PillIcon: Play,
+      eyebrow: "Continue listening",
     });
     for (const n of newsWithArt) out.push({
       key: `news:${n.url}`, title: n.title, subtitle: n.source ?? "Top story",
       art: proxyImg(n.imageUrl!), onClick: openNews(n.url!), pillLabel: "Read", PillIcon: Newspaper,
+      eyebrow: "Top story",
     });
     for (const x of fresh) out.push({
       key: `new:${x.episode.id}`, title: x.episode.title, subtitle: x.show.name,
       art: coverUrl(x.show.id), onClick: playEpisode(x), pillLabel: "Play", PillIcon: Play,
+      eyebrow: "New episode",
     });
     return out.slice(0, 5);
   }, [data, news, podcastPb, navigate, readerMode]);
 
   if (items.length === 0) return null;
 
-  const eyebrow = items[0]!.key.startsWith("resume:") ? "Continue listening" : "Featured for you";
-
+  // Each slide carries its own eyebrow (see items above); this is only the fallback,
+  // so it stays neutral: "Featured for you" never implies prior history.
   return (
     <div className="px-5 pt-5">
-      <ArtBillboard eyebrow={eyebrow} items={items} />
+      <ArtBillboard eyebrow="Featured for you" items={items} />
     </div>
   );
 }

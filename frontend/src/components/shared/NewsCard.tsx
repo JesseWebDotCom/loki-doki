@@ -74,7 +74,7 @@ export function SourceBadge({ item }: { item: NewsItem }) {
 }
 
 /** Thumbnail/photo area; falls back to a tinted placeholder when there's no image. */
-function NewsThumb({ item, className }: { item: NewsItem; className?: string }) {
+export function NewsThumb({ item, className }: { item: NewsItem; className?: string }) {
   const [failed, setFailed] = useState(false)
   if (item.imageUrl && !failed) {
     return (
