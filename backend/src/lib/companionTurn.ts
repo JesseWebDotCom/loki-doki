@@ -22,6 +22,7 @@ import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildBlock, extractSources } from '@/lib/blockBuilder'
 import { recallMemories, formatMemoriesForPrompt, matchPromptEntities } from '@/memory/recall'
 import { recallNotesBlock } from '@/lib/notes/recall'
+import { recallMethodBlock } from '@/lib/methods/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
 import { embed } from '@/llm/embed'
 import { buildInteractionFragment, ProfanityStreamBuffer, getProtections, getInteractionStyle } from '@/lib/protections'
@@ -361,13 +362,15 @@ export async function runCompanionTurn(
     matchPromptEntities(p.message, p.userId, p.characterId).catch(() => new Set<string>()),
   ])
 
-  // ── Memory + notes blocks (cached per conversation; entity-aware staleness) ─
+  // ── Memory + notes + methods blocks (cached per conversation; entity-aware staleness) ─
   let memoryBlock: string | null = null
   let notesBlock: string | null = null
+  let methodsBlock: string | null = null
   const cachedMem = getCachedMemoryBlock(p.convId, promptEntityIds)
   if (cachedMem) {
     memoryBlock = cachedMem.memoryBlock
     notesBlock = cachedMem.notesBlock
+    methodsBlock = cachedMem.methodsBlock
     _lap('memory-done(cached)')
   }
 
@@ -386,20 +389,21 @@ export async function runCompanionTurn(
           allowedToolIds,
         }),
     cachedMem
-      ? Promise.resolve(null as { memory: string | null; notes: string | null } | null)
+      ? Promise.resolve(null as { memory: string | null; notes: string | null; methods: string | null } | null)
       : embed(p.message)
           .then(async (embedding) => {
             _lap('embed-done')
-            // Memory recall and notes recall share the message embedding; notes
-            // failures never cost the turn its memory block.
-            const [memory, notes] = await Promise.all([
+            // Memory, notes, and learned-methods recall all share the message
+            // embedding; notes/methods failures never cost the turn its memory block.
+            const [memory, notes, methods] = await Promise.all([
               recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
                 .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)),
               recallNotesBlock(p.message, p.userId, embedding).catch(() => null),
+              recallMethodBlock(p.message, p.userId, embedding).catch(() => null),
             ])
-            return { memory, notes }
+            return { memory, notes, methods }
           })
-          .catch(() => null as { memory: string | null; notes: string | null } | null),
+          .catch(() => null as { memory: string | null; notes: string | null; methods: string | null } | null),
     isOffline(p.userId).catch(() => false),
     includeSkills
       ? activeSkillsBlock(p.userId).catch((e) => { logger.warn(`[skills] active-skills block failed: ${e}`); return null })
@@ -415,9 +419,10 @@ export async function runCompanionTurn(
   if (!cachedMem) {
     memoryBlock = computedMemory?.memory ?? null
     notesBlock = computedMemory?.notes ?? null
+    methodsBlock = computedMemory?.methods ?? null
     // A prime's block was recalled for '' — caching it would hand the real turn a
     // block with no message-specific vector hits (quality loss beats the KV win).
-    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId, notesBlock })
+    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId, notesBlock, methodsBlock })
     _lap('memory-done(computed)')
   }
 
@@ -1002,6 +1007,7 @@ export async function runCompanionTurn(
     // recalled memories MORE attentional weight, not less.
     if (memoryBlock) systemParts.push(memoryBlock)
     if (notesBlock) systemParts.push(notesBlock)
+    if (methodsBlock) systemParts.push(methodsBlock)
     // Older conversation content the trimmed history window no longer carries.
     if (p.conversationSummary) {
       systemParts.push(`## Earlier in this conversation\n${p.conversationSummary}`)

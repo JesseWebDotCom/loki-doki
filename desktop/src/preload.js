@@ -36,6 +36,18 @@ contextBridge.exposeInMainWorld('lokiDesktop', {
     return () => ipcRenderer.removeListener('hud:open-shelf', handler)
   },
 
+  // shell → page: the dictation hotkey was pressed. First press starts a mic
+  // capture; second press finalizes. The page transcribes and calls insertDictation.
+  onDictationToggle(cb) {
+    const handler = () => cb()
+    ipcRenderer.on('dictation:toggle', handler)
+    return () => ipcRenderer.removeListener('dictation:toggle', handler)
+  },
+  // page → shell: deliver a finalized transcript to the focused app (clipboard + paste).
+  insertDictation(text) {
+    return ipcRenderer.invoke('dictation:insert', String(text ?? ''))
+  },
+
   // page → shell
   reportState(state) {
     ipcRenderer.send('hud:state', state)

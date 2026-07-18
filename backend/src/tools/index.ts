@@ -201,6 +201,7 @@ import { canvasTool } from './canvas'
 import { narrateTool } from './narrate'
 import { confirmPendingTool } from './confirmPending'
 import { createRoutineTool } from './createRoutine'
+import { saveMethodTool } from './saveMethod'
 import { machineStatusTool } from './machineStatus'
 import { dockFilesTool } from './dockFiles'
 
@@ -250,6 +251,7 @@ export const toolRegistry: Tool[] = [
   plexTool,
   setStatusTool,
   createRoutineTool,
+  saveMethodTool,
   sleepTool,
   displayAlertTool,
   rememberTool,

@@ -275,7 +275,7 @@ Routes registered at `/api/image/` and `/api/admin/image-loras/`.
 **User-facing (`requireAuth`):**
 | Method | Endpoint | Notes |
 |---|---|---|
-| `GET` | `/api/image/status` | Is sd.cpp running? Returns `{ ok, url }` |
+| `GET` | `/api/image/status` | Is ComfyUI running? Returns `{ ok, url }` |
 | `GET` | `/api/image/loras` | List LoRAs the current user has access to |
 | `POST` | `/api/image/generate` | SSE stream: `start → step* → done/error`. Body: `{ prompt, width, height, steps, guidance, seed, loraIds[], negativePrompt }` |
 | `GET` | `/api/image/artifacts/:id` | Serve PNG if ready, JSON state if building |
@@ -308,7 +308,7 @@ event: error  data: { message }
 
 **Hook:** `useImageGen()` in `src/hooks/useImageGen.ts`, wraps the SSE flow, returns `{ state, generate(params), cancel(imageId), reset() }`.
 
-**LoRA files:** stored in `data/loras/`. sd.cpp is spawned with `--lora-model-dir data/loras/` so loras are referenced by filename (without extension) in prompt syntax `<lora:name:weight>`.
+**LoRA files:** stored in `data/loras/` (ComfyUI's `models/loras` points here). LoRAs are applied via `LoraLoader` nodes in the generated workflow, keyed by filename (without extension).
 
 ---
 

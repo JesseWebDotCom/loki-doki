@@ -95,7 +95,7 @@ It greps the diff's files for the mechanical Visual Language violations (em dash
 - Hono - lightweight, Bun-native HTTP framework
 - Database: SQLite via Bun's built-in `bun:sqlite` + Drizzle ORM
   - SQLite is the correct default for a local family app (2–8 users, single file, easy backup)
-  - PostgreSQL supported as an optional override via `DATABASE_URL` env var
+  - `DATABASE_URL` overrides the SQLite file *path* only (the DB layer is SQLite-only; there is no Postgres driver wired in `backend/src/db/index.ts`)
 - TanStack Query - frontend data fetching, caching, background refetch
 - Argon2id for PIN hashing - use `Bun.password.hash()` (built-in, no extra dep)
 - Pepper via env var `PIN_PEPPER_SECRET` (256-bit hex, never stored in DB)

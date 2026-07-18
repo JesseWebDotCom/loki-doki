@@ -3275,6 +3275,23 @@ export const routines = sqliteTable('routines', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Learned methods: reusable multi-step procedures the companion saves and later
+// RAG-recalls (lib/methods). user_id null = household-wide; else owned by that user.
+export const methods = sqliteTable('methods', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  steps: text('steps').notNull(),
+  // JSON float array from all-minilm, computed in-process for cosine recall.
+  embedding: text('embedding'),
+  createdVia: text('created_via').notNull().default('companion'),
+  uses: integer('uses').notNull().default(0),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 export const routineRuns = sqliteTable('routine_runs', {
   id: text('id').primaryKey(),
   routineId: text('routine_id').notNull().references(() => routines.id, { onDelete: 'cascade' }),

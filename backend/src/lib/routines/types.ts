@@ -10,6 +10,11 @@ export type RoutineTrigger =
   | { type: 'frigate'; camera?: string; label?: string; startHour?: number; endHour?: number; cooldownSec?: number }
   | { type: 'service'; monitor?: string; event?: 'down' | 'up' }
   | { type: 'webhook'; token: string }
+  // Watch a directory on the server host; fire when a file is created/modified.
+  // `match` is an optional glob (e.g. "*.pdf"); `events` defaults to both.
+  | { type: 'folder'; path: string; events?: FolderEvent[]; match?: string; cooldownSec?: number }
+
+export type FolderEvent = 'created' | 'modified'
 
 export type RoutineAction =
   | { type: 'notify'; title: string; body?: string }
@@ -17,7 +22,8 @@ export type RoutineAction =
   | { type: 'ha-action'; action: string; entityIds: string[]; brightnessPct?: number; value?: number; hvacMode?: string }
   | { type: 'ask-companion'; prompt: string; deliver?: 'notify' | 'announce' }
 
-export const TRIGGER_TYPES = ['time', 'ha-state', 'frigate', 'service', 'webhook'] as const
+export const TRIGGER_TYPES = ['time', 'ha-state', 'frigate', 'service', 'webhook', 'folder'] as const
+const FOLDER_EVENTS: FolderEvent[] = ['created', 'modified']
 export const ACTION_TYPES = ['notify', 'announce', 'ha-action', 'ask-companion'] as const
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -75,6 +81,27 @@ export function validateTrigger(t: unknown): { ok: true; trigger: RoutineTrigger
       // Token is server-generated; an incoming draft may omit it.
       const token = typeof raw.token === 'string' && raw.token.length >= 16 ? raw.token : crypto.randomUUID().replace(/-/g, '')
       return { ok: true, trigger: { type: 'webhook', token } }
+    }
+    case 'folder': {
+      const path = typeof raw.path === 'string' ? raw.path.trim() : ''
+      if (!path) return { ok: false, error: 'Folder trigger needs a directory path.' }
+      // Absolute paths only: a relative path is ambiguous against the server's cwd.
+      if (!(path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\'))) {
+        return { ok: false, error: 'Use an absolute folder path (e.g. /Users/you/Drop or C:\\Drop).' }
+      }
+      const events = Array.isArray(raw.events)
+        ? (raw.events.filter((e): e is FolderEvent => e === 'created' || e === 'modified'))
+        : []
+      const match = typeof raw.match === 'string' && raw.match.trim() ? raw.match.trim() : undefined
+      return {
+        ok: true,
+        trigger: {
+          type: 'folder', path,
+          ...(events.length && events.length < 2 ? { events } : {}),
+          ...(match ? { match } : {}),
+          ...(typeof raw.cooldownSec === 'number' ? { cooldownSec: Math.max(0, raw.cooldownSec) } : {}),
+        },
+      }
     }
     default:
       return { ok: false, error: `Unknown trigger type: ${String(raw.type)}` }
@@ -149,6 +176,11 @@ export function describeTrigger(t: RoutineTrigger): string {
       return `When ${t.monitor ?? 'any monitored service'} goes ${t.event ?? 'down'}`
     case 'webhook':
       return 'When its webhook is called'
+    case 'folder': {
+      const evs = t.events && t.events.length ? t.events.join('/') : 'added or changed'
+      const what = t.match ? `${t.match} files` : 'files'
+      return `When ${what} are ${evs} in ${t.path}`
+    }
   }
 }
 

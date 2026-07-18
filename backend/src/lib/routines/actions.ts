@@ -5,42 +5,55 @@
 // delivers the text via notify (which fans out to push/telegram/email per the
 // user's routing matrix) or spoken on their pods.
 
+import { basename } from 'node:path'
 import { emitNotification } from '@/lib/notify'
 import { podsForUser } from '@/lib/pod/registry'
 import { logger } from '@/lib/logger'
 import type { RoutineAction } from './types'
+import type { TriggerData } from './engine'
 
 export interface ActionContext {
   routineId: string
   routineName: string
   userId: string
+  triggerData?: TriggerData
+}
+
+/** Replace {{file}} / {{filename}} with the triggering file, when a trigger supplied one. */
+function fill(text: string, ctx: ActionContext): string {
+  const file = ctx.triggerData?.file
+  if (!file || !text.includes('{{')) return text
+  return text.replace(/\{\{\s*file\s*\}\}/gi, file).replace(/\{\{\s*filename\s*\}\}/gi, basename(file))
 }
 
 /** Execute one action; throws on failure (the engine records per-action results). */
 export async function executeAction(action: RoutineAction, ctx: ActionContext): Promise<string> {
   switch (action.type) {
     case 'notify': {
+      const title = fill(action.title, ctx)
+      const body = action.body ? fill(action.body, ctx) : undefined
       await emitNotification({
         type: 'system',
         userId: ctx.userId,
-        payload: { message: action.body ? `${action.title}: ${action.body}` : action.title },
-        title: action.title,
-        body: action.body ?? `From your routine "${ctx.routineName}".`,
+        payload: { message: body ? `${title}: ${body}` : title },
+        title,
+        body: body ?? `From your routine "${ctx.routineName}".`,
         url: '/routines',
       })
       return 'notified'
     }
 
     case 'announce': {
-      const spoken = speakOnPods(ctx.userId, action.text)
+      const text = fill(action.text, ctx)
+      const spoken = speakOnPods(ctx.userId, text)
       if (spoken > 0) return `announced on ${spoken} device${spoken === 1 ? '' : 's'}`
       // Nothing is listening; fall back to a notification so the routine is never silent.
       await emitNotification({
         type: 'system',
         userId: ctx.userId,
-        payload: { message: `${ctx.routineName}: ${action.text}` },
+        payload: { message: `${ctx.routineName}: ${text}` },
         title: ctx.routineName,
-        body: action.text,
+        body: text,
         url: '/routines',
       })
       return 'no device online; sent as notification'
@@ -68,7 +81,7 @@ export async function executeAction(action: RoutineAction, ctx: ActionContext): 
     }
 
     case 'ask-companion': {
-      const text = await runHeadlessCompanionTurn(ctx.userId, action.prompt)
+      const text = await runHeadlessCompanionTurn(ctx.userId, fill(action.prompt, ctx))
       if (!text.trim()) throw new Error('The companion returned nothing.')
       if (action.deliver === 'announce') {
         const spoken = speakOnPods(ctx.userId, text)

@@ -13,6 +13,7 @@ const tray = require('./tray')
 const ipc = require('./ipc')
 const permissions = require('./permissions')
 const resources = require('./resources')
+const dictation = require('./dictation')
 const { ipcMain } = require('electron')
 
 let hud = null
@@ -216,24 +217,54 @@ function onHotkey() {
   hud.webContents.send('hud:toggle-expand')
 }
 
-function tryRegisterHotkey(accelerator) {
-  globalShortcut.unregisterAll()
+// Dictation hotkey: the page toggles a mic capture and, on finalize, hands the
+// transcript back via the 'dictation:insert' IPC (below). We deliberately do NOT
+// show/focus the HUD here - stealing focus would send the paste to the wrong app.
+function onDictationHotkey() {
+  if (!hud || hud.isDestroyed()) return
+  void permissions.ensureMacMicAccess() // first dictation on macOS pops mic consent
+  hud.webContents.send('dictation:toggle')
+}
+
+function tryRegister(accelerator, handler) {
   try {
-    return globalShortcut.register(accelerator, onHotkey)
+    return globalShortcut.register(accelerator, handler)
   } catch {
     return false
   }
 }
 
-function registerHotkey(accelerator) {
-  if (!tryRegisterHotkey(accelerator)) {
+// Both global shortcuts share one registry, so any re-register wipes and re-adds
+// the pair. Returns which accelerators took.
+function registerHotkeys() {
+  globalShortcut.unregisterAll()
+  const main = tryRegister(currentSettings.hotkey, onHotkey)
+  const dict = currentSettings.dictationHotkey
+    ? tryRegister(currentSettings.dictationHotkey, onDictationHotkey)
+    : true
+  return { main, dict }
+}
+
+function registerHotkey() {
+  const { main, dict } = registerHotkeys()
+  if (!main) {
     dialog.showErrorBox(
       'Hotkey unavailable',
-      `${accelerator} could not be registered (maybe another app owns it). ` +
+      `${currentSettings.hotkey} could not be registered (maybe another app owns it). ` +
       'Change it in the island Settings page (gear) or the tray settings file.',
     )
   }
+  if (currentSettings.dictationHotkey && !dict) {
+    dialog.showErrorBox(
+      'Dictation hotkey unavailable',
+      `${currentSettings.dictationHotkey} could not be registered (maybe another app owns it, ` +
+      'or it matches your HUD hotkey). Change it in the island Settings page or the tray settings file.',
+    )
+  }
 }
+
+// page → shell: a finalized dictation transcript to paste into the focused app.
+ipcMain.handle('dictation:insert', (_event, text) => dictation.insertText(String(text ?? '')))
 
 // Applies a partial settings patch LIVE (island Settings page via IPC). Hotkey
 // changes only persist when registration succeeds; a failed attempt restores
@@ -243,6 +274,7 @@ function applyShellSettings(patch) {
   if (typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
   if (typeof patch.alwaysListening === 'boolean') next.alwaysListening = patch.alwaysListening
   if (typeof patch.hotkey === 'string' && patch.hotkey.trim()) next.hotkey = patch.hotkey.trim()
+  if (typeof patch.dictationHotkey === 'string') next.dictationHotkey = patch.dictationHotkey.trim() // '' disables
   // Resource monitoring thresholds/toggles (numbers are clamped in resources.js).
   if (patch.resourceMonitor && typeof patch.resourceMonitor === 'object') {
     const rm = { ...currentSettings.resourceMonitor }
@@ -259,10 +291,27 @@ function applyShellSettings(patch) {
   // server-controlled page must never be able to grant itself new paths.
   if (typeof patch.fileAccessEnabled === 'boolean') next.fileAccessEnabled = patch.fileAccessEnabled
 
-  if (next.hotkey && next.hotkey !== currentSettings.hotkey) {
-    if (!tryRegisterHotkey(next.hotkey)) {
-      tryRegisterHotkey(currentSettings.hotkey)
-      return { ok: false, error: 'That hotkey could not be registered. Another app may own it.' }
+  const hotkeyChanged =
+    (next.hotkey && next.hotkey !== currentSettings.hotkey) ||
+    ('dictationHotkey' in next && next.dictationHotkey !== currentSettings.dictationHotkey)
+  if (hotkeyChanged) {
+    const prev = { hotkey: currentSettings.hotkey, dictationHotkey: currentSettings.dictationHotkey }
+    // registerHotkeys() reads currentSettings, so stage the candidates before validating.
+    currentSettings = {
+      ...currentSettings,
+      ...(next.hotkey ? { hotkey: next.hotkey } : {}),
+      ...('dictationHotkey' in next ? { dictationHotkey: next.dictationHotkey } : {}),
+    }
+    const { main, dict } = registerHotkeys()
+    if (!main || !dict) {
+      currentSettings = { ...currentSettings, ...prev }
+      registerHotkeys() // restore the working pair
+      return {
+        ok: false,
+        error: !main
+          ? 'That hotkey could not be registered. Another app may own it.'
+          : 'That dictation hotkey could not be registered. It may clash with another app or your HUD hotkey.',
+      }
     }
   }
 
@@ -386,7 +435,7 @@ function bootWindows({ showMainWindow = false } = {}) {
     quitApp: () => trayActions.quit(),
   })
 
-  registerHotkey(currentSettings.hotkey)
+  registerHotkey()
   refreshTray()
 
   resources.start(

@@ -119,7 +119,7 @@ Minimum target: **24GB Apple Silicon** (MacBook Pro M3 Pro / M4 Pro, Metal via O
 |---|---|---|
 | macOS + browser + backend | ~4–5 GB | |
 | LLM (`llama3.1:8b` Q4_K_M) | ~4.7 GB | always resident, `OLLAMA_KEEP_ALIVE=-1` |
-| Image gen (FLUX.2 Klein 9B Q4_0) | ~4.5 GB | resident via sd.cpp |
+| Image gen (SDXL checkpoint) | ~6.6 GB | resident via ComfyUI (separate process) |
 | Vision (`gemma3:4b` Q4_K_M) | ~3.3 GB | loads on demand, Ollama swaps LRU |
 | Embeddings (`nomic-embed-text`) | ~0.3 GB | always resident |
 | **Total peak (LLM + image + vision)** | **~17 GB** | comfortable on 24 GB |
@@ -129,15 +129,15 @@ Minimum target: **24GB Apple Silicon** (MacBook Pro M3 Pro / M4 Pro, Metal via O
 |---|---|---|
 | macOS + browser + backend | ~4–5 GB | |
 | LLM + Vision (`gemma4:12b` Q4_K_M) | ~7.5 GB | handles both, vision separate model not needed |
-| Image gen (FLUX.2 Klein 9B Q4_0) | ~4.5 GB | resident via sd.cpp |
+| Image gen (SDXL checkpoint) | ~6.6 GB | resident via ComfyUI (separate process) |
 | Embeddings (`nomic-embed-text`) | ~0.3 GB | always resident |
-| **Total peak** | **~16.3 GB** | slightly leaner than default split |
+| **Total peak** | **~18.4 GB** | slightly leaner LLM split; image gen unloads the LLM under pressure |
 
 LLM and image gen can be **resident simultaneously**: no swapping needed on 24 GB. Vision loads on demand and swaps with LRU if memory is tight.
 
 **Model residency:**
 - LLM + embeddings: `OLLAMA_KEEP_ALIVE=-1` (permanent)
-- Image gen: sd.cpp keeps it loaded (separate process)
+- Image gen: ComfyUI keeps the checkpoint loaded (separate process, port 8188)
 - Vision: Ollama standard TTL, loads on first vision request
 
 **hwfit (hardware auto-detection):**
@@ -145,23 +145,30 @@ At startup, `backend/src/lib/hwfit.ts` detects available RAM and platform, then 
 
 ## Image generation
 
-**Service:** `sd.cpp` (GGUF-native, Metal-optimized on Apple Silicon, CUDA on NVIDIA). Single binary with REST API (`--api --port 8080`). Not Ollama, separate process.
+> **`docs/internal/image-stack.md` is the authoritative doc for the image stack.** The summary
+> below is a pointer; when the two disagree, image-stack.md and the code (`backend/src/lib/comfyui.ts`,
+> `backend/src/lib/catalog.ts`) win.
 
-**Backend env var:** `IMAGE_GEN_URL=http://localhost:8080`
+**Service:** **ComfyUI headless** on port 8188. The Bun backend POSTs workflow JSON to `/prompt` and
+polls `/history/{id}`. Not Ollama, separate process (`backend/src/lib/comfyui.ts`, `comfyWorkflows.ts`).
 
-**Model catalog (image gen):**
+**Backend env var:** `IMAGE_GEN_URL` (ComfyUI base URL; defaults to `http://localhost:8188`).
+
+**Model catalog (image gen):** SDXL checkpoints (`backend/src/lib/catalog.ts`):
 
 | Model | Size | Format | Backend | Tags |
 |---|---|---|---|---|
-| FLUX.2 Klein 9B | ~4.5 GB | Q4_0 GGUF | sd.cpp / Metal | Better quality, default |
-| FLUX.2 Klein 4B | ~2.5 GB | Q4_0 GGUF | sd.cpp / Metal | Faster, lower VRAM |
-| FLUX.2 Klein 4B | ~8 GB | fp16 | diffusers / MPS+CUDA | CUDA path |
+| Juggernaut XL Ragnarok | ~6.6 GB | SDXL 1.0 checkpoint | ComfyUI / Metal · CUDA | Better quality, default |
+| RealVis XL V5 Lightning | ~6.6 GB | SDXL 1.0 checkpoint | ComfyUI / Metal · CUDA | Faster (Lightning), lower steps |
 
-hwfit selects the 9B by default on 24 GB Apple Silicon. Admin can override.
+Beyond txt2img, the ComfyUI pipelines cover img2img, inpaint ("Clean Up"), FaceID (IP-Adapter FaceID
+Plus v2), FaceDetailer, upscale (ESRGAN / UltimateSDUpscale), background remove/blur (BiRefNet),
+face/photo restore (CodeFormer / GFPGAN), plus video (AnimateDiff-XL) and image-to-video (SVD).
 
-**LoRAs:** additive, ~50–300 MB each, do not change base model size. Stored in `data/loras/`.
+**LoRAs:** additive, ~50–300 MB each, do not change base checkpoint size. Stored in `data/loras/`;
+the admin LoRA browser can discover/download from CivitAI.
 
-**Uncensored image gen:** FLUX.2 Klein has no built-in content filter. Same per-profile opt-in as text:
+**Uncensored image gen:** the SDXL checkpoints have no built-in content filter. Same per-profile opt-in as text:
 - Admin enables `uncensored_images` per profile
 - Profiles without this flag get a safety prefix prepended to the image prompt
 - The model never changes, only the prompt policy

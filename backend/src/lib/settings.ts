@@ -17,3 +17,7 @@ export async function setAppSetting(key: string, value: unknown): Promise<void> 
     .values({ id: crypto.randomUUID(), key, value: serialized, updatedAt: now })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: serialized, updatedAt: now } })
 }
+
+export async function deleteAppSetting(key: string): Promise<void> {
+  await db.delete(appSettings).where(eq(appSettings.key, key))
+}

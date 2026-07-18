@@ -1,15 +1,15 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { getOrCreateHexKey } from '@/lib/keystore'
 
 // Reversible at-rest encryption for admin-managed secrets (homelab SSH/VNC/RDP
 // passwords and private keys). Unlike pin.ts, which HMAC-hashes a PIN one-way, these
 // values must be decryptable to actually open a connection, so this uses AES-256-GCM.
 //
-// Key management mirrors pin.ts exactly: an operator-set SECRETS_KEY (hex, 32 bytes)
-// takes precedence so the key can live outside the DB and survive a DB reset; otherwise
-// a random key is generated and persisted to app_settings on first use, so a fresh
-// install just works (env + DB share the box here, so a stored key is no weaker than an
-// env one). NEVER log or return the plaintext to a client.
+// Key management mirrors pin.ts: an operator-set SECRETS_KEY (hex, 32 bytes) takes
+// precedence so the key can live outside the DB and survive a DB reset; otherwise the
+// keystore keeps a generated key in a file under data/keys/ (migrating any legacy in-DB
+// key out of app_settings), so a fresh install just works AND a stolen app.db does not
+// carry its own key. NEVER log or return the plaintext to a client.
 
 const KEY_SETTING_KEY = 'security.secrets_key'
 let cachedKey: Buffer | null = null
@@ -21,11 +21,7 @@ async function getKey(): Promise<Buffer> {
     cachedKey = Buffer.from(envKey, 'hex')
     return cachedKey
   }
-  let stored = (await getAppSetting(KEY_SETTING_KEY)) as string | null
-  if (!stored || !/^[0-9a-fA-F]{64}$/.test(stored)) {
-    stored = randomBytes(32).toString('hex')
-    await setAppSetting(KEY_SETTING_KEY, stored)
-  }
+  const stored = await getOrCreateHexKey('secrets_key', { legacyAppSettingKey: KEY_SETTING_KEY, bytes: 32 })
   cachedKey = Buffer.from(stored, 'hex')
   return cachedKey
 }

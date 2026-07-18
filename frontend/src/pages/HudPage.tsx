@@ -4,6 +4,7 @@ import { CompanionEngineProvider } from '@/components/shell/CompanionEngineConte
 import { IslandShell } from '@/components/hud/IslandShell'
 import { useHoverIntercept } from '@/hooks/useHudMouseIntercept'
 import { useBrowserSession } from '@/hooks/useBrowserSession'
+import { useDesktopDictation } from '@/components/hud/useDesktopDictation'
 
 // Desktop HUD: a SuperIsland-style Dynamic Island pinned over the notch by the
 // Electron shell (desktop/). The window is one fixed size, transparent, and
@@ -54,6 +55,7 @@ export function HudPage() {
 // tiny component instead of a call in HudPage itself.)
 function HudSessionRegistration() {
   useBrowserSession({ surface: 'hud' })
+  useDesktopDictation()
   return null
 }
 

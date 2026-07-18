@@ -158,8 +158,10 @@ import adminStorageLocations from '@/routes/adminStorageLocations'
 import adminBackups from '@/routes/adminBackups'
 import adminRemoteAccess from '@/routes/adminRemoteAccess'
 import routinesRoute from '@/routes/routines'
+import methodsRoute from '@/routes/methods'
 import adminNetworkProtection from '@/routes/adminNetworkProtection'
 import mcpAdmin, { mcpPublic } from '@/routes/mcp'
+import { adminMcpClient } from '@/routes/adminMcpClient'
 import { cast, castMedia } from '@/routes/cast'
 import { shutdownCast } from '@/lib/cast'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
@@ -183,6 +185,7 @@ import { showtimesRoute } from '@/routes/showtimes'
 import { skillsRoute, adminSkillsRoute } from '@/routes/skills'
 import { voiceMemosRoute } from '@/routes/voiceMemos'
 import { adminRemoteEngineRoute } from '@/routes/adminRemoteEngine'
+import { adminCodingFence } from '@/routes/adminCodingFence'
 import { loadRemoteEngine } from '@/lib/remoteEngine'
 import { medicalRoute } from '@/routes/medical'
 import { holidaysRoute } from '@/routes/holidays'
@@ -252,6 +255,12 @@ if (firstBoot) {
   import('@/lib/chatRetention').then((m) => m.startChatRetentionSweep()).catch(() => {})
   import('@/lib/backup').then((m) => m.startBackupScheduler()).catch(() => {})
   import('@/lib/routines/engine').then((m) => m.startRoutinesEngine()).catch(() => {})
+  // Coding-sandbox egress fence is opt-in: reconcile the OS firewall to the stored
+  // config on boot (nftables is not persistent across reboots, so a fence re-applies).
+  import('@/lib/codingSandboxFirewall').then((m) => m.reconcileEgressFence()).catch(() => {})
+  // Discover tools from any configured outbound MCP servers and register them (opt-in;
+  // no servers by default). A slow/dead server just contributes no tools.
+  import('@/lib/mcp/client').then((m) => m.syncMcpClientTools()).catch(() => {})
   // DNS filtering is opt-in and fail-safe: only starts if the admin enabled it, and
   // a failed bind (needs privilege for :53) is surfaced in the admin UI, not fatal.
   import('@/lib/dns/server').then((m) => m.startDnsServer()).catch(() => {})
@@ -771,6 +780,7 @@ app.route('/api/skills', skillsRoute)
 app.route('/api/admin/users', adminSkillsRoute)
 app.route('/api/voice/memos', voiceMemosRoute)
 app.route('/api/admin/remote-engine', adminRemoteEngineRoute)
+app.route('/api/admin/coding-fence', adminCodingFence)
 app.route('/api/medical', medicalRoute)
 app.route('/api/holidays', holidaysRoute)
 app.route('/api/local-events', localEventsRoute)
@@ -781,8 +791,10 @@ app.route('/api/admin/storage-locations', adminStorageLocations)
 app.route('/api/admin/backups', adminBackups)
 app.route('/api/admin/remote-access', adminRemoteAccess)
 app.route('/api/routines', routinesRoute)
+app.route('/api/methods', methodsRoute)
 app.route('/api/admin/network-protection', adminNetworkProtection)
 app.route('/api/admin/mcp', mcpAdmin)
+app.route('/api/admin/mcp-client', adminMcpClient)
 app.route('/api/mcp', mcpPublic)
 app.route('/api/cast', cast)
 app.route('/api/cast-media', castMedia)
@@ -798,12 +810,15 @@ if (process.env.NODE_ENV !== 'development') {
   app.get('*', serveStatic({ path: '../frontend/dist/index.html' }))
 }
 
-// At-rest secret encryption (lib/secrets.ts) and the PIN pepper (lib/pin.ts) fall back to a
-// key auto-persisted INTO the database when no env key is set — so DB-file theft yields both
-// the ciphertext and its key. Warn the operator so they can set a real key kept outside the DB.
+// At-rest secret encryption (lib/secrets.ts) and the PIN pepper (lib/pin.ts) fall back, when
+// no env key is set, to a key kept OUTSIDE the database by the keystore (data/keys/, or the
+// macOS Keychain / a Windows DPAPI-wrapped file). That already protects against DB-file theft
+// and backups (which snapshot only the DB). A dedicated env var is still the strongest option:
+// it survives a full data-dir wipe and keeps the key off the host entirely if sourced from a
+// secret manager. Nudge the operator toward it, but this is no longer a standing exposure.
 if (!process.env.SECRETS_KEY || !process.env.PIN_PEPPER) {
   const missing = [!process.env.SECRETS_KEY && 'SECRETS_KEY', !process.env.PIN_PEPPER && 'PIN_PEPPER'].filter(Boolean).join(' and ')
-  logger.warn(`[security] ${missing} not set — at-rest encryption keys are stored in the database itself, so a stolen DB file is not protected by them. Set ${missing} (see docs) to keep the key outside the DB.`)
+  logger.info(`[security] ${missing} not set — using the file/OS keystore under data/keys/ (kept out of the DB and backups). Set ${missing} (see docs) for the strongest separation.`)
 }
 
 const port = parseInt(process.env.PORT ?? '3000')

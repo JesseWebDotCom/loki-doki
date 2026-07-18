@@ -24,6 +24,7 @@ type Trigger =
   | { type: 'frigate'; camera?: string; label?: string; startHour?: number; endHour?: number }
   | { type: 'service'; monitor?: string; event?: 'down' | 'up' }
   | { type: 'webhook'; token: string }
+  | { type: 'folder'; path: string; events?: ('created' | 'modified')[]; match?: string }
 
 type Action =
   | { type: 'notify'; title: string; body?: string }
@@ -65,6 +66,7 @@ const TRIGGER_OPTIONS = [
   { value: 'frigate', label: 'When a camera sees something' },
   { value: 'service', label: 'When a service goes down or up' },
   { value: 'webhook', label: 'When a webhook is called' },
+  { value: 'folder', label: 'When a file lands in a folder' },
 ] as const
 
 const ACTION_OPTIONS = [
@@ -267,6 +269,7 @@ function RoutineEditor({ open, onOpenChange, routine, onSaved }: {
       case 'frigate': setTrigger({ type: 'frigate', label: 'person' }); break
       case 'service': setTrigger({ type: 'service', event: 'down' }); break
       case 'webhook': setTrigger({ type: 'webhook', token: '' }); break
+      case 'folder': setTrigger({ type: 'folder', path: '' }); break
     }
   }
 
@@ -386,6 +389,28 @@ function RoutineEditor({ open, onOpenChange, routine, onSaved }: {
               <p className="text-xs text-muted-foreground">
                 The webhook URL (with its secret token) appears on the routine card after saving.
               </p>
+            )}
+
+            {trigger.type === 'folder' && (
+              <div className="space-y-2">
+                <Input placeholder="Absolute folder path, e.g. /Users/you/Drop" value={trigger.path}
+                  onChange={(e) => setTrigger({ ...trigger, path: e.target.value })} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="Match (glob, e.g. *.pdf)" value={trigger.match ?? ''}
+                    onChange={(e) => setTrigger({ ...trigger, match: e.target.value || undefined })} />
+                  <select className={selectClass} value={(trigger.events ?? []).join(',')}
+                    onChange={(e) => setTrigger({ ...trigger, events: e.target.value ? e.target.value.split(',') as ('created' | 'modified')[] : undefined })}>
+                    <option value="">Added or changed</option>
+                    <option value="created">Added only</option>
+                    <option value="modified">Changed only</option>
+                  </select>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Watches this folder on the server (not subfolders). Action text can use{' '}
+                  <code className="rounded bg-foreground/8 px-1">{'{{filename}}'}</code> or{' '}
+                  <code className="rounded bg-foreground/8 px-1">{'{{file}}'}</code>.
+                </p>
+              </div>
             )}
           </div>
 

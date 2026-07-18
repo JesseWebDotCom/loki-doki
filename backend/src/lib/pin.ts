@@ -1,15 +1,14 @@
-import { createHmac, randomBytes } from 'node:crypto'
-import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { createHmac } from 'node:crypto'
+import { getOrCreateHexKey } from '@/lib/keystore'
 
 const PEPPER_SETTING_KEY = 'security.pin_pepper'
 let cachedPepper: Buffer | null = null
 
 // Resolve the HMAC pepper. An operator-set PIN_PEPPER_SECRET (hex) takes precedence so
-// existing hashes stay valid and the secret can live outside the DB; otherwise we
-// generate one and persist it to app_settings on first use, so a fresh `git clone`
-// install has working PIN login without manual .env setup (env + DB share the box here,
-// so a stored pepper is no weaker than an env one). Previously this threw when unset,
-// 500-ing PIN/adult-gate endpoints on a clean install.
+// existing hashes stay valid and the secret can live outside the DB; otherwise the
+// keystore keeps a generated pepper in a file under data/keys/ (migrating any legacy
+// in-DB pepper out of app_settings), so a fresh `git clone` install has working PIN
+// login without manual .env setup AND a stolen app.db never carries its own pepper.
 async function getPepper(): Promise<Buffer> {
   if (cachedPepper) return cachedPepper
   const envSecret = process.env.PIN_PEPPER_SECRET
@@ -17,11 +16,7 @@ async function getPepper(): Promise<Buffer> {
     const buf = Buffer.from(envSecret, 'hex')
     if (buf.byteLength > 0) { cachedPepper = buf; return buf }
   }
-  let stored = (await getAppSetting(PEPPER_SETTING_KEY)) as string | null
-  if (!stored) {
-    stored = randomBytes(32).toString('hex')
-    await setAppSetting(PEPPER_SETTING_KEY, stored)
-  }
+  const stored = await getOrCreateHexKey('pin_pepper', { legacyAppSettingKey: PEPPER_SETTING_KEY, bytes: 32 })
   cachedPepper = Buffer.from(stored, 'hex')
   return cachedPepper
 }

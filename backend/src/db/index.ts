@@ -3206,6 +3206,22 @@ export function runMigrations() {
       finished_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS routine_runs_routine_idx ON routine_runs(routine_id, started_at);
+    -- Learned methods: reusable multi-step procedures the companion saves and later
+    -- RAG-recalls. user_id NULL = household-wide; otherwise owned by that user.
+    CREATE TABLE IF NOT EXISTS methods (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      steps TEXT NOT NULL,
+      embedding TEXT,
+      created_via TEXT NOT NULL DEFAULT 'companion',
+      uses INTEGER NOT NULL DEFAULT 0,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS methods_user_idx ON methods(user_id);
   `)
 
   // Backups (see schema.ts backups; Admin → Storage → Backups)

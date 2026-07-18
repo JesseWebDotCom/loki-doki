@@ -75,6 +75,8 @@ export function IslandPageSettings() {
   const [shell, setShell] = useState<ShellSettings | null>(null)
   const [hotkeyDraft, setHotkeyDraft] = useState('')
   const [hotkeyError, setHotkeyError] = useState('')
+  const [dictationDraft, setDictationDraft] = useState('')
+  const [dictationError, setDictationError] = useState('')
   const [recent, setRecent] = useState<FsAccessEntry[] | null>(null)
 
   useEffect(() => {
@@ -83,11 +85,12 @@ export function IslandPageSettings() {
       if (cancelled || !s) return
       setShell(s)
       setHotkeyDraft(s.hotkey)
+      setDictationDraft(s.dictationHotkey ?? '')
     })
     return () => { cancelled = true }
   }, [])
 
-  const patch = async (p: Partial<Pick<ShellSettings, 'hotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => {
+  const patch = async (p: Partial<Pick<ShellSettings, 'hotkey' | 'dictationHotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => {
     const res = await window.lokiDesktop?.setShellSettings?.(p)
     if (res?.ok) {
       const s = await window.lokiDesktop?.getShellSettings?.()
@@ -121,6 +124,12 @@ export function IslandPageSettings() {
     setHotkeyError('')
     const res = await patch({ hotkey: hotkeyDraft })
     if (res && !res.ok) setHotkeyError(res.error ?? 'Could not register that hotkey.')
+  }
+
+  const applyDictation = async () => {
+    setDictationError('')
+    const res = await patch({ dictationHotkey: dictationDraft.trim() })
+    if (res && !res.ok) setDictationError(res.error ?? 'Could not register that hotkey.')
   }
 
   return (
@@ -184,6 +193,26 @@ export function IslandPageSettings() {
                 )}
               />
               <Button size="sm" variant="outline" className="h-6 rounded-full px-2 text-[11px]" onClick={() => void applyHotkey()}>
+                Apply
+              </Button>
+            </div>
+          </Row>
+          <Row label="Dictation hotkey" hint={dictationError || 'Speak into any app; the transcript is pasted where your cursor is. Blank to disable.'}>
+            <div className="flex items-center gap-1.5">
+              {/* design-ok(raw-input-element): accelerator string field on the fixed-black island, ui Input's theme tokens would clash */}
+              <input
+                value={dictationDraft}
+                onChange={(e) => setDictationDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void applyDictation() }}
+                spellCheck={false}
+                placeholder="CommandOrControl+Shift+D"
+                className={cn(
+                  // design-ok(glass-on-plain-bg): input inside the black island surface
+                  'w-56 rounded-control bg-white/10 px-2 py-1 text-xs text-white/85 outline-none ring-1 ring-inset placeholder:text-white/30',
+                  dictationError ? 'ring-destructive' : 'ring-white/15 focus:ring-brand/50',
+                )}
+              />
+              <Button size="sm" variant="outline" className="h-6 rounded-full px-2 text-[11px]" onClick={() => void applyDictation()}>
                 Apply
               </Button>
             </div>

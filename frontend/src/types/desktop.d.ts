@@ -32,6 +32,8 @@ export interface ResourceMonitorSettings {
 
 export interface ShellSettings {
   hotkey: string
+  /** System-wide dictation hotkey; '' disables. Newer shells only. */
+  dictationHotkey?: string
   launchAtLogin: boolean
   alwaysListening: boolean
   serverHost: string
@@ -102,6 +104,10 @@ export interface LokiDesktopBridge {
   /** Hotkey pressed while the HUD is visible: flip between base capsule and composer. Returns unsubscribe. */
   onToggleExpand: (cb: () => void) => () => void
   onOpenShelf: (cb: () => void) => () => void
+  /** Dictation hotkey pressed: first press starts capture, second finalizes. Newer shells only. Returns unsubscribe. */
+  onDictationToggle?: (cb: () => void) => () => void
+  /** Deliver a finalized dictation transcript to the focused app (clipboard + paste). Newer shells only. */
+  insertDictation?: (text: string) => Promise<{ ok: boolean; error?: string }>
   /** Report companion engine state so the tray label and hide rules stay accurate. */
   reportState: (state: HudState) => void
   /** Opt painted regions in/out of mouse interception; the window is click-through by default. */
@@ -118,7 +124,7 @@ export interface LokiDesktopBridge {
   getStartupPrefs: () => Promise<StartupPrefs>
   /** Island Settings page surface. */
   getShellSettings?: () => Promise<ShellSettings | null>
-  setShellSettings?: (patch: Partial<Pick<ShellSettings, 'hotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => Promise<{ ok: boolean; error?: string }>
+  setShellSettings?: (patch: Partial<Pick<ShellSettings, 'hotkey' | 'dictationHotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => Promise<{ ok: boolean; error?: string }>
   getBattery?: () => Promise<BatteryStatus | null>
   /** Local machine stats + threshold alerts (island System tab / server reporter). */
   getResources?: () => Promise<ResourceState | null>

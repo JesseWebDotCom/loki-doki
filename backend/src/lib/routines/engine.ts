@@ -5,6 +5,9 @@
 // service up/down transitions, plus token-authenticated webhooks (routes/routines).
 // The LLM is never in this loop; ask-companion actions invoke it at fire time only.
 
+import { watch, type FSWatcher } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { and, desc, eq, lt } from 'drizzle-orm'
 import { db } from '@/db'
 import { routineRuns, routines } from '@/db/schema'
@@ -13,7 +16,12 @@ import { onHAStateChange } from '@/lib/homeAssistant/sync'
 import { onFrigateEvent, type FrigateEventHook } from '@/lib/frigate/events'
 import { onServiceTransition } from '@/lib/monitoring/kuma'
 import { executeAction } from './actions'
-import type { RoutineAction, RoutineTrigger } from './types'
+import type { FolderEvent, RoutineAction, RoutineTrigger } from './types'
+
+/** Extra context a trigger can hand to actions (e.g. the file that fired a folder watch). */
+export interface TriggerData {
+  file?: string // absolute path of the triggering file
+}
 
 type RoutineRow = typeof routines.$inferSelect
 
@@ -46,7 +54,7 @@ function cooldownOk(row: RoutineRow, trigger: RoutineTrigger): boolean {
 }
 
 /** Run a routine's actions now. Serialized per routine; every fire is recorded. */
-export async function fireRoutine(row: RoutineRow, firedBy: string): Promise<void> {
+export async function fireRoutine(row: RoutineRow, firedBy: string, triggerData?: TriggerData): Promise<void> {
   if (inFlight.has(row.id)) return
   inFlight.add(row.id)
   const startedAt = new Date()
@@ -58,7 +66,7 @@ export async function fireRoutine(row: RoutineRow, firedBy: string): Promise<voi
     let failed: string | null = null
     for (const action of actions) {
       try {
-        outcomes.push(await executeAction(action, { routineId: row.id, routineName: row.name, userId: row.userId }))
+        outcomes.push(await executeAction(action, { routineId: row.id, routineName: row.name, userId: row.userId, triggerData }))
       } catch (err) {
         failed = err instanceof Error ? err.message : String(err)
         outcomes.push(`FAILED: ${failed}`)
@@ -166,6 +174,126 @@ export async function fireWebhook(routineId: string, token: string): Promise<boo
   return true
 }
 
+// ── Folder watchers ─────────────────────────────────────────────────────────
+//
+// fs.watch is non-recursive here on purpose: recursive watching is unsupported on
+// Linux (a first-class deploy target). Watchers are reconciled to the set of enabled
+// folder routines on boot and on every time tick, so create/edit/delete of a routine
+// (or a folder that only appears later) is picked up within ~20s. Per-file debounce
+// collapses the burst of events editors emit per save.
+
+const MAX_FOLDER_WATCHERS = 25
+const FOLDER_DEBOUNCE_MS = 1500
+
+interface FolderWatch {
+  path: string
+  events: FolderEvent[]
+  match?: string
+  cooldownSec: number
+  watcher: FSWatcher
+  // filename -> last time we fired for it, to debounce editor event bursts.
+  recent: Map<string, number>
+  lastFireAt: number
+}
+
+const folderWatchers = new Map<string, FolderWatch>() // routineId -> watch
+
+function globToRegExp(glob: string): RegExp {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
+  return new RegExp(`^${escaped}$`, 'i')
+}
+
+function folderConfigKey(t: Extract<RoutineTrigger, { type: 'folder' }>): string {
+  return `${t.path} ${(t.events ?? []).join(',')} ${t.match ?? ''} ${t.cooldownSec ?? 0}`
+}
+
+async function handleFolderEvent(routineId: string, eventType: string, filename: string | null): Promise<void> {
+  const w = folderWatchers.get(routineId)
+  if (!w) return
+  if (!filename) return // some platforms omit the name; nothing actionable to match/pass
+  if (w.match && !globToRegExp(w.match).test(basename(filename))) return
+
+  const full = join(w.path, filename)
+  // fs.watch conflates create/delete/rename under 'rename'. Stat to classify and to
+  // drop deletions (a vanished file cannot be acted on).
+  let kind: FolderEvent
+  if (eventType === 'change') {
+    kind = 'modified'
+  } else {
+    const exists = await stat(full).then(() => true).catch(() => false)
+    if (!exists) return // deletion or move-away
+    kind = 'created'
+  }
+  if (!w.events.includes(kind)) return
+
+  const now = Date.now()
+  const last = w.recent.get(filename) ?? 0
+  if (now - last < FOLDER_DEBOUNCE_MS) return
+  w.recent.set(filename, now)
+  if (w.recent.size > 512) w.recent.clear() // bounded; oldest simply re-fire later
+  if (w.cooldownSec && now - w.lastFireAt < w.cooldownSec * 1000) return
+  w.lastFireAt = now
+
+  const [row] = await db.select().from(routines).where(eq(routines.id, routineId)).limit(1)
+  if (row && row.enabled) void fireRoutine(row, 'folder', { file: full })
+}
+
+function startFolderWatch(routineId: string, t: Extract<RoutineTrigger, { type: 'folder' }>): void {
+  try {
+    const watcher = watch(t.path, { persistent: false }, (eventType, filename) => {
+      void handleFolderEvent(routineId, eventType, typeof filename === 'string' ? filename : null)
+        .catch((err) => logger.warn(`[routines] folder event failed: ${err instanceof Error ? err.message : err}`))
+    })
+    watcher.on('error', (err) => {
+      logger.warn(`[routines] folder watch on ${t.path} errored: ${err instanceof Error ? err.message : err}`)
+      const w = folderWatchers.get(routineId)
+      if (w) { try { w.watcher.close() } catch { /* ignore */ } }
+      folderWatchers.delete(routineId) // reconcile will retry on the next tick
+    })
+    folderWatchers.set(routineId, {
+      path: t.path,
+      events: t.events && t.events.length ? t.events : ['created', 'modified'],
+      match: t.match,
+      cooldownSec: t.cooldownSec ?? 0,
+      watcher,
+      recent: new Map(),
+      lastFireAt: 0,
+    })
+  } catch (err) {
+    // Folder may not exist yet; a later reconcile retries once it does.
+    logger.warn(`[routines] could not watch ${t.path}: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
+/** Reconcile live fs.watch handles to the current set of enabled folder routines. */
+export async function syncFolderWatchers(): Promise<void> {
+  const rows = await enabledRoutines()
+  const wanted = new Map<string, Extract<RoutineTrigger, { type: 'folder' }>>()
+  for (const row of rows) {
+    const trigger = parseTrigger(row)
+    if (trigger?.type === 'folder') wanted.set(row.id, trigger)
+  }
+
+  // Drop watchers for routines that are gone, disabled, or whose config changed.
+  for (const [routineId, w] of folderWatchers) {
+    const t = wanted.get(routineId)
+    if (!t || folderConfigKey(t) !== folderConfigKey({ type: 'folder', path: w.path, events: w.events, match: w.match, cooldownSec: w.cooldownSec })) {
+      try { w.watcher.close() } catch { /* ignore */ }
+      folderWatchers.delete(routineId)
+    }
+  }
+
+  // Start watchers for newly-wanted (or previously-failed) routines.
+  for (const [routineId, t] of wanted) {
+    if (folderWatchers.has(routineId)) continue
+    if (folderWatchers.size >= MAX_FOLDER_WATCHERS) {
+      logger.warn(`[routines] folder watcher cap (${MAX_FOLDER_WATCHERS}) reached; skipping ${t.path}`)
+      break
+    }
+    startFolderWatch(routineId, t)
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 let started = false
@@ -173,7 +301,11 @@ let started = false
 export function startRoutinesEngine(): void {
   if (started) return
   started = true
-  setInterval(() => { void timeTick().catch((err) => logger.warn(`[routines] time tick failed: ${err}`)) }, 20_000)
+  setInterval(() => {
+    void timeTick().catch((err) => logger.warn(`[routines] time tick failed: ${err}`))
+    void syncFolderWatchers().catch((err) => logger.warn(`[routines] folder sync failed: ${err}`))
+  }, 20_000)
+  void syncFolderWatchers().catch((err) => logger.warn(`[routines] folder sync failed: ${err}`))
   onHAStateChange((_baseUrl, entityId, newState, oldState) => {
     void onHaChange(entityId, newState, oldState).catch(() => {})
   })

@@ -31,6 +31,7 @@ Trigger shapes (pick exactly one):
 {"type":"frigate","camera":"name","label":"person","startHour":22,"endHour":6} - a camera sighting; all fields optional; hour window only when the user gives one
 {"type":"service","monitor":"name","event":"down"} - a monitored service going down or up; monitor optional
 {"type":"webhook"} - only when the user explicitly asks for a webhook/URL trigger
+{"type":"folder","path":"/abs/path","match":"*.pdf","events":["created"]} - a file appears/changes in a folder on the server. path must be ABSOLUTE; match is an optional glob; events optional (default both created+modified)
 
 Action shapes (one or more, in order):
 {"type":"notify","title":"...","body":"..."} - send a notification
@@ -42,6 +43,7 @@ Rules:
 - "dim" means set_brightness with a low brightnessPct like 20.
 - Times are 24-hour.
 - If the request needs live information at run time (weather, news, "what's on my calendar"), use ask-companion, not notify.
+- For a folder trigger, action text can reference the triggering file with {{file}} (full path) or {{filename}} (just the name), e.g. ask-companion "Summarize the document at {{file}}".
 - name: a short title for the routine (max 6 words).`
 
 async function extractDraft(message: string): Promise<Draft | null> {
@@ -73,7 +75,7 @@ async function extractDraft(message: string): Promise<Draft | null> {
 export const createRoutineTool: Tool = {
   id: 'create_routine',
   name: 'Create Routine',
-  description: 'Create an automation routine from a plain-language request: run something at a set time, when a camera sees something, when a device changes, or when a service goes down. Always asks for confirmation before saving.',
+  description: 'Create an automation routine from a plain-language request: run something at a set time, when a camera sees something, when a device changes, when a service goes down, or when a file lands in a watched folder. Always asks for confirmation before saving.',
   offline: true,
   passMessage: 'request',
   dataSources: [],
@@ -83,6 +85,7 @@ export const createRoutineTool: Tool = {
     'when the driveway camera sees a person after 10pm, announce it',
     'remind everyone about trash night every Tuesday at 8pm',
     'when the server goes down send me a notification',
+    'when a pdf is added to my scans folder, summarize it',
     'make an automation for bedtime',
   ],
   toolDefinition: {

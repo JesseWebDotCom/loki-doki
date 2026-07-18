@@ -9,6 +9,10 @@ const { app } = require('electron')
 const DEFAULTS = {
   serverUrl: '',
   hotkey: 'CommandOrControl+Shift+Space',
+  // System-wide dictation: press to start capturing the mic, press again (or pause)
+  // to finalize; the transcript is pasted into whatever app has focus. Empty string
+  // disables it. Kept separate from `hotkey` so dictation never steals the HUD toggle.
+  dictationHotkey: 'CommandOrControl+Shift+D',
   launchAtLogin: false,
   // Always-on companion posture: the HUD pill docks near the notch at boot with
   // the wake word armed, so you can just start talking. Turn off to make the
