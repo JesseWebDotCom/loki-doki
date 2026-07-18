@@ -1,10 +1,11 @@
-import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { eq, and } from 'drizzle-orm'
 import { db } from '@/db'
 import { imageLoras, imageLoraUserCategoryGrants, imageLoraUserLoraGrants } from '@/db/schema'
 import { ollamaChat } from '@/llm/ollama'
 import { getProtections } from '@/lib/protections'
+import { sanitizeTriggerTokens } from '@/lib/loraTokens'
+import { resolveLoraFile } from '@/lib/loraFiles'
 
 export interface SelectedLora {
   id: string
@@ -54,7 +55,12 @@ export async function selectLoras(
   }
 
   // Only route against LoRAs with routing metadata and an accessible file
-  const routable = accessible.filter(l => l.whenToUse && existsSync(l.filePath))
+  // (resolveLoraFile self-heals a stale DB path before giving up on the file)
+  const routable: typeof accessible = []
+  for (const l of accessible) {
+    if (!l.whenToUse) continue
+    if (await resolveLoraFile(l)) routable.push(l)
+  }
   if (routable.length === 0) return []
 
   // Build catalog summary
@@ -108,7 +114,7 @@ export async function selectLoras(
         id: l.id,
         filename: basename(l.filePath, '.safetensors'),
         weight: l.defaultWeight,
-        triggerTokens: parseJson<string[]>(l.triggerTokens, []),
+        triggerTokens: sanitizeTriggerTokens(parseJson<string[]>(l.triggerTokens, [])),
         isStylisticLora: l.isStylisticLora ?? false,
       }))
   } catch {
