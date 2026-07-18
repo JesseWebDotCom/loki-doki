@@ -1450,6 +1450,9 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   // Delete this channel's auto-saved offline copies once fully watched (in-app completed
   // flag; independent of any Plex library policy — see lib/videos/offlineSweep.ts).
   removeWatched: integer('remove_watched', { mode: 'boolean' }).notNull().default(false),
+  // Auto-transcribe new uploads (mirrors podcast_subscriptions.auto_transcribe): captions
+  // are tried first, only caption-less uploads get a Whisper job. See youtube/automation.ts.
+  autoTranscribe: integer('auto_transcribe', { mode: 'boolean' }).notNull().default(false),
   // 'local' = added in-app; 'google' = mirrored from the user's linked YouTube account.
   // Google-sourced rows are reconciled against the account every sync pass (removed there
   // → removed here); local rows are never touched by sync. See youtube/accountSync.ts.
@@ -3085,6 +3088,9 @@ export const videoFollows = sqliteTable('video_follows', {
   // Delete this creator's auto-saved offline copies once fully watched (in-app completed
   // flag; independent of any Plex library policy — see lib/videos/offlineSweep.ts).
   removeWatched: integer('remove_watched', { mode: 'boolean' }).notNull().default(false),
+  // Auto-transcribe new uploads (mirrors yt_subscriptions.auto_transcribe): captions are
+  // tried first, only caption-less uploads get a Whisper job. See lib/videos/feed.ts.
+  autoTranscribe: integer('auto_transcribe', { mode: 'boolean' }).notNull().default(false),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userSourceExternalUnique: unique().on(t.userId, t.source, t.externalId) }))
 

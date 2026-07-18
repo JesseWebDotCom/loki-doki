@@ -3,7 +3,8 @@
 // it immediately backfills the creator's latest N videos AND keeps the window rolling
 // (auto-save new uploads, prune to keep-N, optionally delete once watched). All rows it
 // creates are auto:true, so the keep-N prune governs them from day one; manual per-video
-// saves are never touched by any of these rules.
+// saves are never touched by any of these rules. Also hosts the per-creator auto-transcribe
+// toggle (independent of offline saving: captions first, Whisper only when a video has none).
 
 import { useState } from 'react'
 import { HardDriveDownload } from 'lucide-react'
@@ -19,6 +20,8 @@ export interface OfflinePolicy {
   autoSaveKind: 'audio' | 'video'
   autoSaveKeep: number | null
   removeWatched: boolean
+  /** Auto-transcribe new uploads (captions first, Whisper only when a video has none). */
+  autoTranscribe: boolean
 }
 
 interface ConfigureOfflinePopoverProps {
@@ -117,6 +120,22 @@ export function ConfigureOfflinePopover({ policy, downloadKinds, keepDefault = 1
                 <Switch checked={policy.removeWatched}
                   onCheckedChange={v => { if (v) setConfirmRemove(true); else void onPatch({ removeWatched: false }) }} />
               </div>
+            </div>
+          )}
+
+          {policy && (
+            <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Auto-transcribe new uploads</p>
+                <p className="text-xs text-muted-foreground">
+                  Makes a transcript when an upload has no captions.
+                </p>
+              </div>
+              <Switch checked={policy.autoTranscribe}
+                onCheckedChange={v => {
+                  void onPatch({ autoTranscribe: v })
+                  toast.success(v ? 'New uploads will be transcribed automatically.' : 'Auto-transcribe turned off.')
+                }} />
             </div>
           )}
         </PopoverContent>

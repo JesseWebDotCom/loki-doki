@@ -140,6 +140,8 @@ export interface VideoFollow {
   autoSaveKeep: number | null
   /** Delete auto-saved copies once fully watched (offline rule, independent of Plex). */
   removeWatched: boolean
+  /** Auto-transcribe new uploads (captions first, Whisper only when a video has none). */
+  autoTranscribe: boolean
   /** Last time the poller pulled new uploads; used to sort the unified subscriptions list. */
   lastFetchedAt?: string | null
   addedAt?: string | null
@@ -252,7 +254,7 @@ export function addFollow(source: VideoSource, externalId: string): Promise<{ ok
 export function removeFollow(id: string): Promise<{ ok: true }> {
   return sendJson(`/api/videos/follows/${encodeURIComponent(id)}`, 'DELETE')
 }
-export function patchFollow(id: string, patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean }): Promise<{ ok: true }> {
+export function patchFollow(id: string, patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean; autoTranscribe?: boolean }): Promise<{ ok: true }> {
   return sendJson(`/api/videos/follows/${encodeURIComponent(id)}`, 'PATCH', patch)
 }
 

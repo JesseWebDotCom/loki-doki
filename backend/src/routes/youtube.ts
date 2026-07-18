@@ -295,7 +295,7 @@ youtubeRoute.delete('/subscriptions/:id', async (c) => {
 youtubeRoute.patch('/subscriptions/:id', async (c) => {
   const user = c.get('user')
   const subId = c.req.param('id')
-  const body = (await c.req.json().catch(() => ({}))) as { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean }
+  const body = (await c.req.json().catch(() => ({}))) as { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean; autoTranscribe?: boolean }
 
   const [sub] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
     .where(and(eq(ytSubscriptions.id, subId), eq(ytSubscriptions.userId, user.id))).limit(1)
@@ -305,6 +305,7 @@ youtubeRoute.patch('/subscriptions/:id', async (c) => {
   if (typeof body.autoSave === 'boolean') patch.autoSave = body.autoSave
   if (body.autoSaveKind === 'audio' || body.autoSaveKind === 'video') patch.autoSaveKind = body.autoSaveKind
   if (typeof body.removeWatched === 'boolean') patch.removeWatched = body.removeWatched
+  if (typeof body.autoTranscribe === 'boolean') patch.autoTranscribe = body.autoTranscribe
   if (body.autoSaveKeep === null) patch.autoSaveKeep = null
   else if (typeof body.autoSaveKeep === 'number' && Number.isFinite(body.autoSaveKeep)) {
     patch.autoSaveKeep = Math.max(0, Math.floor(body.autoSaveKeep))

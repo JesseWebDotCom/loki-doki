@@ -6,11 +6,11 @@
 import { and, asc, desc, eq, lt, isNull, or } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { videoFollows, videoItems, videoSaves } from '@/db/schema'
+import { users, videoFollows, videoItems, videoSaves } from '@/db/schema'
 import { getProvider } from '@/lib/videos/registry'
 import { enqueueVideoMedia } from '@/lib/downloadJobs'
 import { effectiveSaveHeight } from '@/lib/videos/quality'
-import { getAutoSaveKeepDefault } from '@/lib/youtube/automation'
+import { getAutoSaveKeepDefault, MAX_AUTO_TRANSCRIBE_PER_REFRESH } from '@/lib/youtube/automation'
 import { runOfflineWatchedSweep } from '@/lib/videos/offlineSweep'
 import { logger } from '@/lib/logger'
 
@@ -54,6 +54,33 @@ async function pollFollow(follow: typeof videoFollows.$inferSelect): Promise<voi
     if (inserted.length > 0) fresh.push(it.id)
   }
   await db.update(videoFollows).set({ lastFetchedAt: now }).where(eq(videoFollows.id, follow.id))
+
+  // Auto-transcribe: Whisper jobs for caption-less fresh uploads (mirrors the YouTube pass
+  // in lib/youtube/automation.ts: captions first, newest-N cap per refresh, adult skipped).
+  if (follow.autoTranscribe && fresh.length > 0) {
+    try {
+      const [u] = await db.select({ firstName: users.firstName }).from(users)
+        .where(eq(users.id, follow.userId)).limit(1)
+      const { resolveVideoVtt } = await import('@/lib/podcast/transcript')
+      const { enqueueVideoTranscription } = await import('@/lib/videos/transcribe')
+      const candidates = fresh
+        .map((videoId) => items.find((i) => i.id === videoId))
+        .filter((i): i is NonNullable<typeof i> => !!i && !i.isAdult && !!i.url)
+        .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+        .slice(0, MAX_AUTO_TRANSCRIBE_PER_REFRESH)
+      for (const item of candidates) {
+        const captions = await resolveVideoVtt(
+          { videoId: item.id, source: follow.source, url: item.url },
+          follow.userId, u?.firstName ?? 'user',
+        ).catch(() => null)
+        if (captions) continue
+        await enqueueVideoTranscription(follow.source, item.id, item.url, item.durationSec ?? null, null)
+          .catch((err) => logger.warn(`[videos-feed] auto-transcribe enqueue failed for ${follow.source}:${item.id}: ${err}`))
+      }
+    } catch (err) {
+      logger.warn(`[videos-feed] auto-transcribe failed for ${follow.source}:${follow.externalId}: ${err}`)
+    }
+  }
 
   // Auto-save: enqueue downloads for genuinely new uploads, then prune the rolling window.
   if (!follow.autoSave || fresh.length === 0) return

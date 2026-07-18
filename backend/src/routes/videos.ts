@@ -763,13 +763,14 @@ videosRoute.post('/follows', async (c) => {
 
 videosRoute.patch('/follows/:id', async (c) => {
   const user = c.get('user')
-  const body: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean } =
+  const body: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean; autoTranscribe?: boolean } =
     await c.req.json().catch(() => ({}))
   const patch: Record<string, unknown> = {}
   if (typeof body.autoSave === 'boolean') patch.autoSave = body.autoSave
   if (body.autoSaveKind === 'audio' || body.autoSaveKind === 'video') patch.autoSaveKind = body.autoSaveKind
   if (body.autoSaveKeep === null || typeof body.autoSaveKeep === 'number') patch.autoSaveKeep = body.autoSaveKeep
   if (typeof body.removeWatched === 'boolean') patch.removeWatched = body.removeWatched
+  if (typeof body.autoTranscribe === 'boolean') patch.autoTranscribe = body.autoTranscribe
   if (Object.keys(patch).length === 0) return c.json({ error: 'nothing to update' }, 400)
   await db.update(videoFollows).set(patch)
     .where(and(eq(videoFollows.id, c.req.param('id')), eq(videoFollows.userId, user.id)))

@@ -124,7 +124,7 @@ export function SourceCreatorPage({ source }: { source: VideoSource }) {
             coverImageUrl={creator.avatarUrl ?? undefined}
           />
           <ConfigureOfflinePopover
-            policy={follow ? { autoSave: follow.autoSave, autoSaveKind: follow.autoSaveKind, autoSaveKeep: follow.autoSaveKeep, removeWatched: follow.removeWatched } : null}
+            policy={follow ? { autoSave: follow.autoSave, autoSaveKind: follow.autoSaveKind, autoSaveKeep: follow.autoSaveKeep, removeWatched: follow.removeWatched, autoTranscribe: follow.autoTranscribe } : null}
             downloadKinds={downloadKinds}
             onPatch={patchOfflinePolicy}
             onBackfill={async ({ kind, count }) => {

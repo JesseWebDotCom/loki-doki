@@ -201,7 +201,7 @@ export function YoutubeChannelPage() {
 
   // Per-subscription offline rules (optimistic; persisted via PATCH). Enabling backfills
   // the back-catalogue via ConfigureOfflinePopover's onBackfill, so no toast here for it.
-  async function patchSub(patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep' | 'removeWatched'>>) {
+  async function patchSub(patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep' | 'removeWatched' | 'autoTranscribe'>>) {
     if (!sub) return
     qc.setQueryData<Subscription[]>(['yt-subs'], prev => prev?.map(s => s.id === sub.id ? { ...s, ...patch } : s))
     try {
@@ -257,7 +257,7 @@ export function YoutubeChannelPage() {
             videos={videoItems.map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? title }))}
             sourceId={`channel:${channelId}`} suggestedShowName={title} sourceDescription={description ?? undefined} coverImageUrl={thumb ?? undefined} />
           <ConfigureOfflinePopover
-            policy={sub ? { autoSave: sub.autoSave, autoSaveKind: sub.autoSaveKind, autoSaveKeep: sub.autoSaveKeep, removeWatched: sub.removeWatched } : null}
+            policy={sub ? { autoSave: sub.autoSave, autoSaveKind: sub.autoSaveKind, autoSaveKeep: sub.autoSaveKeep, removeWatched: sub.removeWatched, autoTranscribe: sub.autoTranscribe } : null}
             downloadKinds={['audio', 'video']}
             onPatch={patchSub}
             onBackfill={async ({ kind, count }) => {

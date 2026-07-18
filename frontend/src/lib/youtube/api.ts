@@ -48,6 +48,8 @@ export interface Subscription {
   autoSaveKeep: number | null
   /** Delete auto-saved copies once fully watched (offline rule, independent of Plex). */
   removeWatched: boolean
+  /** Auto-transcribe new uploads (captions first, Whisper only when a video has none). */
+  autoTranscribe: boolean
   addedAt: string
 }
 
@@ -584,7 +586,7 @@ export async function deleteSubscription(id: string): Promise<void> {
 
 export async function updateSubscription(
   id: string,
-  patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean },
+  patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null; removeWatched?: boolean; autoTranscribe?: boolean },
 ): Promise<void> {
   await fetch(`/api/youtube/subscriptions/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(patch) })
 }

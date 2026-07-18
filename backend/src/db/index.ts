@@ -1531,6 +1531,8 @@ export function runMigrations() {
   addColumn('yt_subscriptions', 'auto_save_kind', `TEXT NOT NULL DEFAULT 'video'`)
   addColumn('yt_subscriptions', 'auto_save_keep', 'INTEGER')
   addColumn('yt_subscriptions', 'remove_watched', 'INTEGER NOT NULL DEFAULT 0')
+  // Per-subscription "auto-transcribe new uploads" pref (Whisper fallback, captions first).
+  addColumn('yt_subscriptions', 'auto_transcribe', 'INTEGER NOT NULL DEFAULT 0')
   // Thumbnail snapshot for non-YouTube collection rows (yt cards derive theirs from videoId).
   addColumn('yt_collections', 'thumbnail_url', 'TEXT')
   // Last full back-catalog reconcile (closes the RSS 15-item-window data-loss gap).
@@ -3447,6 +3449,8 @@ export function runMigrations() {
   `)
   addColumn('video_items', 'views_text', 'TEXT')
   addColumn('video_follows', 'remove_watched', 'INTEGER NOT NULL DEFAULT 0')
+  // Per-follow "auto-transcribe new uploads" pref (Whisper fallback, captions first).
+  addColumn('video_follows', 'auto_transcribe', 'INTEGER NOT NULL DEFAULT 0')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS video_watch_state (
       id TEXT NOT NULL PRIMARY KEY,

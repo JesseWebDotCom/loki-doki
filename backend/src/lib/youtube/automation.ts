@@ -27,6 +27,8 @@ export const AUTO_PAUSE_KEY = 'youtube.automation_paused'
 /** Global default for the rolling "keep latest N auto-saved videos" cap (appSettings). */
 export const AUTO_KEEP_KEY = 'youtube.auto_save_keep'
 export const DEFAULT_AUTO_SAVE_KEEP = 10
+/** Newest-N cap per refresh for auto-transcribe (same cap as the podcast pass). */
+export const MAX_AUTO_TRANSCRIBE_PER_REFRESH = 3
 
 export async function isAutomationPaused(userId: string): Promise<boolean> {
   const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
@@ -377,6 +379,30 @@ export async function applySubscriptionAutomation(
       await pruneAutoSaves(sub.userId, sub.id, kind, keep)
     } catch (err) {
       logger.warn(`[youtube] auto-save failed for "${sub.title}": ${err}`)
+    }
+  }
+
+  // ── Auto-transcribe: Whisper jobs for caption-less fresh uploads ──
+  // Mirrors the podcast runAutoTranscribePass contract: newest first, capped per refresh
+  // so a backfill burst can't swamp the compute lane. Captions come first, exactly like
+  // the watch page's Transcript tab: an upload whose platform captions already resolve
+  // never gets a Whisper job. (A brand-new upload may grow auto-captions later; the local
+  // transcript is still correct, just redundant, and captions win at read time.)
+  if (sub.autoTranscribe) {
+    try {
+      const firstName = await getFirstName(sub.userId)
+      const { enqueueVideoTranscription } = await import('@/lib/videos/transcribe')
+      const { ensureTranscript } = await import('@/lib/youtube/download')
+      for (const v of ordered.slice(0, MAX_AUTO_TRANSCRIBE_PER_REFRESH)) {
+        const captions = await ensureTranscript(v.videoId, sub.userId, firstName).catch(() => null)
+        if (captions) continue
+        const [row] = await db.select({ durationSec: ytVideos.durationSec }).from(ytVideos)
+          .where(eq(ytVideos.videoId, v.videoId)).limit(1)
+        await enqueueVideoTranscription('youtube', v.videoId, `https://www.youtube.com/watch?v=${v.videoId}`, row?.durationSec ?? null, null)
+          .catch(err => logger.warn(`[youtube] auto-transcribe enqueue failed for ${v.videoId}: ${err}`))
+      }
+    } catch (err) {
+      logger.warn(`[youtube] auto-transcribe failed for "${sub.title}": ${err}`)
     }
   }
 
