@@ -18,7 +18,7 @@ import { VoicePicker, WakePhraseField } from '@/components/admin/voiceControls'
 import { WakeTrainingProgress } from '@/components/shared/WakeTrainingProgress'
 import { toast } from '@/lib/toast'
 import { AdminBriefingTab } from '@/components/admin/AdminBriefingTab'
-import { VoiceDefaults, PronunciationEditor } from '@/components/admin/AdminVoiceTab'
+import { VoiceDefaults, VoiceEngine, PronunciationEditor } from '@/components/admin/AdminVoiceTab'
 import { ContentDialGroup, MIN_DIALS } from '@/components/shared/contentDials'
 import type { ContentDialValues, Candor, DialKey } from '@/components/shared/contentDials'
 
@@ -488,6 +488,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
             <p className="text-sm text-muted-foreground">Default voice and wake word used when a companion has none of its own. Per-companion voices are set in each character&apos;s Identity tab.</p>
           </div>
           <VoiceDefaults />
+          <VoiceEngine />
           <PronunciationEditor />
         </div>
       )}

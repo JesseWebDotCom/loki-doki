@@ -6,6 +6,22 @@ import { dataDir } from '@/lib/download'
 import { ensureNode } from '@/lib/node'
 import { spawnDetachedHidden } from '@/lib/platform'
 import { logger } from '@/lib/logger'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
+
+// Voice compute backend for the sidecar, chosen by the admin (or 'auto' = let the
+// sidecar detect). 'auto'/'cpu'/'cuda'/'dml' — see scripts/voice-server.ts for
+// which the runtime can actually use on each platform. Persisted as `voice.device`.
+export type VoiceDeviceSetting = 'auto' | 'cpu' | 'cuda' | 'dml'
+export const VOICE_DEVICE_SETTING_KEY = 'voice.device'
+
+/** Build the extra env passed to the spawned sidecar from admin settings. 'auto'
+ *  (or unset) leaves VOICE_DEVICE off so the sidecar auto-detects; any explicit
+ *  choice is forwarded and honored (still with a CPU fallback if it fails to load). */
+async function sidecarDeviceEnv(): Promise<Record<string, string>> {
+  const raw = await getAppSetting(VOICE_DEVICE_SETTING_KEY)
+  const device = (typeof raw === 'string' ? raw : 'auto') as VoiceDeviceSetting
+  return device && device !== 'auto' ? { VOICE_DEVICE: device } : {}
+}
 
 // Manages the Bun voice-server sidecar (Kokoro TTS + Whisper STT). Mirrors the
 // kiwix sidecar pattern: spawn detached, poll /health, expose install detection.
@@ -88,6 +104,14 @@ export async function installVoiceModels(onStatus: (msg: string) => void, signal
     throw new Error('voice models warmed but Kokoro weights not found — install may have failed')
   }
   markVoiceInstalled()
+  // Configure the compute backend on first install (wizard / repair): default to
+  // 'auto' so the sidecar picks the best device the runtime can use per platform
+  // (CUDA on Linux+NVIDIA, CPU elsewhere) with a CPU fallback. Left untouched if the
+  // admin already chose one. The admin can override + benchmark under Voice > Engine.
+  if ((await getAppSetting(VOICE_DEVICE_SETTING_KEY)) == null) {
+    await setAppSetting(VOICE_DEVICE_SETTING_KEY, 'auto')
+    onStatus('Compute backend set to auto-detect (CPU, or NVIDIA CUDA on Linux)')
+  }
   onStatus('Voice models ready')
 }
 
@@ -174,12 +198,15 @@ export function spawnVoiceServer(): void {
   // Mark starting synchronously so concurrent callers bail; resolving Node may auto-download.
   state.current = 'starting'
   state.error = ''
-  void ensureNode().then((nodeExe) => {
+  void ensureNode().then(async (nodeExe) => {
     if (state.current !== 'starting') return  // cancelled/changed while resolving
+    // Admin-selected compute backend (auto/cpu/cuda/dml) → sidecar env.
+    const deviceEnv = await sidecarDeviceEnv()
+    if (state.current !== 'starting') return  // changed while reading the setting
     // Node (not Bun): onnxruntime-node's native addon segfaults under Bun.
     const child = spawnDetachedHidden(nodeExe, [VOICE_SCRIPT], {
       cwd: BACKEND_DIR,
-      env: { ...process.env, VOICE_SERVER_PORT: String(VOICE_PORT), VOICE_CACHE_DIR: voiceModelsDir },
+      env: { ...process.env, VOICE_SERVER_PORT: String(VOICE_PORT), VOICE_CACHE_DIR: voiceModelsDir, ...deviceEnv },
     })
     proc = child
     // Crash accelerator while we still hold the handle (post hot-reload the sidecar is
@@ -204,6 +231,22 @@ export function stopVoiceServer(): void {
     proc = null
   }
   state.current = 'idle'
+}
+
+/** Stop and respawn the sidecar so a changed compute backend (voice.device) takes
+ *  effect, then wait until it reports healthy again (or fails). Used by the admin
+ *  "restart voice engine" action after toggling the device. */
+export async function restartVoiceServer(): Promise<VoiceState> {
+  stopVoiceServer()
+  // stopVoiceServer set state to 'idle'; a fresh spawn will re-run the health poll.
+  spawnVoiceServer()
+  // Wait out the startup poll (bounded by its own 120s deadline) so the caller can
+  // report the resulting state + device rather than returning mid-'starting'.
+  const deadline = Date.now() + 125_000
+  while (state.current === 'starting' && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return state.current
 }
 
 export async function maybeSpawnVoiceServer(): Promise<void> {

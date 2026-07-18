@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Play, Star, AudioLines, SpellCheck, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X } from 'lucide-react'
+import { Play, Star, AudioLines, SpellCheck, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X, Cpu, Zap, Gauge, RotateCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -289,6 +289,191 @@ export function VoiceDefaults() {
           </div>
         </DialogContent>
       </Dialog>
+    </Card>
+  )
+}
+
+// ── Compute backend (engine) panel ────────────────────────────────────────────
+//
+// Pick the device the voice sidecar runs on, restart it to apply, and run a
+// round-trip TTS+STT timing test so the choice can be validated on THIS machine.
+// The backend only offers devices the runtime can actually use per platform (CUDA
+// on Linux+NVIDIA, DirectML on Windows, CPU everywhere), so the buttons never lie.
+
+interface DeviceInfo {
+  configured: string
+  running: string | null
+  platform: string
+  state: string
+  hasNvidia: boolean
+  gpus: string[]
+  options: string[]
+  recommended: string
+}
+
+interface BenchResult {
+  device: string
+  platform: string
+  ttsMs: number
+  sttMs: number
+  audioBytes: number
+  heard: string
+  error?: string
+}
+
+const DEVICE_LABEL: Record<string, string> = {
+  auto: 'Auto-detect',
+  cpu: 'CPU',
+  cuda: 'NVIDIA (CUDA)',
+  dml: 'DirectML',
+}
+const DEVICE_HINT: Record<string, string> = {
+  auto: 'Let the sidecar pick the fastest backend this machine can use, falling back to CPU.',
+  cpu: 'Runs on CPU. Works everywhere and keeps the GPU free for the language model.',
+  cuda: 'NVIDIA GPU via CUDA. Available on Linux x64 with an NVIDIA card.',
+  dml: 'Windows GPU (incl. NVIDIA) via DirectML. Validate with the test below; Kokoro may fall back to CPU pending an opset update.',
+}
+
+export function VoiceEngine() {
+  const [info, setInfo] = useState<DeviceInfo | null>(null)
+  const [selected, setSelected] = useState<string>('auto')
+  const [saving, setSaving] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const [benching, setBenching] = useState(false)
+  const [bench, setBench] = useState<BenchResult | null>(null)
+
+  const loadDevice = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/voice/device', { credentials: 'include' })
+      if (r.ok) {
+        const d = (await r.json()) as DeviceInfo
+        setInfo(d)
+        setSelected(d.configured || 'auto')
+      }
+    } catch { /* offline */ }
+  }, [])
+
+  useEffect(() => { void loadDevice() }, [loadDevice])
+
+  const pick = async (device: string) => {
+    setSelected(device)
+    setSaving(true)
+    try {
+      // Merge into the existing settings blob so we don't drop the other keys.
+      const cur = await fetch('/api/admin/voice/settings', { credentials: 'include' })
+      const settings = cur.ok ? (await cur.json() as { settings: Record<string, unknown> }).settings : {}
+      await fetch('/api/admin/voice/settings', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...settings, 'voice.device': device }),
+      })
+      toast.success(`Backend set to ${DEVICE_LABEL[device] ?? device}. Restart the engine to apply.`)
+    } catch { toast.error('Could not save the backend choice') }
+    finally { setSaving(false) }
+  }
+
+  const restart = async () => {
+    setRestarting(true)
+    setBench(null)
+    try {
+      const r = await fetch('/api/admin/voice/device/restart', { method: 'POST', credentials: 'include' })
+      const d = r.ok ? (await r.json() as { ok: boolean; device: string | null; state: string }) : null
+      if (d?.ok) toast.success(`Voice engine restarted (running on ${d.device ?? 'unknown'})`)
+      else toast.error(`Voice engine did not come back healthy (${d?.state ?? 'error'})`)
+      await loadDevice()
+    } catch { toast.error('Restart failed') }
+    finally { setRestarting(false) }
+  }
+
+  const runBenchmark = async () => {
+    setBenching(true)
+    setBench(null)
+    try {
+      const r = await fetch('/api/admin/voice/benchmark', { method: 'POST', credentials: 'include' })
+      const d = (await r.json()) as BenchResult
+      setBench(d)
+      if (d.error) toast.error(`Benchmark: ${d.error}`)
+    } catch { toast.error('Benchmark failed') }
+    finally { setBenching(false) }
+  }
+
+  const dirty = info != null && selected !== info.configured
+
+  return (
+    <Card variant="surface">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Cpu className="size-4 text-brand" />
+        <h3 className="text-sm font-semibold">Voice engine</h3>
+        <span className="text-caption text-muted-foreground">Which device runs speech-to-text and text-to-speech</span>
+      </div>
+
+      <div className="space-y-4 p-4">
+        {/* Status line */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>Platform: <span className="font-medium text-foreground">{info?.platform ?? '…'}</span></span>
+          <span>Running on: <span className="font-medium text-foreground">{info?.running ?? '…'}</span></span>
+          {info?.gpus?.length ? <span>GPU: <span className="font-medium text-foreground">{info.gpus.join(', ')}</span></span> : null}
+        </div>
+
+        {/* Device selector (segmented) */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(info?.options ?? ['auto', 'cpu']).map((opt) => {
+            const active = selected === opt
+            const isRec = info?.recommended === opt
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => void pick(opt)}
+                disabled={saving}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-card border p-3 text-left transition-all disabled:opacity-60',
+                  active ? 'border-brand/60 bg-brand/[0.07] shadow-sm shadow-brand/10' : 'border-border hover:border-foreground/20',
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-sm font-semibold">
+                  {opt === 'cpu' ? <Cpu className="size-3.5" /> : opt === 'auto' ? <Gauge className="size-3.5" /> : <Zap className="size-3.5" />}
+                  {DEVICE_LABEL[opt] ?? opt}
+                </span>
+                {isRec && <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">Recommended</span>}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">{DEVICE_HINT[selected] ?? ''}</p>
+
+        {/* Apply + benchmark */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} disabled={restarting} onClick={() => void restart()}>
+            <RotateCw className="mr-1.5 size-3.5" />
+            {restarting ? 'Restarting…' : dirty ? 'Restart engine to apply' : 'Restart engine'}
+          </Button>
+          <Button type="button" size="sm" variant="outline" disabled={benching || restarting} onClick={() => void runBenchmark()}>
+            <Gauge className="mr-1.5 size-3.5" />
+            {benching ? 'Testing…' : 'Run speed test'}
+          </Button>
+        </div>
+
+        {/* Benchmark result */}
+        {bench && !bench.error && (
+          <div className="rounded-card border border-border bg-foreground/[0.02] p-3 text-sm">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Speed test · device {bench.device}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-2xl font-bold tabular-nums">{bench.ttsMs}<span className="text-sm font-medium text-muted-foreground"> ms</span></p>
+                <p className="text-xs text-muted-foreground">Text-to-speech (one sentence)</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums">{bench.sttMs}<span className="text-sm font-medium text-muted-foreground"> ms</span></p>
+                <p className="text-xs text-muted-foreground">Speech-to-text (that audio back)</p>
+              </div>
+            </div>
+            {bench.heard && <p className="mt-2 text-xs text-muted-foreground">Heard back: &ldquo;{bench.heard}&rdquo;</p>}
+          </div>
+        )}
+      </div>
     </Card>
   )
 }

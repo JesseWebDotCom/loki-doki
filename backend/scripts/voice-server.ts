@@ -36,7 +36,12 @@ const WHISPER_MODEL = process.env.WHISPER_MODEL ?? 'onnx-community/whisper-base.
 // Native GPU paths for Windows (whisper.cpp CUDA / DirectML) and Mac (Metal/CoreML)
 // need separate sidecar binaries and are tracked as prod-gated work in
 // docs/internal/voice-latency.md.
-type VoiceDevice = 'cpu' | 'cuda' | 'wasm'
+// 'dml' = DirectML (Windows GPU incl. NVIDIA, via onnxruntime-node's DML EP). Only
+// reached when an admin explicitly selects it (VOICE_DEVICE=dml); auto-detect never
+// picks it, since Kokoro's shipped ONNX can error under DML pending an opset re-export
+// — hence it's an opt-in the admin validates with the voice benchmark. Falls back to
+// CPU via loadWithFallback() if the model won't load on DML.
+type VoiceDevice = 'cpu' | 'cuda' | 'dml' | 'wasm'
 
 function hasNvidiaGpu(): boolean {
   try {
