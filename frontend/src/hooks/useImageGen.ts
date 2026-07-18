@@ -12,10 +12,13 @@ export interface GenerateParams {
   loraIds?: string[]
   loraWeights?: Record<string, number>
   hires?: boolean            // opt-in 2× finalize pass (ESRGAN + refine) — off = base size, much faster
+  // Clean Up (masked SDXL inpaint): remove or replace a painted region
+  cleanUp?: boolean
+  maskBase64?: string        // inpaint: user-painted mask (white = replace)
   // Video
   videoMode?: boolean        // text-to-video (AnimateDiff)
   i2vMode?: boolean          // image-to-video (SVD)
-  imageBase64?: string       // i2v: source still
+  imageBase64?: string       // i2v / inpaint: source still
   frames?: number
   fps?: number
   motionBucketId?: number    // i2v: SVD motion amount

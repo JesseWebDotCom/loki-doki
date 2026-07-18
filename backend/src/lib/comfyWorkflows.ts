@@ -270,6 +270,72 @@ export function buildImg2ImgWorkflow(
   return nodes
 }
 
+// ── Clean Up / Inpaint (user-mask SDXL inpainting) ───────────────────────────
+// The Apple "Clean Up" analog: the user paints a mask over an object and the masked
+// region is regenerated to match its surroundings. A blank positive prompt yields a
+// context-aware fill (object removal); a prompt replaces the masked region with new
+// content. The mask is uploaded as a separate grayscale PNG (white = replace) and
+// loaded via LoadImageMask; VAEEncodeForInpaint feathers and noises only that region,
+// so everything outside the mask is preserved byte-for-byte.
+
+export function buildInpaintWorkflow(
+  ctx: WorkflowContext & { inputImageName: string; maskImageName: string; denoise: number; growMask: number },
+): ComfyUIPrompt {
+  const nodes: ComfyUIPrompt = {}
+  let _id = 1
+  const nextId = () => String(_id++)
+
+  const ckptId = nextId()
+  nodes[ckptId] = {
+    class_type: 'CheckpointLoaderSimple',
+    inputs: { ckpt_name: ctx.checkpoint, weight_dtype: weightDtype(ctx.config) },
+  }
+
+  const vaeRef = resolveVae(nodes, nextId, ckptId, ctx.vaeFile)
+  const { modelRef, clipRef } = chainLoras(nodes, nextId, ctx.loraIds, ctx.loraWeights, [ckptId, 0], [ckptId, 1])
+
+  const posId = nextId()
+  nodes[posId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.positive, clip: clipRef } }
+  const negId = nextId()
+  nodes[negId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.negative, clip: clipRef } }
+
+  const loadId = nextId()
+  nodes[loadId] = { class_type: 'LoadImage', inputs: { image: ctx.inputImageName, upload: 'image' } }
+
+  const maskId = nextId()
+  nodes[maskId] = { class_type: 'LoadImageMask', inputs: { image: ctx.maskImageName, channel: 'red', upload: 'image' } }
+
+  const encId = nextId()
+  nodes[encId] = {
+    class_type: 'VAEEncodeForInpaint',
+    inputs: { pixels: [loadId, 0], vae: vaeRef, mask: [maskId, 0], grow_mask_by: ctx.growMask },
+  }
+
+  const kId = nextId()
+  nodes[kId] = {
+    class_type: 'KSampler',
+    inputs: {
+      model:        modelRef,
+      positive:     [posId, 0],
+      negative:     [negId, 0],
+      latent_image: [encId, 0],
+      seed:         ctx.seed,
+      steps:        ctx.steps,
+      cfg:          ctx.cfg,
+      sampler_name: ctx.sampler,
+      scheduler:    ctx.scheduler,
+      denoise:      ctx.denoise,
+    },
+  }
+
+  const vaeId = nextId()
+  nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
+  const saveId = nextId()
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki-cleanup' } }
+
+  return nodes
+}
+
 // ── Face Identity (IP-Adapter FaceID Plus v2 SDXL) ───────────────────────────
 // No hi-res pass — facial detail is better preserved at base resolution.
 // Caller must upload the reference face via uploadComfyImage() and pass the returned name.

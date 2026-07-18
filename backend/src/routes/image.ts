@@ -27,6 +27,7 @@ import { CATALOG } from '@/lib/catalog'
 import {
   buildTxt2ImgWorkflow,
   buildImg2ImgWorkflow,
+  buildInpaintWorkflow,
   buildFaceIdWorkflow,
   buildVideoWorkflow,
   buildImageToVideoWorkflow,
@@ -63,7 +64,7 @@ const image = new Hono<AppEnv>()
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
-type Pipeline = 'txt2img' | 'face_id' | 'video' | 'i2v' | 'bg_remove' | 'bg_blur' | 'face_inpaint' | 'upscale' | 'enhance' | 'face_restore' | 'photo_restore' | 'auto_color' | 'adjust'
+type Pipeline = 'txt2img' | 'face_id' | 'video' | 'i2v' | 'bg_remove' | 'bg_blur' | 'face_inpaint' | 'inpaint' | 'upscale' | 'enhance' | 'face_restore' | 'photo_restore' | 'auto_color' | 'adjust'
 
 const SAFETY_PREFIX = 'tasteful, safe for all ages, appropriate content, '
 
@@ -195,7 +196,9 @@ function selectPipeline(body: {
   bgRemoveOnly?: boolean
   videoMode?: boolean
   i2vMode?: boolean
+  cleanUp?: boolean
 }): Pipeline {
+  if (body.cleanUp) return 'inpaint'
   if (body.refId) return 'face_id'
   if (body.bgRemoveOnly) return 'bg_remove'
   if (body.i2vMode) return 'i2v'
@@ -307,7 +310,8 @@ interface ComfyGenPayload {
   // Pipeline
   pipeline: Pipeline
   referenceImagePath?: string  // face_id: path to stored reference face
-  inputImagePath?: string      // bg_remove / face_inpaint: path to input image
+  inputImagePath?: string      // bg_remove / face_inpaint / inpaint: path to input image
+  maskImagePath?: string       // inpaint (Clean Up): path to the user-painted mask PNG
   frames?: number              // video / i2v: frame count
   fps?: number                 // video / i2v: fps
   motionBucketId?: number      // i2v: SVD motion amount
@@ -486,6 +490,21 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
             inputImageName: inputName,
             region:  payload.faceRegion  ?? 'full_face',
             denoise: payload.faceDenoise ?? 0.4,
+          })
+          break
+        }
+        case 'inpaint': {
+          if (!payload.inputImagePath || !payload.maskImagePath) throw new Error('Clean Up needs an input image and a mask')
+          const inputData = await readFile(payload.inputImagePath)
+          const maskData  = await readFile(payload.maskImagePath)
+          const inputName = await uploadComfyImage(inputData.toString('base64'), `cleanup-${payload.seed}.png`, comfyUrl())
+          const maskName  = await uploadComfyImage(maskData.toString('base64'), `cleanup-${payload.seed}-mask.png`, comfyUrl())
+          wf = buildInpaintWorkflow({
+            ...baseCtx,
+            inputImageName: inputName,
+            maskImageName:  maskName,
+            denoise:        1.0,
+            growMask:       6,
           })
           break
         }
@@ -767,7 +786,8 @@ async function buildAndEnqueueJob(params: {
   // Pipeline
   pipeline?: Pipeline
   refId?: string        // face_id: UUID from /reference-face
-  imageBase64?: string  // bg_remove / face_inpaint / i2v: input image
+  imageBase64?: string  // bg_remove / face_inpaint / inpaint / i2v: input image
+  maskBase64?: string   // inpaint (Clean Up): user-painted mask (white = replace)
   frames?: number       // video / i2v
   fps?: number          // video / i2v
   motionBucketId?: number // i2v
@@ -798,7 +818,7 @@ async function buildAndEnqueueJob(params: {
 
   // bg_remove / i2v don't require a text prompt (i2v is conditioned on the image)
   const prompt = params.prompt.trim()
-  if (pipeline !== 'bg_remove' && pipeline !== 'auto_color' && pipeline !== 'adjust' && pipeline !== 'i2v' && !prompt) return null
+  if (pipeline !== 'bg_remove' && pipeline !== 'auto_color' && pipeline !== 'adjust' && pipeline !== 'i2v' && pipeline !== 'inpaint' && !prompt) return null
 
   // ── Safety floor at the chokepoint ──────────────────────────────────────────────
   // Enforced here (not only in /generate) so the companion image/video tools and book
@@ -854,13 +874,20 @@ async function buildAndEnqueueJob(params: {
     referenceImagePath = p
   }
 
-  if (pipeline === 'bg_remove' || pipeline === 'bg_blur' || pipeline === 'face_inpaint' || pipeline === 'upscale' || pipeline === 'enhance' || pipeline === 'face_restore' || pipeline === 'photo_restore' || pipeline === 'auto_color' || pipeline === 'adjust' || pipeline === 'i2v') {
+  let maskImagePath: string | undefined
+  if (pipeline === 'bg_remove' || pipeline === 'bg_blur' || pipeline === 'face_inpaint' || pipeline === 'inpaint' || pipeline === 'upscale' || pipeline === 'enhance' || pipeline === 'face_restore' || pipeline === 'photo_restore' || pipeline === 'auto_color' || pipeline === 'adjust' || pipeline === 'i2v') {
     if (!params.imageBase64) return null
     const dir = TEMP_INPUT_IMGS_DIR()
     await mkdir(dir, { recursive: true })
     const tempId = crypto.randomUUID()
     inputImagePath = join(dir, `${tempId}.png`)
     await writeFile(inputImagePath, Buffer.from(params.imageBase64, 'base64'))
+    // Clean Up needs the companion mask (white = the region to regenerate).
+    if (pipeline === 'inpaint') {
+      if (!params.maskBase64) return null
+      maskImagePath = join(dir, `${tempId}-mask.png`)
+      await writeFile(maskImagePath, Buffer.from(params.maskBase64, 'base64'))
+    }
   }
 
   const loraIds = params.loraIds ?? []
@@ -871,6 +898,7 @@ async function buildAndEnqueueJob(params: {
   const fast         = params.fast ?? false
   const noCheckpoint = pipeline === 'bg_remove' || pipeline === 'upscale' || pipeline === 'face_restore' || pipeline === 'photo_restore'
   const isEnhance    = pipeline === 'enhance'
+  const isInpaint    = pipeline === 'inpaint'  // Clean Up: masked SDXL inpaint
   const isI2V        = pipeline === 'i2v'   // image-to-video (SVD): no SDXL checkpoint, no text prompt
   const bgRemove     = noCheckpoint  // kept for existing callers inside this function
 
@@ -945,6 +973,14 @@ async function buildAndEnqueueJob(params: {
       negative = 'blurry, soft, hazy, low quality, noise, grain, artifacts, jpeg artifacts'
       width    = Math.min(2048, Math.max(256, params.width  ?? 1024))
       height   = Math.min(2048, Math.max(256, params.height ?? 1024))
+    } else if (isInpaint) {
+      // Clean Up: no LoRA routing / style injection. An empty prompt means "remove"
+      // (fill the masked region to match its surroundings); a prompt replaces the
+      // masked region with new content. The inpaint graph derives its latent from the
+      // source image, so width/height are ignored here.
+      const base = prompt || 'clean background, seamless, matching the surrounding area'
+      positive = await applyPromptPolicy(params.userId, base)
+      negative = 'blurry, low quality, artifacts, seams, distorted, watermark, text, extra objects'
     } else {
       // Style detection. For SVG/flat output, force a flat 'illustration' style instead of the
       // photorealistic default — the photo style injects "RAW photo, 8k, sharp focus" which
@@ -1055,6 +1091,7 @@ async function buildAndEnqueueJob(params: {
     pipeline,
     referenceImagePath,
     inputImagePath,
+    maskImagePath,
     // Clamp video / i2v params (GPU DoS guard): frame count and fps drive VRAM and
     // sampling cost, so an unbounded value from the body could pin the GPU indefinitely.
     frames:         params.frames         !== undefined ? Math.min(64,  Math.max(1, params.frames))         : undefined,
@@ -1404,6 +1441,8 @@ image.post('/generate', requireAuth, async (c) => {
     refId?: string
     bgRemoveOnly?: boolean
     imageBase64?: string
+    cleanUp?: boolean       // inpaint: Clean Up (object removal / masked replace)
+    maskBase64?: string     // inpaint: user-painted mask (white = replace)
     videoMode?: boolean
     i2vMode?: boolean
     frames?: number
@@ -1461,6 +1500,10 @@ image.post('/generate', requireAuth, async (c) => {
   // Input validation per pipeline
   if (pipeline === 'bg_remove' || pipeline === 'i2v') {
     if (!body.imageBase64) return c.json({ error: 'imageBase64 is required', message: 'An input image is required.' }, 400)
+  } else if (pipeline === 'inpaint') {
+    // Clean Up needs the source image and a mask; the prompt is optional (empty = remove).
+    if (!body.imageBase64) return c.json({ error: 'imageBase64 is required', message: 'An input image is required.' }, 400)
+    if (!body.maskBase64) return c.json({ error: 'maskBase64 is required', message: 'Paint over the area to clean up first.' }, 400)
   } else {
     if (!body.prompt?.trim()) return c.json({ error: 'prompt is required' }, 400)
   }
@@ -1510,6 +1553,7 @@ image.post('/generate', requireAuth, async (c) => {
     pipeline,
     refId: body.refId,
     imageBase64: body.imageBase64,
+    maskBase64: body.maskBase64,
     frames: body.frames,
     fps: body.fps,
     motionBucketId: body.motionBucketId,

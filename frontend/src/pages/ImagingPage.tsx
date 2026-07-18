@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react'
 import { Sparkles, Settings2, X, RefreshCw, Wand2, ChevronDown, ChevronUp, Download, Trash2, Upload, Eraser, ZoomIn, Zap, Pencil, ArrowLeftRight, ScanFace, ImageOff, Maximize2, Palette, SlidersHorizontal, Aperture, ScanLine, Car, Search, ArrowRight, FileText, MapPin, Eye, Type, Layers, Copy, Sparkle } from 'lucide-react'
+import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { CleanUpDialog } from '@/components/imaging/CleanUpDialog'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useImageEdit } from '@/hooks/useImageEdit'
 import { Button } from '@/components/ui/button'
@@ -676,6 +678,7 @@ export function ImagingPage() {
   const [editSourcePreview, setEditSourcePreview] = useState<string | null>(null)
   const [editSourceFile, setEditSourceFile] = useState<File | null>(null)
   const [editOp, setEditOp] = useState<string | null>(null)
+  const [cleanUpOpen, setCleanUpOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropOver, setDropOver] = useState(false)
   const [fullscreenSrc, setFullscreenSrc] = useState<{ src: string; prompt: string } | null>(null)
@@ -1596,6 +1599,20 @@ export function ImagingPage() {
                     </div>
                   )}
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Retouch</Label>
+                  <Button
+                    variant="secondary"
+                    className="w-full justify-start"
+                    disabled={!editHasSource}
+                    onClick={() => {
+                      if (!editHasSource) { toast.error('Add an image to clean up first.'); return }
+                      setCleanUpOpen(true)
+                    }}
+                  >
+                    <Eraser className="size-4" /> Clean Up (remove or replace an object)
+                  </Button>
+                </div>
                 {(['Enhance', 'Transform', 'Restore'] as const).map(group => {
                   const ops = EDIT_OPERATIONS.filter(op => op.group === group)
                   return (
@@ -2459,6 +2476,8 @@ export function ImagingPage() {
     </PageShell>
 
     {fullscreenSrc && <Lightbox src={fullscreenSrc.src} prompt={fullscreenSrc.prompt} onClose={() => setFullscreenSrc(null)} />}
+
+    <CleanUpDialog open={cleanUpOpen} onOpenChange={setCleanUpOpen} imageSrc={editBeforeSrc} />
 
     <ConfirmDialog
       open={confirmDeleteImageId !== null}
