@@ -745,6 +745,23 @@ function BriefingRow({ item, icon: Icon, tint, label }: { item: NewsItem; icon: 
   return item.url ? <NewsLink item={item}>{inner}</NewsLink> : inner;
 }
 
+// Live weather artwork for the briefing's Weather tile: the same animated icon over the
+// condition's gradient the Weather card uses, so the tile reads as weather, not a gray box.
+function BriefingWeatherArt() {
+  const { snapshot, status } = useWeatherSnapshot();
+  if (status !== 'ready' || !snapshot) {
+    return <div className="grid size-full place-items-center bg-muted"><CloudSun className="size-7 text-muted-foreground/40" /></div>;
+  }
+  const { info, isDay, temp, unit } = snapshot;
+  const textClass = heroTextClass(info.gradient, isDay);
+  return (
+    <div className="relative size-full" style={{ background: heroBackground(info.gradient, isDay) }}>
+      <img src={weatherIconSrc(info.icon)} alt="" className="absolute right-1.5 top-1/2 size-16 -translate-y-1/2 drop-shadow" />
+      <span className={cn("absolute bottom-2 left-3 text-2xl font-extrabold drop-shadow", textClass)}>{Math.round(temp)}{unit}</span>
+    </div>
+  );
+}
+
 function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
   const [payload, setPayload] = useState<BriefingPayload | null>(null);
   const [warming, setWarming] = useState(false);
@@ -780,8 +797,8 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
 
   // ── Row mode: full-width shelf of image-led tiles ─────────────────────────────
   if (displayMode === 'row') {
-    const tiles: { key: string; label: string; icon: LucideIcon; item: NewsItem }[] = [];
-    if (payload?.weather) tiles.push({ key: 'wx', label: 'Weather', icon: CloudSun, item: { title: payload.weather } });
+    const tiles: { key: string; label: string; icon: LucideIcon; item: NewsItem; weather?: boolean }[] = [];
+    if (payload?.weather) tiles.push({ key: 'wx', label: 'Weather', icon: CloudSun, item: { title: payload.weather }, weather: true });
     if (topStory) tiles.push({ key: 'top', label: 'Top Story', icon: Newspaper, item: briefToNews(topStory) });
     if (topScore) tiles.push({ key: 'score', label: 'Scores', icon: Trophy, item: briefToNews(topScore) });
 
@@ -796,7 +813,9 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
               const inner = (
                 <div className="group h-full w-[230px] shrink-0 overflow-hidden rounded-card bg-card ring-1 ring-inset ring-border/40 transition-shadow hover:shadow-lg hover:shadow-black/20">
                   <div className="relative h-24 w-full overflow-hidden">
-                    {t.item.imageUrl
+                    {t.weather
+                      ? <BriefingWeatherArt />
+                      : t.item.imageUrl
                       ? <img src={proxyImg(t.item.imageUrl)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       : <div className="grid size-full place-items-center bg-muted"><Icon className="size-7 text-muted-foreground/40" /></div>}
                     {t.item.imageUrl && <div className="absolute inset-0 bg-gradient-to-b from-black/45 to-transparent" />}

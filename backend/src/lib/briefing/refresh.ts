@@ -19,7 +19,7 @@ import { worldNews } from './sources/worldNews'
 import { notableDeaths } from './sources/notableDeaths'
 import { onThisDay } from './sources/onThisDay'
 import { todaysHolidays } from './sources/holidays'
-import { googleNewsSearch } from './sources/rss'
+import { googleNewsSearch, bingNewsSearch } from './sources/rss'
 import { sportsToday } from './sources/sports'
 import { plexRecentlyAdded } from './sources/plex'
 
@@ -123,11 +123,11 @@ export async function refreshBriefing(
           .catch(() => { degraded.push('localNews'); degraded.push('localEvents') }),
       )
     } else {
-      // Clean default — Google News RSS, no scraping required.
+      // Clean default — Bing News RSS (real per-article images, unlike Google News), no scraping.
       if (s.sources.localNews) {
         tasks.push(
-          googleNewsSearch(`${location.displayName} local news`, limit, 7000)
-            .then((items) => { payload.localNews = items.map(i => ({ title: i.title, detail: i.source ?? undefined, url: i.url ?? undefined })) })
+          bingNewsSearch(`${location.displayName} local news`, limit, 7000)
+            .then((items) => { payload.localNews = items.map(i => ({ title: i.title, detail: i.source || undefined, url: i.url, imageUrl: i.imageUrl, summary: i.summary, publishedAt: i.publishedAt })) })
             .catch(() => { degraded.push('localNews') }),
         )
       }
