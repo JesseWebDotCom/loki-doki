@@ -14,7 +14,8 @@ import {
   users,
 } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
-import { dataDir } from '@/lib/download'
+import { dataDir, validateSafetensorsFile } from '@/lib/download'
+import { ensureLoraSafetensors } from '@/lib/loraFiles'
 import { isGloballyOffline, isDownloadBlocked } from '@/lib/connectivity'
 import { ollamaChat } from '@/llm/ollama'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
@@ -371,7 +372,28 @@ adminImageLoras.post('/import-file', requireAdmin, async (c) => {
   const sizeBytes = buffer.byteLength
   const nameWithoutExt = safeName.replace(/\.[^.]+$/, '').replace(/_/g, ' ')
 
-  return c.json({ filePath: destPath, fileName: safeName, sizeBytes, suggestedName: nameWithoutExt })
+  // A .safetensors upload must actually be one (not a renamed pickle or a
+  // truncated copy); a .ckpt/.pt upload is converted right away because the
+  // ComfyUI workflow can only load .safetensors LoRAs.
+  let finalPath = destPath
+  let converted = false
+  if (ext === '.safetensors') {
+    if (!(await validateSafetensorsFile(destPath))) {
+      await unlink(destPath).catch(() => {})
+      return c.json({ error: 'That file is not a valid .safetensors model (corrupt or misnamed).' }, 400)
+    }
+  } else {
+    const st = await ensureLoraSafetensors(destPath)
+    if (st) {
+      finalPath = st
+      converted = true
+    }
+    // Conversion failure is non-fatal here: the file stays registered and the
+    // resolver retries once ComfyUI's python is available; until then the
+    // style shows as unavailable in the picker instead of failing silently.
+  }
+
+  return c.json({ filePath: finalPath, fileName: basename(finalPath), sizeBytes, suggestedName: nameWithoutExt, converted })
 })
 
 adminImageLoras.post('/', requireAdmin, async (c) => {
@@ -802,7 +824,7 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
   const dir = lorasDir()
   await mkdir(dir, { recursive: true })
 
-  const ext = body.fileName.split('.').pop() ?? 'safetensors'
+  const bodyExt = (body.fileName.split('.').pop() ?? 'safetensors').toLowerCase()
   const slug = body.name
     .toLowerCase()
     .replace(/[^\w\s-]/g, '')
@@ -811,11 +833,38 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
     .replace(/^_+|_+$/g, '')
     .slice(0, 80)
   const suffix = body.versionId ? `_v${body.versionId}` : ''
-  const safeName = `${slug}${suffix}.${ext}`
-  const destPath = join(dir, safeName)
-  const partPath = destPath + '.part'
+  const pathsFor = (ext: string) => {
+    const safeName = `${slug}${suffix}.${ext}`
+    const destPath = join(dir, safeName)
+    return { safeName, destPath, partPath: destPath + '.part' }
+  }
 
-  // Check if already downloaded
+  let dlHost = ''
+  try { dlHost = new URL(body.downloadUrl).hostname.toLowerCase() } catch { /* validated below */ }
+  const isCivitai = dlHost === 'civitai.com' || dlHost.endsWith('.civitai.com')
+
+  // Ask Civitai's download API for the SafeTensor build explicitly; the bare
+  // URL returns the version's primary file, which can be a PickleTensor. Models
+  // that only ship a pickle fall back to the original URL and get converted
+  // locally after download.
+  const candidates: Array<{ url: string; ext: string }> = []
+  if (isCivitai && /\/api\/download\/models\/\d+/.test(body.downloadUrl)) {
+    try {
+      const u = new URL(body.downloadUrl)
+      if (!u.searchParams.has('format')) {
+        u.searchParams.set('type', 'Model')
+        u.searchParams.set('format', 'SafeTensor')
+        candidates.push({ url: u.toString(), ext: 'safetensors' })
+      }
+    } catch { /* fall through to the original URL */ }
+  }
+  if (!candidates.some(cand => cand.url === body.downloadUrl)) {
+    candidates.push({ url: body.downloadUrl, ext: bodyExt })
+  }
+
+  // Check if already downloaded (under any candidate extension)
+  const existingPaths = [...new Set(candidates.map(cand => pathsFor(cand.ext).destPath))]
+  const destPath = existingPaths.find(p => existsSync(p)) ?? pathsFor(candidates[0].ext).destPath
   if (existsSync(destPath)) {
     const [existing] = await db.select({ id: imageLoras.id })
       .from(imageLoras)
@@ -861,67 +910,73 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
   }
 
   const apiKey = process.env.CIVITAI_API_KEY || (await getAppSetting('civitai_api_key') as string | null) || ''
-  const headers: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
+  const baseHeaders: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
   // Only attach the Civitai API key when downloading from Civitai, so a mistyped
   // or hostile downloadUrl can't exfiltrate the key to a third-party host.
-  let dlHost = ''
-  try { dlHost = new URL(body.downloadUrl).hostname.toLowerCase() } catch { /* validated below */ }
-  const isCivitai = dlHost === 'civitai.com' || dlHost.endsWith('.civitai.com')
-  if (apiKey && isCivitai) headers['Authorization'] = `Bearer ${apiKey}`
-
-  // Resume partial download
-  let resumeFrom = 0
-  try {
-    const stat = Bun.file(partPath)
-    resumeFrom = await stat.size
-    if (resumeFrom > 0) headers['Range'] = `bytes=${resumeFrom}-`
-  } catch { /* no partial */ }
+  if (apiKey && isCivitai) baseHeaders['Authorization'] = `Bearer ${apiKey}`
 
   c.header('X-Accel-Buffering', 'no')
 
   return streamSSE(c, async (stream) => {
+    let activePartPath: string | null = null
     try {
-      await stream.writeSSE({ event: 'start', data: JSON.stringify({ fileName: safeName }) })
-
-      // Reject internal/loopback/metadata targets (SSRF defense in depth).
-      try {
-        await assertPublicUrl(body.downloadUrl)
-      } catch {
-        await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: 'Invalid or blocked download URL' }) })
-        return
-      }
+      await stream.writeSSE({ event: 'start', data: JSON.stringify({ fileName: pathsFor(candidates[0].ext).safeName }) })
 
       // Follow redirects manually, re-validating each hop against the SSRF guard (a validated
       // public host can still 302 to an internal address). Drop the Civitai auth header the
       // moment the origin changes so a redirect can't exfiltrate the key to a third-party host.
-      let dlRes: Response
-      {
-        let current = body.downloadUrl
+      const openDownload = async (url: string, headers: Record<string, string>): Promise<Response | 'blocked'> => {
+        try { await assertPublicUrl(url) } catch { return 'blocked' }
+        let current = url
         const startOrigin = new URL(current).origin
+        let res: Response
         for (let hop = 0; ; hop++) {
           const hopHeaders = new URL(current).origin === startOrigin
             ? headers
             : Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== 'authorization'))
-          dlRes = await fetch(current, { headers: hopHeaders, redirect: 'manual', signal: AbortSignal.timeout(300_000) })
-          if (dlRes.status >= 300 && dlRes.status < 400 && dlRes.headers.has('location') && hop < 6) {
-            dlRes.body?.cancel().catch(() => {})
-            current = new URL(dlRes.headers.get('location')!, current).toString()
-            try { await assertPublicUrl(current) } catch {
-              await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: 'Download redirected to a blocked URL' }) })
-              return
-            }
+          res = await fetch(current, { headers: hopHeaders, redirect: 'manual', signal: AbortSignal.timeout(300_000) })
+          if (res.status >= 300 && res.status < 400 && res.headers.has('location') && hop < 6) {
+            res.body?.cancel().catch(() => {})
+            current = new URL(res.headers.get('location')!, current).toString()
+            try { await assertPublicUrl(current) } catch { return 'blocked' }
             continue
           }
           break
         }
+        return res
       }
 
-      if (!dlRes.ok && dlRes.status !== 206) {
-        const hint = dlRes.status === 401
+      // Try candidates in order (SafeTensor build first, original URL last).
+      let dlRes: Response | null = null
+      let chosen: { url: string; ext: string } | null = null
+      let resumeFrom = 0
+      let lastStatus = 0
+      let sawBlocked = false
+      for (const cand of candidates) {
+        const headers = { ...baseHeaders }
+        resumeFrom = 0
+        // Resume this candidate's partial download if one is on disk
+        try {
+          const size = await Bun.file(pathsFor(cand.ext).partPath).size
+          if (size > 0) { resumeFrom = size; headers['Range'] = `bytes=${resumeFrom}-` }
+        } catch { /* no partial */ }
+        const res = await openDownload(cand.url, headers)
+        if (res === 'blocked') { sawBlocked = true; continue }
+        if (res.ok || res.status === 206) { dlRes = res; chosen = cand; break }
+        lastStatus = res.status
+        res.body?.cancel().catch(() => {})
+      }
+
+      if (!dlRes || !chosen) {
+        const hint = lastStatus === 401
           ? 'This model requires a Civitai API key — add one via the 🔑 key icon.'
-          : dlRes.status === 404
+          : lastStatus === 404
           ? 'Model version not found on Civitai — it may have been deleted. Try downloading manually from the source URL.'
-          : `Download failed (${dlRes.status})`
+          : lastStatus > 0
+          ? `Download failed (${lastStatus})`
+          : sawBlocked
+          ? 'Invalid or blocked download URL'
+          : 'Download failed'
         await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: hint }) })
         return
       }
@@ -929,6 +984,9 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
         await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: 'No response body' }) })
         return
       }
+
+      const { destPath: dlDest, partPath } = pathsFor(chosen.ext)
+      activePartPath = partPath
 
       const isPartial = dlRes.status === 206
       const contentLength = parseInt(dlRes.headers.get('content-length') ?? '0', 10)
@@ -965,7 +1023,31 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
       }
 
       await new Promise<void>((res, rej) => fileStream.end((err?: Error | null) => (err ? rej(err) : res())))
-      await rename(partPath, destPath)
+      await rename(partPath, dlDest)
+      activePartPath = null
+
+      // Integrity gate: a Civitai error page saved under a .safetensors name
+      // must never register as a working style, and a pickle build converts to
+      // safetensors right away (the ComfyUI workflow can only load safetensors).
+      let finalPath = dlDest
+      let warning: string | undefined
+      if (dlDest.toLowerCase().endsWith('.safetensors')) {
+        if (!(await validateSafetensorsFile(dlDest))) {
+          await unlink(dlDest).catch(() => {})
+          await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: 'The downloaded file is not a valid safetensors model. Civitai may have returned an error page instead of the file; if this is a gated model, add a Civitai API key.' }) })
+          return
+        }
+      } else {
+        const st = await ensureLoraSafetensors(dlDest)
+        if (st) {
+          finalPath = st
+        } else {
+          // Keep the pickle registered: the resolver retries conversion later
+          // (e.g. once ComfyUI is installed) and the picker shows it as
+          // unavailable until then, instead of pretending it works.
+          warning = 'Only a pickle build was available and converting it to safetensors failed. The style will stay unavailable until conversion succeeds.'
+        }
+      }
 
       // Create DB entry
       const now = new Date()
@@ -986,8 +1068,8 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
         author: body.author ?? null,
         baseFamilies: '["sdxl"]',
         sha256: body.sha256 ?? null,
-        sizeBytes: completed,
-        filePath: destPath,
+        sizeBytes: (await Bun.file(finalPath).size) || completed,
+        filePath: finalPath,
         triggerTokens: JSON.stringify(sanitizeTriggerTokens(body.triggerTokens ?? [])),
         defaultWeight: 1.0,
         minWeight: 0.0,
@@ -1002,10 +1084,10 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
       })
 
       triggerBackgroundExtract(id)
-      await stream.writeSSE({ event: 'done', data: JSON.stringify({ loraId: id, filePath: destPath }) })
+      await stream.writeSSE({ event: 'done', data: JSON.stringify({ loraId: id, filePath: finalPath, warning }) })
     } catch (err) {
-      // Clean up partial file on error
-      try { await unlink(partPath) } catch { /* ignore */ }
+      // Clean up the active candidate's partial file on error
+      if (activePartPath) { try { await unlink(activePartPath) } catch { /* ignore */ } }
       await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: String(err) }) })
     }
   })

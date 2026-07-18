@@ -1022,7 +1022,7 @@ async function buildAndEnqueueJob(params: {
           // never disappears silently again).
           const filePath = await resolveLoraFile(l)
           if (!filePath) {
-            logger.warn(`[image] LoRA "${l.name}" skipped: model file missing on disk (${l.filePath})`)
+            logger.warn(`[image] LoRA "${l.name}" skipped: model file missing or unusable (${l.filePath})`)
             continue
           }
           resolvedLoras.push({

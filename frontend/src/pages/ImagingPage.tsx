@@ -437,7 +437,7 @@ function LoraPicker({
               <button
                 onClick={() => {
                   if (unavailable) {
-                    toast.error(`"${l.styleLabel ?? l.name}" can't be used: its model file is missing. Re-download it in Admin.`)
+                    toast.error(`"${l.styleLabel ?? l.name}" can't be used: its model file is missing or unusable. Re-download it in Admin.`)
                     return
                   }
                   onToggle(l.id)
@@ -474,7 +474,7 @@ function LoraPicker({
                   <div className="p-2.5 space-y-1">
                     <p className="text-[11px] font-semibold text-popover-foreground leading-tight">{l.name}</p>
                     {unavailable && (
-                      <p className="text-[10px] text-warning leading-snug">Model file is missing on disk, so this style can't be applied. Re-download it in Admin.</p>
+                      <p className="text-[10px] text-warning leading-snug">The model file for this style is missing or unusable, so it can't be applied. Re-download it in Admin.</p>
                     )}
                     {l.description && (
                       <p className="text-[10px] text-muted-foreground leading-snug line-clamp-4">{l.description}</p>
