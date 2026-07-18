@@ -56,6 +56,15 @@ interface RelatedHit {
 const RELATED_TYPES = new Set<string>(['youtube', 'video', 'podcast', 'book', 'music'])
 const RELATED_ICON: Record<RelatedType, LucideIcon> = { youtube: Play, video: Play, podcast: Mic, book: BookMarked, music: Music }
 
+// Quick-jump filter chips for the rail: youtube+video collapse into one "Videos"
+// bucket (both are just "a video" to the user), the rest map 1:1 to their type.
+const RELATED_BUCKETS: { key: string; label: string; types: RelatedType[] }[] = [
+  { key: 'video', label: 'Videos', types: ['youtube', 'video'] },
+  { key: 'podcast', label: 'Podcasts', types: ['podcast'] },
+  { key: 'music', label: 'Music', types: ['music'] },
+  { key: 'book', label: 'Books', types: ['book'] },
+]
+
 async function fetchRelated(query: string): Promise<RelatedHit[]> {
   const r = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { credentials: 'include' })
   if (!r.ok) return []
@@ -83,6 +92,7 @@ export function SearchPage() {
   const [inputValue, setInputValue] = useState(initialQuery)
   const [submittedQuery, setSubmittedQuery] = useState(initialQuery)
   const [view, setView] = useState<'web' | 'images'>('web')
+  const [relatedFilter, setRelatedFilter] = useState<string | null>(null)
 
   const { data, isFetching } = useQuery<WebSearchResponse>({
     queryKey: ['websearch', submittedQuery],
@@ -103,6 +113,7 @@ export function SearchPage() {
     if (!word) return
     setSubmittedQuery(word)
     setView('web')
+    setRelatedFilter(null)
     setSearchParams({ q: word }, { replace: true })
   }, [inputValue, setSearchParams])
 
@@ -154,6 +165,14 @@ export function SearchPage() {
   const showNoResults = !isFetching && submittedQuery && data && data.web.length === 0 && data.images.length === 0
   const showResults = !isFetching && data && (data.web.length > 0 || data.images.length > 0)
   const railImages = data ? data.images.slice(0, 9) : []
+  const availableBuckets = related
+    ? RELATED_BUCKETS.filter((b) => related.some((h) => b.types.includes(h.type as RelatedType)))
+    : []
+  const filteredRelated = related
+    ? relatedFilter
+      ? related.filter((h) => RELATED_BUCKETS.find((b) => b.key === relatedFilter)?.types.includes(h.type as RelatedType))
+      : related
+    : []
 
   return (
     <PageShell>
@@ -223,8 +242,35 @@ export function SearchPage() {
                   <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     From Loki Doki
                   </p>
+
+                  {availableBuckets.length > 1 && (
+                    <div className="mb-1.5 flex flex-wrap gap-1 px-1">
+                      <Button
+                        type="button"
+                        variant={relatedFilter === null ? 'tinted' : 'ghost'}
+                        size="sm"
+                        className="h-6 rounded-full px-2.5 text-xs"
+                        onClick={() => setRelatedFilter(null)}
+                      >
+                        All
+                      </Button>
+                      {availableBuckets.map((b) => (
+                        <Button
+                          key={b.key}
+                          type="button"
+                          variant={relatedFilter === b.key ? 'tinted' : 'ghost'}
+                          size="sm"
+                          className="h-6 rounded-full px-2.5 text-xs"
+                          onClick={() => setRelatedFilter(b.key)}
+                        >
+                          {b.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex flex-col">
-                    {related.map((hit) => {
+                    {filteredRelated.map((hit) => {
                       const Fallback = RELATED_ICON[hit.type as RelatedType] ?? Play
                       return (
                         <Link
