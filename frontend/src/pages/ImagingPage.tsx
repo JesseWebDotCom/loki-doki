@@ -887,6 +887,10 @@ export function ImagingPage() {
     if (!gen.previewUrl) return
     if (autoCheckFiredRef.current) return
     if (gen.totalSteps === 0) return
+    // Compose runs (2+ character styles) paint the characters one pass at a
+    // time, so a mid-run preview never matches the full multi-character prompt
+    // and the VLM check would cancel every compose generation. Skip it.
+    if (sentLoraInfoRef.current.filter(isCharacterLora).length >= 2) return
     const checkAt = Math.max(5, Math.round(gen.totalSteps * 0.28))
     if (gen.step < checkAt) return
 

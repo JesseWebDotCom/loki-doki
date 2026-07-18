@@ -450,6 +450,85 @@ export function buildInpaintWorkflow(
   return nodes
 }
 
+// ── Character-compose inpaint (multi-character two-pass) ──────────────────────
+// Second/third pass of the character compose pipeline: the first pass rendered
+// one character with only their LoRA; this pass regenerates a vertical column
+// of that image (mask built in-graph, no upload) with ONLY the next character's
+// LoRA loaded, so the identities can never bleed into each other.
+// Caller must upload the previous pass's output via uploadComfyImage() first.
+
+export function buildComposeInpaintWorkflow(
+  ctx: WorkflowContext & {
+    inputImageName: string
+    regionX: number       // left edge of the column to regenerate (px)
+    regionWidth: number   // width of the column (px)
+    denoise: number
+    growMask: number
+  },
+): ComfyUIPrompt {
+  const nodes: ComfyUIPrompt = {}
+  let _id = 1
+  const nextId = () => String(_id++)
+
+  const ckptId = nextId()
+  nodes[ckptId] = {
+    class_type: 'CheckpointLoaderSimple',
+    inputs: { ckpt_name: ctx.checkpoint, weight_dtype: weightDtype(ctx.config) },
+  }
+
+  const vaeRef = resolveVae(nodes, nextId, ckptId, ctx.vaeFile)
+  const { modelRef, clipRef } = chainLoras(nodes, nextId, ctx.loraIds, ctx.loraWeights, [ckptId, 0], [ckptId, 1])
+
+  const posId = nextId()
+  nodes[posId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.positive, clip: clipRef } }
+  const negId = nextId()
+  nodes[negId] = { class_type: 'CLIPTextEncode', inputs: { text: ctx.negative, clip: clipRef } }
+
+  const loadId = nextId()
+  nodes[loadId] = { class_type: 'LoadImage', inputs: { image: ctx.inputImageName, upload: 'image' } }
+
+  // Column mask, built in-graph: zeros everywhere, ones over the region.
+  const bgId = nextId()
+  nodes[bgId] = { class_type: 'SolidMask', inputs: { value: 0.0, width: ctx.width, height: ctx.height } }
+  const fgId = nextId()
+  nodes[fgId] = { class_type: 'SolidMask', inputs: { value: 1.0, width: ctx.regionWidth, height: ctx.height } }
+  const maskId = nextId()
+  nodes[maskId] = {
+    class_type: 'MaskComposite',
+    inputs: { destination: [bgId, 0], source: [fgId, 0], x: ctx.regionX, y: 0, operation: 'add' },
+  }
+
+  const encId = nextId()
+  nodes[encId] = {
+    class_type: 'VAEEncodeForInpaint',
+    inputs: { pixels: [loadId, 0], vae: vaeRef, mask: [maskId, 0], grow_mask_by: ctx.growMask },
+  }
+
+  const kId = nextId()
+  nodes[kId] = {
+    class_type: 'KSampler',
+    inputs: {
+      model:        modelRef,
+      positive:     [posId, 0],
+      negative:     [negId, 0],
+      latent_image: [encId, 0],
+      seed:         ctx.seed,
+      steps:        ctx.steps,
+      cfg:          ctx.cfg,
+      sampler_name: ctx.sampler,
+      scheduler:    ctx.scheduler,
+      denoise:      ctx.denoise,
+    },
+  }
+
+  const vaeId = nextId()
+  nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
+  const saveId = nextId()
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki-compose' } }
+
+  return nodes
+}
+
 // ── Face Identity (IP-Adapter FaceID Plus v2 SDXL) ───────────────────────────
 // No hi-res pass — facial detail is better preserved at base resolution.
 // Caller must upload the reference face via uploadComfyImage() and pass the returned name.

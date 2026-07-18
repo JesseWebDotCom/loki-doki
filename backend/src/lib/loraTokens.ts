@@ -63,6 +63,9 @@ export interface LoraTokenPlan {
   // Tokens for the global prompt when the character LoRAs are applied
   // per-region instead: aggregate count tags + non-character LoRA tokens only.
   baseTokens: string[]
+  // Non-character LoRA tokens only (no aggregates): what every compose pass
+  // shares regardless of which single character it is rendering.
+  sharedTokens: string[]
   // One entry per detected character LoRA: its index into the input list and
   // the tokens for its region-scoped prompt (identity kept, solo dropped).
   characters: Array<{ index: number; regionTokens: string[] }>
@@ -97,7 +100,7 @@ export function planLoraTokens(tokenLists: string[][]): LoraTokenPlan {
 
   if (characterIdx.length < 2) {
     const flat = dedupe(sanitized.flat())
-    return { multiCharacter: false, globalTokens: flat, baseTokens: flat, characters: [] }
+    return { multiCharacter: false, globalTokens: flat, baseTokens: flat, sharedTokens: flat, characters: [] }
   }
 
   const charSet = new Set(characterIdx)
@@ -120,6 +123,7 @@ export function planLoraTokens(tokenLists: string[][]): LoraTokenPlan {
       ...otherTokens,
     ]),
     baseTokens: dedupe([...aggregates, ...otherTokens]),
+    sharedTokens: otherTokens,
     characters: characterIdx.map(index => ({
       index,
       // Keep "1boy" inside a region (each region holds exactly one subject),

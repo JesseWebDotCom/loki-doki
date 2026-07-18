@@ -29,6 +29,7 @@ import {
   buildTxt2ImgWorkflow,
   buildImg2ImgWorkflow,
   buildInpaintWorkflow,
+  buildComposeInpaintWorkflow,
   buildFaceIdWorkflow,
   buildVideoWorkflow,
   buildImageToVideoWorkflow,
@@ -308,6 +309,18 @@ interface ComfyGenPayload {
   seed: number
   loraIds: string[]       // basenames without extension (applied globally)
   loraWeights: number[]
+  // Multi-character compose (txt2img only): the top-level positive/loraIds are
+  // pass 1 (first character alone); each entry here is a masked-column inpaint
+  // pass that adds one more character with only that character's LoRA loaded.
+  compose?: {
+    passes: Array<{
+      positive: string
+      loraIds: string[]      // basenames without extension
+      loraWeights: number[]
+      regionX: number
+      regionWidth: number
+    }>
+  }
   hiresUpscale: boolean
   esrganModel?: string        // filename in upscale_models/ when ESRGAN is installed
   // Pipeline
@@ -524,18 +537,26 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
       const clientId = crypto.randomUUID()
       const wsUrl = comfyUrl().replace(/^http/, 'ws') + `/ws?clientId=${clientId}`
 
-      // Mutable — set once the HTTP /prompt response arrives inside the 'open' handler.
       type ComfyImageFile = { filename: string; subfolder: string; type: string }
-      let imageFile: ComfyImageFile | undefined
-      let prompt_id = ''
-      let submitMs  = 0
+
+      const fetchComfyImage = async (file: ComfyImageFile): Promise<Buffer> => {
+        const qs = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type })
+        const r = await fetch(`${comfyUrl()}/view?${qs.toString()}`, { signal: AbortSignal.timeout(30_000) })
+        if (!r.ok) throw new Error(`ComfyUI /view ${r.status}`)
+        return Buffer.from(await r.arrayBuffer())
+      }
 
       // Heavy generative pipelines (a full SDXL/video pass) can't share an 8GB card with
       // a resident LLM without spilling to system RAM and stuttering the box. On a shared
       // card in automatic mode, runGpuHeavyJob evicts the LLM first (it reloads on the next
       // chat); light touch-ups (upscale/facerestore/cleanup) are small and run inline.
       const heavyGen = !payload.pipeline || payload.pipeline === 'video' || payload.pipeline === 'i2v'
-      const runGeneration = () => new Promise<void>((resolve, reject) => {
+      const runWorkflow = (wf: ComfyUIPrompt) => new Promise<ComfyImageFile>((resolve, reject) => {
+        if (ctx.signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+        // Mutable — set once the HTTP /prompt response arrives inside the 'open' handler.
+        let imageFile: ComfyImageFile | undefined
+        let prompt_id = ''
+        let submitMs  = 0
         const ws = new WebSocket(wsUrl)
         // Force binary messages to arrive as ArrayBuffer (Bun's global WebSocket
         // defaults binaryType to 'blob', which the binary-frame handler can't detect).
@@ -601,7 +622,9 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
           if (queuePoll) clearTimeout(queuePoll)
           ctx.signal.removeEventListener('abort', onAbort)
           ws.close()
-          if (err) reject(err); else resolve()
+          if (err) reject(err)
+          else if (!imageFile) reject(new Error('ComfyUI completed but produced no output images'))
+          else resolve(imageFile)
         }
 
         ws.addEventListener('open', () => {
@@ -705,16 +728,42 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
         })
       })
 
-      if (heavyGen) await runGpuHeavyJob(`image:${payload.pipeline ?? 'txt2img'}`, runGeneration)
-      else await runGeneration()
+      // Compose: pass 1 (already in `wf`) renders the first character; each
+      // further pass feeds the previous output back in and inpaints one more
+      // character into their own column with only that character's LoRA.
+      let finalFile: ComfyImageFile | undefined
+      const executeAll = async () => {
+        let file = await runWorkflow(wf)
+        const passes = payload.compose?.passes ?? []
+        for (let i = 0; i < passes.length; i++) {
+          if (ctx.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+          const pass = passes[i]
+          const prevBuf   = await fetchComfyImage(file)
+          const inputName = await uploadComfyImage(prevBuf.toString('base64'), `compose-${payload.seed}-${i}.png`, comfyUrl())
+          const passWf = buildComposeInpaintWorkflow({
+            ...baseCtx,
+            positive:       pass.positive,
+            loraIds:        pass.loraIds,
+            loraWeights:    pass.loraWeights,
+            seed:           payload.seed + i + 1,
+            hiresUpscale:   false,
+            inputImageName: inputName,
+            regionX:        pass.regionX,
+            regionWidth:    pass.regionWidth,
+            denoise:        1.0,
+            growMask:       8,
+          })
+          file = await runWorkflow(passWf)
+        }
+        finalFile = file
+      }
 
-      if (!imageFile) throw new Error('ComfyUI completed but produced no output images')
+      if (heavyGen) await runGpuHeavyJob(`image:${payload.pipeline ?? 'txt2img'}`, executeAll)
+      else await executeAll()
 
-      const qs = new URLSearchParams({ filename: imageFile.filename, subfolder: imageFile.subfolder, type: imageFile.type })
-      const imgRes = await fetch(`${comfyUrl()}/view?${qs.toString()}`, { signal: AbortSignal.timeout(30_000) })
-      if (!imgRes.ok) throw new Error(`ComfyUI /view ${imgRes.status}`)
+      if (!finalFile) throw new Error('ComfyUI completed but produced no output images')
 
-      const outBuf = Buffer.from(await imgRes.arrayBuffer())
+      const outBuf = await fetchComfyImage(finalFile)
 
       // Output backstop — the only layer that sees the *result*, so it catches what the
       // prompt/input checks can't: adult→child transforms, face swaps, hidden-face bodies,
@@ -754,7 +803,7 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
       await db.update(generatedImages).set({
         state: 'ready',
         path: finalPath,
-        stepCurrent: payload.steps,
+        stepCurrent: payload.steps * (1 + (payload.compose?.passes.length ?? 0)),
         updatedAt: new Date(),
       }).where(eq(generatedImages.id, imageId))
 
@@ -819,7 +868,7 @@ async function buildAndEnqueueJob(params: {
   outputFormat?: 'png' | 'svg'
   flatBias?: boolean    // steer generation toward flat vector art (default on for SVG)
   svgOptions?: { colorPrecision?: number; filterSpeckle?: number }
-}): Promise<{ imageId: string; job: genQueue.Job; width: number; height: number; steps: number; hiresUpscale: boolean } | null> {
+}): Promise<{ imageId: string; job: genQueue.Job; width: number; height: number; steps: number; hiresUpscale: boolean; isAdult: boolean; resolvedLoraIds: string[] } | null> {
   const pipeline: Pipeline = params.pipeline ?? 'txt2img'
 
   // SVG output traces the rendered still into vector paths. Only still pipelines qualify —
@@ -966,6 +1015,12 @@ async function buildAndEnqueueJob(params: {
   let positive = ''
   let negative = ''
   let resolvedLoras: SelectedLora[] = []
+  // Multi-character compose plan: pass 1 renders the first character alone,
+  // each further pass inpaints one more character into their own column.
+  let composeInfo: {
+    pass1: { positive: string; loraIds: string[]; loraWeights: number[] }
+    passes: NonNullable<ComfyGenPayload['compose']>['passes']
+  } | null = null
   // SVD-XT is trained at 1024×576; default to that for image-to-video (do NOT shrink
   // it — SVD degrades badly off its training resolution). Text-to-video (AnimateDiff)
   // defaults to 768²: compute scales with pixels × frames, so 768² is ~1.8x faster
@@ -1030,15 +1085,20 @@ async function buildAndEnqueueJob(params: {
         resolvedLoras = await selectLoras(prompt, params.userId, params.isAdmin, routerModel)
       }
 
-      // Trigger-token hygiene + multi-character harmonization. Two character
-      // LoRAs both injecting "solo"/"1boy" collapse a two-subject prompt into
-      // one duplicated character; the plan replaces them with aggregate count
-      // tags ("2boys") while keeping every identity token. All LoRAs stack
-      // globally: the per-region hook path was field-tested and rejected
-      // (~3x slower per step and the unmasked base cond diluted each
-      // character's identity), see buildCharacterRegionConditioning.
+      // Trigger-token hygiene + multi-character planning. Two character LoRAs
+      // both injecting "solo"/"1boy" collapse a two-subject prompt into one
+      // duplicated character, and stacking both globally fuses their identities
+      // into a hybrid. With 2-3 character LoRAs on txt2img we compose instead:
+      // pass 1 renders character 1 alone (their LoRA only), then each further
+      // character is inpainted into their own column with only their LoRA
+      // loaded, so identities can never bleed. Otherwise, harmonized global
+      // stacking (aggregate "2boys" tags, no "solo") is used.
       const tokenPlan = planLoraTokens(resolvedLoras.map(l => l.triggerTokens))
-      const loraTokens = tokenPlan.globalTokens
+      const composeChars = pipeline === 'txt2img' && !vectorize
+        && tokenPlan.characters.length >= 2 && tokenPlan.characters.length <= 3
+        ? tokenPlan.characters
+        : null
+      const loraTokens = composeChars ? [] : tokenPlan.globalTokens
       const isStylisticLora = style !== 'photorealistic' || resolvedLoras.some(l => l.isStylisticLora)
 
       const qualityNegative  = 'deformed, ugly, bad anatomy, bad hands, watermark, text, blurry, low quality'
@@ -1062,11 +1122,52 @@ async function buildAndEnqueueJob(params: {
       const inferredRes = selectResolution(prompt)
       width  = Math.min(2048, Math.max(256, params.width  ?? inferredRes.width))
       height = Math.min(2048, Math.max(256, params.height ?? inferredRes.height))
+
+      if (composeChars) {
+        const n = composeChars.length
+        const scenePositive = positive
+        const shared = tokenPlan.sharedTokens
+        const place = n === 2
+          ? ['on the left side of the frame', 'on the right side of the frame']
+          : ['on the left side of the frame', 'in the center of the frame', 'on the right side of the frame']
+        const passPositive = (i: number, extra: string) => {
+          const toks = [...composeChars[i].regionTokens, ...shared].join(', ')
+          return `${toks}, ${scenePositive}, standing ${place[i]}${extra}`
+        }
+        const sharedLoras = resolvedLoras.filter((_, idx) => !composeChars.some(ch => ch.index === idx))
+        const passLoras = (i: number) => [resolvedLoras[composeChars[i].index], ...sharedLoras]
+        composeInfo = {
+          pass1: {
+            positive: passPositive(0, ', the rest of the scene is empty background with no other characters'),
+            loraIds:     passLoras(0).map(l => l.filename),
+            loraWeights: passLoras(0).map(l => l.weight),
+          },
+          passes: composeChars.slice(1).map((_ch, k) => {
+            const i = k + 1
+            const regionX = Math.round((width * i) / n)
+            return {
+              positive: passPositive(i, ''),
+              loraIds:     passLoras(i).map(l => l.filename),
+              loraWeights: passLoras(i).map(l => l.weight),
+              regionX,
+              regionWidth: Math.round((width * (i + 1)) / n) - regionX,
+            }
+          }),
+        }
+        positive = composeInfo.pass1.positive
+        logger.info(`[image] character compose: ${n} characters (1 txt2img + ${n - 1} inpaint passes)`)
+      }
     }
   }
 
-  const imageId = crypto.randomUUID()
-  const now     = new Date()
+  const imageId   = crypto.randomUUID()
+  const now       = new Date()
+  // Compose runs multiple sampler passes; steps stored/reported to the client
+  // cover all of them so the progress bar spans the whole job. Hires is
+  // disabled while composing (it would have to run per pass).
+  const passCount     = composeInfo ? composeInfo.passes.length + 1 : 1
+  const totalJobSteps = steps * passCount
+  const jobHires      = composeInfo ? false : hiresUpscale
 
   const adultKws = await getAdultKeywords()
   const isAdult = detectIsAdult(prompt, '', undefined, adultKws) || (
@@ -1082,7 +1183,7 @@ async function buildAndEnqueueJob(params: {
     seed,
     width,
     height,
-    steps,
+    steps: totalJobSteps,
     guidance,
     state: 'building',
     loraIds: JSON.stringify(loraIds),
@@ -1112,9 +1213,10 @@ async function buildAndEnqueueJob(params: {
     sampler,
     scheduler,
     seed,
-    loraIds:      resolvedLoras.map(l => l.filename),
-    loraWeights:  resolvedLoras.map(l => l.weight),
-    hiresUpscale,
+    loraIds:      composeInfo ? composeInfo.pass1.loraIds : resolvedLoras.map(l => l.filename),
+    loraWeights:  composeInfo ? composeInfo.pass1.loraWeights : resolvedLoras.map(l => l.weight),
+    compose:      composeInfo ? { passes: composeInfo.passes } : undefined,
+    hiresUpscale: jobHires,
     esrganModel,
     pipeline,
     referenceImagePath,
@@ -1155,7 +1257,7 @@ async function buildAndEnqueueJob(params: {
     run: makeComfyRun(imageId, genPayload, startedAt),
   })
 
-  return { imageId, job, width, height, steps, hiresUpscale, isAdult, resolvedLoraIds: resolvedLoras.map(l => l.id) }
+  return { imageId, job, width, height, steps: totalJobSteps, hiresUpscale: jobHires, isAdult, resolvedLoraIds: resolvedLoras.map(l => l.id) }
 }
 
 // ── Tool entry point ───────────────────────────────────────────────────────────
