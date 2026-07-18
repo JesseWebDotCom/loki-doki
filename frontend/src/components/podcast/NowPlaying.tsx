@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Play, Pause, RotateCcw, RotateCw, Moon, GripVertical, X, Download,
   ChevronsLeft, ChevronsRight, BookmarkPlus, MoreHorizontal, Settings2, Trash2, TimerOff,
-  Scissors, ExternalLink, Megaphone,
+  Scissors, ExternalLink, Megaphone, Volume2, VolumeX,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -39,7 +39,7 @@ const SLEEP_MINUTES = [15, 30, 60]
 
 export function NowPlaying() {
   const {
-    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, adStatus, adPrepLabel, retryAdDetection, sleep,
+    track, playing, positionSec, duration, rate, autoplay, queue, chapters, adSegments, adStatus, adPrepLabel, retryAdDetection, sleep, volume, setVolume,
     pause, resume, seek, setRate, setAutoplay, setSleep,
     nextChapter, prevChapter, playFromQueue, removeFromQueue, reorderQueue, clearQueue,
   } = usePodcastPlayback()
@@ -50,6 +50,14 @@ export function NowPlaying() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [snipping, setSnipping] = useState(false)
   const [reportingAd, setReportingAd] = useState(false)
+  // Mute remembers the level to restore. The player's volume lives in the context
+  // (applied through the audio graph, and clamped by the family volume cap).
+  const [preMuteVolume, setPreMuteVolume] = useState(1)
+  const muted = volume === 0
+  const toggleMute = () => {
+    if (muted) setVolume(preMuteVolume > 0 ? preMuteVolume : 1)
+    else { setPreMuteVolume(volume); setVolume(0) }
+  }
 
   // Immersive backdrop: the show cover through UltraBlur, with the whole panel's
   // chrome (play button, tabs, links) retinted to the cover palette. Always-dark,
@@ -228,6 +236,21 @@ export function NowPlaying() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      {/* Volume */}
+      <div className="mt-3 flex items-center gap-3">
+        <button type="button" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}
+          className="shrink-0 text-muted-foreground hover:text-foreground">
+          {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+        </button>
+        <input type="range" min={0} max={1} step={0.01}
+          value={volume}
+          onChange={e => setVolume(Number(e.target.value))}
+          aria-label="Volume"
+          className="h-1 flex-1 cursor-pointer"
+          style={{ accentColor: accent }}
+        />
       </div>
 
       {/* Secondary controls: chapter skips, bookmark, per-show settings, DSP overflow */}
