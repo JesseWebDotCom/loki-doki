@@ -33,13 +33,24 @@ const WINDOW_CHARS = 16_000
 const WINDOW_OVERLAP_SEC = 90
 // Detection guards: low-confidence, implausibly short, and implausibly long ranges
 // are dropped; nearby ranges merge; the total is capped defensively.
-const MIN_CONFIDENCE = 0.65
+// Bias toward recall (catch the full ad and every ad): a lenient confidence floor, and
+// a generous merge gap so pieces of one ad break (or an LLM hit next to a keyword hit)
+// join into a single range instead of leaving gaps of un-skipped ad between them.
+const MIN_CONFIDENCE = 0.5
 const MIN_AD_SEC = 8
 const MAX_AD_SEC = 600
-const MERGE_GAP_SEC = 15
-const MAX_SEGMENTS = 30
+const MERGE_GAP_SEC = 30
+const MAX_SEGMENTS = 40
 // A detected segment overlapped by a 'not_ad' report beyond this share is suppressed.
 const SUPPRESS_OVERLAP = 0.5
+// Method 2 (keyword/pattern): strong, high-precision phrases that almost only occur
+// inside an ad read. A line hitting one contributes a range even if the model missed it.
+// Note spoken URLs ("betterhelp dot com slash smartless") are the most common signal in
+// a transcript, since Whisper writes out what the host says. No trailing \b (patterns end
+// on punctuation or mid-URL).
+const AD_SIGNAL = /\b(?:promo\s?code|use\s+code|coupon\s+code|discount\s+code|brought to you by|sponsored by|this (?:episode|podcast) is sponsored|support (?:for|comes) (?:for )?(?:this (?:show|podcast|episode) )?(?:comes )?from|free trial|\d+\s?(?:%|percent)\s+off|save \d+\s?(?:%|percent)|dot (?:com|co|net|org|io)\s+slash|[a-z0-9-]+\.(?:com|co|net|org|io)\/[a-z]|terms (?:and conditions )?apply|offer (?:ends|expires|valid))/i
+// How far (seconds) a keyword hit reaches to capture the surrounding read.
+const SIGNAL_REACH_SEC = 30
 
 export const adScanJobRefId = (episodeId: string) =>
   JSON.stringify({ episodeId } satisfies PodcastAdScanPayload)
@@ -49,13 +60,19 @@ export const adScanJobRefId = (episodeId: string) =>
 // reliably read a [H:MM:SS] stamp and do the arithmetic, and a small error there put
 // the ad markers and auto-skip in the wrong place. Line numbers it can copy verbatim.
 const AD_SCAN_SYSTEM =
-  'You find advertising segments in a podcast transcript excerpt. Every line begins with a line number in ' +
+  'You find EVERY advertising segment in a podcast transcript excerpt. Every line begins with a line number in ' +
   'square brackets, like [42]. Return JSON with exactly one key "ads": an array of objects ' +
   '{"startLine": number, "endLine": number, "kind": "sponsor" | "ad" | "promo", "confidence": number between 0 ' +
-  'and 1}. startLine is the line number where the ad read begins and endLine is the line number where it ends ' +
-  '(inclusive); copy both numbers exactly from the brackets, endLine at or after startLine. An ad is a host-read ' +
-  'sponsor message, an inserted commercial break, a discount code or promo URL read, or a promotion for another ' +
-  'show. Editorial discussion of a product or company as the topic of the episode is NOT an ad. Return ' +
+  'and 1}. Copy startLine and endLine exactly from the brackets, endLine at or after startLine. ' +
+  'An ad is a host-read sponsor message, an inserted commercial, a discount code or promo URL read, or a ' +
+  'promotion for another show. ' +
+  'Capture the ENTIRE ad: begin at the first lead-in line (for example "we will be right back", "today\'s ' +
+  'episode is supported by", "let me tell you about", "this show is sponsored by") and end at the last line ' +
+  'before the show resumes (for example "and we are back", "welcome back", "back to the show"). Do not stop at ' +
+  'just the product name. ' +
+  'An episode usually contains SEVERAL ad breaks, near the start and one or more in the middle. Return all of ' +
+  'them, not only the first. When unsure whether a stretch is an ad, include it. ' +
+  'Editorial discussion of a product or company as the actual topic of the episode is NOT an ad. Return ' +
   '{"ads": []} when the excerpt contains no ads. Do not use em dashes.'
 
 interface AdScanResponse { ads?: unknown }
@@ -245,6 +262,24 @@ function normalizeWindowAds(raw: unknown, windowStart: number, windowEnd: number
   return out
 }
 
+/** Method 2: a deterministic keyword/pattern pass over the whole transcript. Every line
+ *  carrying a strong ad signal (promo code, "brought to you by", a slash-path URL, ...)
+ *  becomes a range grown to the surrounding read, catching ads the model under-marks or
+ *  misses entirely. Unioned with the model's ranges (the merge dedupes overlaps). Kept
+ *  to high-precision phrases so it does not swallow ordinary conversation. */
+function heuristicAdRanges(segments: TranscriptSegment[]): RawRange[] {
+  const out: RawRange[] = []
+  for (let i = 0; i < segments.length; i++) {
+    if (!AD_SIGNAL.test(segments[i]!.text)) continue
+    const anchor = segments[i]!
+    let lo = i, hi = i
+    while (lo > 0 && anchor.startSec - segments[lo - 1]!.startSec <= SIGNAL_REACH_SEC) lo--
+    while (hi < segments.length - 1 && segments[hi + 1]!.endSec - anchor.endSec <= SIGNAL_REACH_SEC) hi++
+    out.push({ startSec: segments[lo]!.startSec, endSec: segments[hi]!.endSec, kind: 'sponsor', confidence: 0.8 })
+  }
+  return out
+}
+
 function mergeRanges(ranges: RawRange[]): RawRange[] {
   const sorted = [...ranges].sort((a, b) => a.startSec - b.startSec)
   const merged: RawRange[] = []
@@ -319,6 +354,10 @@ export async function runPodcastAdScanJob(
     if (windows.length > 0 && failedWindows === windows.length) {
       throw new Error(`Ad detection failed on all ${windows.length} transcript window(s); the model returned unparseable output`)
     }
+
+    // Method 2: union the deterministic keyword pass so ads the model under-marked or
+    // missed still get caught (the merge below dedupes overlap with the model's ranges).
+    ranges.push(...heuristicAdRanges(transcript.segments))
 
     // Times already come straight from transcript segment boundaries (no model-computed
     // seconds), so no snapping is needed; just drop anything too short after the merge.
