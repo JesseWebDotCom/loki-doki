@@ -327,7 +327,12 @@ export function AdminAiEngineTab() {
             <span>Model: <span className="font-medium text-foreground">{autotune.effectiveModel}</span></span>
             <span>Context: <span className="font-medium text-foreground">{(autotune.fit.recommendedNumCtx / 1024).toFixed(0)}k</span></span>
           </div>
-          <p className="text-xs text-muted-foreground">{autotune.fit.reason}</p>
+          {/* Prefer live reality over the boot-time estimate: if the model is actually
+              resident on the GPU, say so instead of a pessimistic "may spill" prediction
+              (the estimate over-counts overhead and can't see multi-GPU placement). */}
+          {onGpu != null && onGpu >= 95
+            ? <p className="text-xs text-muted-foreground">Fitting well: {resHealth?.chatModel.name ?? autotune.effectiveModel} is running fully on the GPU ({onGpu}%).</p>
+            : <p className="text-xs text-muted-foreground">{autotune.fit.reason}</p>}
           {autotune.pinnedFit?.willSpill ? (
             <div className="flex flex-wrap items-center gap-2 rounded-card border border-warning/40 bg-warning/[0.06] px-3 py-2">
               <AlertTriangle className="size-4 shrink-0 text-warning" />

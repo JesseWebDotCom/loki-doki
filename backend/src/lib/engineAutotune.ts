@@ -82,9 +82,12 @@ export function recommend(vramBytes: number): EngineFit {
   // + character + memory + briefing can run ~1-2k tokens on its own).
   const numCtx = headroom >= kvReserveBytes(8192) ? 8192 : 4096
 
+  // Note: this is a boot-time ESTIMATE from one card's VRAM; on a multi-GPU box the
+  // router/embeds may sit on a different card, so the live "on GPU" figure is the
+  // truth. The wording avoids a definitive spill claim the live data often contradicts.
   const reason = fitting.length
     ? `${gib(vramBytes)}GB VRAM, ~${gib(overhead)}GB reserved for router/embeds + overhead → ${pick?.label} (${gib(pick?.approxBytes ?? 0)}GB) at ${numCtx / 1024}k context.`
-    : `${gib(vramBytes)}GB VRAM is tight even for the lightest model (${gib(smallest?.approxBytes ?? 0)}GB + overhead); it may partly run on CPU. Consider a smaller model or more VRAM.`
+    : `${gib(vramBytes)}GB per GPU is tight for ${pick?.label} plus the router and embedders; it should still fit on most setups, but watch the "on GPU" figure and pick a smaller model if it starts offloading.`
 
   return { vramBytes, hasGpu, overheadBytes: overhead, budgetBytes: budget, recommendedModel: pickTag, recommendedNumCtx: numCtx, reason }
 }
