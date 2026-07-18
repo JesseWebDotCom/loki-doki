@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { Globe, SearchIcon, Play, Mic, BookMarked, Music, ImageOff, X, type LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Button } from '@/components/ui/button'
@@ -11,11 +12,9 @@ import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { AiOverviewCard } from '@/components/search/AiOverviewCard'
 import { SearchResultRow } from '@/components/search/SearchResultRow'
 
-const WEB_PAGE_SIZE = 10
-
-/** Image tile that swaps to a muted placeholder on load failure instead of showing
- *  the browser's broken-image glyph (several thumbnail URLs from scraped/aggregated
- *  engines 404 or expire). */
+/** Image tile that loads through the same-origin image proxy (engine thumbnail hosts
+ *  routinely block cross-origin hotlinking, which showed as broken/placeholder tiles)
+ *  and swaps to a muted placeholder if it still fails (404s, expired CDN links). */
 function SafeThumb({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [failed, setFailed] = useState(false)
   if (failed) {
@@ -27,7 +26,7 @@ function SafeThumb({ src, alt, className }: { src: string; alt: string; classNam
   }
   return (
     <img
-      src={src}
+      src={proxyImg(src)}
       alt={alt}
       loading="lazy"
       onError={() => setFailed(true)}
@@ -120,7 +119,11 @@ export function SearchPage() {
   const [submittedQuery, setSubmittedQuery] = useState(initialQuery)
   const [view, setView] = useState<'web' | 'images'>('web')
   const [relatedFilter, setRelatedFilter] = useState<string | null>(null)
-  const [showAllWeb, setShowAllWeb] = useState(false)
+  // "More results" pagination: extra pages fetched on demand and appended.
+  const [extraWeb, setExtraWeb] = useState<WebResult[]>([])
+  const [webPage, setWebPage] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [noMoreWeb, setNoMoreWeb] = useState(false)
 
   const { data, isFetching } = useQuery<WebSearchResponse>({
     queryKey: ['websearch', submittedQuery],
@@ -142,7 +145,6 @@ export function SearchPage() {
     setSubmittedQuery(word)
     setView('web')
     setRelatedFilter(null)
-    setShowAllWeb(false)
     setSearchParams({ q: word }, { replace: true })
   }, [inputValue, setSearchParams])
 
@@ -156,6 +158,35 @@ export function SearchPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Reset pagination whenever the effective query changes (covers both submit
+  // paths above).
+  useEffect(() => {
+    setExtraWeb([])
+    setWebPage(1)
+    setNoMoreWeb(false)
+    setLoadingMore(false)
+  }, [submittedQuery])
+
+  const loadMoreWeb = useCallback(async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    const nextPage = webPage + 1
+    try {
+      const r = await fetch(`/api/search/web?q=${encodeURIComponent(submittedQuery)}&page=${nextPage}`, { credentials: 'include' })
+      if (!r.ok) throw new Error('failed')
+      const d = await r.json() as { web?: WebResult[] }
+      const seen = new Set([...(data?.web ?? []), ...extraWeb].map((w) => w.url))
+      const fresh = (d.web ?? []).filter((w) => !seen.has(w.url))
+      setExtraWeb((prev) => [...prev, ...fresh])
+      setWebPage(nextPage)
+      if (fresh.length < 3 || nextPage >= 5) setNoMoreWeb(true)
+    } catch {
+      setNoMoreWeb(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [loadingMore, webPage, submittedQuery, data, extraWeb])
 
   const hasImages = (data?.images.length ?? 0) > 0
 
@@ -194,7 +225,7 @@ export function SearchPage() {
   const showNoResults = !isFetching && submittedQuery && data && data.web.length === 0 && data.images.length === 0
   const showResults = !isFetching && data && (data.web.length > 0 || data.images.length > 0)
   const railImages = data ? data.images.slice(0, 9) : []
-  const visibleWeb = data ? (showAllWeb ? data.web : data.web.slice(0, WEB_PAGE_SIZE)) : []
+  const allWeb = data ? [...data.web, ...extraWeb] : []
   const availableBuckets = related
     ? RELATED_BUCKETS.filter((b) => related.some((h) => b.types.includes(h.type as RelatedType)))
     : []
@@ -357,16 +388,16 @@ export function SearchPage() {
                   {view === 'web' && (
                     <>
                       <ul className="divide-y divide-border/40">
-                        {visibleWeb.map((r, i) => (
-                          <li key={i} className="py-4 first:pt-0">
+                        {allWeb.map((r) => (
+                          <li key={r.url} className="py-4 first:pt-0">
                             <SearchResultRow title={r.title} url={r.url} snippet={r.snippet} thumbnail={r.thumbnail} />
                           </li>
                         ))}
                       </ul>
-                      {!showAllWeb && data.web.length > WEB_PAGE_SIZE && (
+                      {allWeb.length > 0 && !noMoreWeb && (
                         <div className="flex justify-center pt-2">
-                          <Button type="button" variant="tinted" size="sm" onClick={() => setShowAllWeb(true)}>
-                            Show {data.web.length - WEB_PAGE_SIZE} more results
+                          <Button type="button" variant="tinted" size="sm" disabled={loadingMore} onClick={() => void loadMoreWeb()}>
+                            {loadingMore ? 'Loading…' : 'More results'}
                           </Button>
                         </div>
                       )}

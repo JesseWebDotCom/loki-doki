@@ -599,14 +599,19 @@ export interface SearxResult { title: string; snippet: string; url: string; thum
  * through to its keyless scrapers. Results are already merged/deduped across engines
  * by SearXNG and returned in its relevance order.
  */
-export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0): Promise<SearxResult[]> {
+export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0, pageno = 1): Promise<SearxResult[]> {
   if (state.current !== 'ready') return []
   const q = query.trim()
   if (!q) return []
   try {
-    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&safesearch=${safesearch}`
+    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&safesearch=${safesearch}${pageno > 1 ? `&pageno=${pageno}` : ''}`
     const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
-    if (!res.ok) return []
+    if (!res.ok) {
+      // A non-200 here (403 = formats config, 429 = limiter) is the whole search
+      // silently dying — surface it instead of returning a mute [].
+      logger.warn(`[searxng] general search HTTP ${res.status} for "${q}"`)
+      return []
+    }
     const data = await res.json() as {
       results?: Array<{ title?: string; content?: string; url?: string; img_src?: string; thumbnail?: string }>
     }
@@ -620,7 +625,12 @@ export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000, 
         // won't have one and the frontend falls back to a favicon.
         thumbnail: r.img_src || r.thumbnail || undefined,
       }))
-  } catch { return [] }
+  } catch (err) {
+    // Usually a timeout (upstream engines slow/suspended) — log so an empty
+    // result page is diagnosable from data/logs instead of a silent mystery.
+    logger.warn(`[searxng] general search failed for "${q}": ${String(err instanceof Error ? err.name : err)}`)
+    return []
+  }
 }
 
 export interface SearxImage { title: string; imageUrl: string; thumbnailUrl: string; source: string; width: number | null; height: number | null }

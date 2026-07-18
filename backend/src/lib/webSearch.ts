@@ -29,6 +29,7 @@ import { search as googleSearch, OrganicResult } from 'google-sr'
 import { search as ddgSearch, SafeSearchType } from 'duck-duck-scrape'
 import { searxngSearch } from '@/lib/searxng'
 import { stripTags, decodeEntities } from '@/lib/htmlText'
+import { logger } from '@/lib/logger'
 
 export interface WebResult {
   title: string
@@ -56,10 +57,10 @@ function urlKey(url: string): string {
 
 // ── Engine: SearXNG (local metasearch sidecar) ───────────────────────────────────
 
-async function searxng(query: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
+async function searxng(query: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2, pageno = 1): Promise<WebResult[]> {
   // Returns [] unless the sidecar is installed and 'ready' (self-gated in searxngSearch),
   // so this is a no-op until SearXNG is set up — webSearch then runs purely on the scrapers.
-  const results = await searxngSearch(query, limit, timeoutMs, safesearch)
+  const results = await searxngSearch(query, limit, timeoutMs, safesearch, pageno)
   return results.map(r => ({ title: r.title, snippet: r.snippet, url: r.url, engine: 'searxng', thumbnail: r.thumbnail }))
 }
 
@@ -182,7 +183,7 @@ function mergeLists(lists: WebResult[][]): WebResult[] {
   return merged
 }
 
-async function runEngines(q: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2): Promise<WebResult[]> {
+async function runEngines(q: string, limit: number, timeoutMs: number, safesearch: 0 | 1 | 2, page: number): Promise<WebResult[]> {
   const perEngine = Math.max(limit, 10)
 
   // Tier 1: SearXNG alone. It already fans out across ~20 upstream engines with
@@ -191,8 +192,9 @@ async function runEngines(q: string, limit: number, timeoutMs: number, safesearc
   // doubled our upstream footprint on every query and fed the burst-throttling the
   // cache below exists to prevent. Returns [] instantly when the sidecar isn't
   // ready, so a missing/booting SearXNG costs tier 2 nothing.
-  const sx = await searxng(q, perEngine, timeoutMs, safesearch)
-  if (sx.length >= Math.min(limit, 5)) return mergeLists([sx])
+  const sx = await searxng(q, perEngine, timeoutMs, safesearch, page)
+  // Deep pages are SearXNG-only: the direct scrapers can't paginate.
+  if (page > 1 || sx.length >= Math.min(limit, 5)) return mergeLists([sx])
 
   // Tier 2: SearXNG absent, down, or thin — fall back to the direct keyless
   // scrapers (concurrently), merging whatever SearXNG did return ahead of them.
@@ -204,7 +206,16 @@ async function runEngines(q: string, limit: number, timeoutMs: number, safesearc
     safesearch > 0 ? Promise.resolve([]) : mojeek(q, timeoutMs),
     safesearch > 0 ? Promise.resolve([]) : marginalia(q, perEngine, timeoutMs),
   ])
-  return mergeLists([sx, ...lists])
+  const merged = mergeLists([sx, ...lists])
+  if (merged.length === 0) {
+    // Every engine came up empty — log the per-engine breakdown so "no results"
+    // is diagnosable from data/logs instead of a silent mystery.
+    const [g, d, m, ma] = lists
+    logger.warn(
+      `[websearch] no results for "${q}" — searxng:${sx.length} google:${g!.length} ddg:${d!.length} mojeek:${m!.length} marginalia:${ma!.length} (safesearch=${safesearch})`,
+    )
+  }
+  return merged
 }
 
 // ── In-flight dedupe + short cache ───────────────────────────────────────────────
@@ -232,17 +243,17 @@ const inflight = new Map<string, Promise<WebResult[]>>()
  * kid/teen profiles (safesearch > 0) they're skipped entirely rather than mixing in
  * unfiltered results — mirrors `restrictedMode` gating YouTube in policyTier.ts.
  */
-export async function webSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0): Promise<WebResult[]> {
+export async function webSearch(query: string, limit = 5, timeoutMs = 6000, safesearch: 0 | 1 | 2 = 0, page = 1): Promise<WebResult[]> {
   const q = query.trim()
   if (!q) return []
-  const key = `${safesearch}|${q.toLowerCase()}`
+  const key = `${safesearch}|${page}|${q.toLowerCase()}`
 
   const cached = cache.get(key)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.results.slice(0, limit)
 
   let flight = inflight.get(key)
   if (!flight) {
-    flight = runEngines(q, limit, timeoutMs, safesearch)
+    flight = runEngines(q, limit, timeoutMs, safesearch, page)
       .then((results) => {
         // Only cache success — an empty merge usually means throttled/offline
         // engines, and pinning that for 5 minutes would turn a transient blip
