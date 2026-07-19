@@ -14,25 +14,11 @@
         "accuracy": 0.984327759610045
     },
     {
-        "id": "trained_hey_bramble_mqwpjx1t",
-        "phrase": "Hey Bramble",
-        "file": "trained_hey_bramble_mqwpjx1t.onnx",
-        "threshold": 0.48,
-        "accuracy": 0.985495467333542
-    },
-    {
         "id": "trained_hey_clover_mqwvzy95",
         "phrase": "Hey Clover",
         "file": "trained_hey_clover_mqwvzy95.onnx",
         "threshold": 0.46,
         "accuracy": 0.984486503257834
-    },
-    {
-        "id": "trained_hey_cosmo_mqwuqg31",
-        "phrase": "Hey Cosmo",
-        "file": "trained_hey_cosmo_mqwuqg31.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.988194610064393
     },
     {
         "id": "trained_hey_daisy_mqwwtwpu",
@@ -47,13 +33,6 @@
         "file": "trained_hey_indigo_mqx5hgf7.onnx",
         "threshold": 0.49,
         "accuracy": 0.987624798230406
-    },
-    {
-        "id": "trained_hey_juniper_mqwub33r",
-        "phrase": "Hey Juniper",
-        "file": "trained_hey_juniper_mqwub33r.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.988617791267803
     },
     {
         "id": "trained_hey_marlow_mqwxnz60",
@@ -236,5 +215,26 @@
         "file": "trained_hey_ember_mrp6bnw8.onnx",
         "threshold": 0.74,
         "accuracy": 0.9885983615755808
+    },
+    {
+        "id": "trained_hey_juniper_mrqzunmc",
+        "phrase": "Hey Juniper",
+        "file": "trained_hey_juniper_mrqzunmc.onnx",
+        "threshold": 0.72,
+        "accuracy": 0.9835866014729453
+    },
+    {
+        "id": "trained_hey_cosmo_mrr092w2",
+        "phrase": "Hey Cosmo",
+        "file": "trained_hey_cosmo_mrr092w2.onnx",
+        "threshold": 0.72,
+        "accuracy": 0.9889852216748769
+    },
+    {
+        "id": "trained_hey_bramble_mrr0o0ag",
+        "phrase": "Hey Bramble",
+        "file": "trained_hey_bramble_mrr0o0ag.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.9777206856408815
     }
 ]
