@@ -179,7 +179,10 @@ const MAX_WARM_CREATORS = 30   // bound background yt-dlp load per source per ti
  *  Every feed and every creator warms in parallel — the shared yt-dlp concurrency slot
  *  (lib/ytdlp.ts) bounds actual subprocess fan-out, so this doesn't need its own limiter. */
 async function warmBrowseCaches(): Promise<void> {
-  for (const source of ['tiktok', 'vimeo'] as const) {
+  // Reddit included: its browse is cachedLookup-backed like the others, and it was the
+  // one provider still fanning out cold on the hub home's first page (the /home route
+  // composes from these same provider caches, so warming them warms the home feed too).
+  for (const source of ['tiktok', 'vimeo', 'reddit'] as const) {
     const provider = getProvider(source)
     if (!provider?.browse) continue
     const creatorIds = new Set<string>()

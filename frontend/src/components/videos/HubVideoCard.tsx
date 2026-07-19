@@ -102,18 +102,18 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         {item.thumbnailUrl && (
           letterbox ? (
             <>
-              <img src={proxyImg(item.thumbnailUrl)} aria-hidden alt="" loading="lazy"
+              <img src={proxyImg(item.thumbnailUrl, 640)} aria-hidden alt="" loading="lazy"
                 className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
               <div className="pointer-events-none absolute inset-0 bg-black/20" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="relative aspect-video w-full overflow-hidden">
-                  <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
+                  <img src={proxyImg(item.thumbnailUrl, 640)} alt="" loading="lazy"
                     className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
                 </div>
               </div>
             </>
           ) : (
-            <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy"
+            <img src={proxyImg(item.thumbnailUrl, 640)} alt="" loading="lazy"
               className="relative size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
           )
         )}

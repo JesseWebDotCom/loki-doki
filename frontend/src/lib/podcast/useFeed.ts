@@ -18,8 +18,15 @@ async function fetchFeed(): Promise<PodcastFeed> {
   return { shows, episodesByShow, all }
 }
 
+/** Shared factory so the idle warmer / hover prefetch (lib/prefetch/registry) warm the
+ *  exact query the hub reads. The 60s staleTime makes hub revisits paint instantly from
+ *  cache (the feed is DB-backed and slow-moving; a background refetch still follows). */
+export function podcastFeedQueryOptions() {
+  return { queryKey: ['podcast-feed'] as const, queryFn: fetchFeed, staleTime: 60 * 1000 }
+}
+
 export function usePodcastFeed() {
-  return useQuery({ queryKey: ['podcast-feed'], queryFn: fetchFeed })
+  return useQuery(podcastFeedQueryOptions())
 }
 
 // RSS episodes carry a real publish date; generated ones fall back to generation time.

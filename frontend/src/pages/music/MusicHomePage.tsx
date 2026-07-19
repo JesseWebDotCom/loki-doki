@@ -17,8 +17,8 @@ import { SongTile } from '@/components/music/SongTile'
 import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
-import { listStations, getStation, getHistory, getRails, stationToDj, type Station, type Rail } from '@/lib/music/catalogApi'
-import { getMixes, playSomething, type MixForYou } from '@/lib/music/intelApi'
+import { getStation, stationToDj, musicStationsQueryOptions, musicHistoryQueryOptions, musicRailsQueryOptions, type Station, type Rail } from '@/lib/music/catalogApi'
+import { musicMixesQueryOptions, playSomething, type MixForYou } from '@/lib/music/intelApi'
 import { Spinner } from '@/components/ui/spinner'
 import { DismissableCard } from '@/components/shared/DismissableCard'
 import { PitchBanner } from '@/components/shared/PitchBanner'
@@ -43,7 +43,7 @@ function BillboardSlide({ station, allStations }: { station: Station; allStation
 
   // The station's stamped cover song - the SAME art its card shows (one source of truth),
   // and zero extra requests: it rides along on the stations list we already have.
-  const coverArt = useSongArt(station.coverTrack?.videoId, station.coverTrack?.title, station.coverTrack?.artist)
+  const coverArt = useSongArt(station.coverTrack?.videoId, station.coverTrack?.title, station.coverTrack?.artist, null)
 
   // "Play Something": one tap, the server picks something appropriate (recent favorites,
   // one of your mixes, or a time-of-day station) and playback starts immediately.
@@ -183,7 +183,7 @@ function OfflineHome() {
   const radio = useRadio()
   const { data: stationData } = useOfflineStations()
   const { data: offlineData } = useOfflineSongs()
-  const { data: hist } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory(20) })
+  const { data: hist } = useQuery(musicHistoryQueryOptions(20))
   const stations = stationData?.stations ?? []
   const readyIds = new Set((offlineData?.offline ?? []).filter(t => t.status === 'ready').map(t => t.videoId))
   const recent = (hist?.history ?? []).filter(h => readyIds.has(h.videoId)).slice(0, 12)
@@ -300,7 +300,7 @@ function SongTileArt({ trackRef, title, artist }: { trackRef: string; title: str
 function MixesForYouRail() {
   const radio = useRadio()
   const { hidden, dismiss } = useSuggestionDismiss('music')
-  const { data } = useQuery({ queryKey: ['music-mixes'], queryFn: getMixes, staleTime: 30 * 60 * 1000 })
+  const { data } = useQuery(musicMixesQueryOptions())
   const mixes = (data?.mixes ?? []).filter(m => !hidden.has(m.ref))
   if (!mixes.length) return null
   const play = (m: MixForYou) => {
@@ -328,9 +328,9 @@ export function MusicHomePage() {
   const radio = useRadio()
   const [editorOpen, setEditorOpen] = useState(false)
   const offline = useMusicModeOptional() === 'offline'
-  const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations, enabled: !offline })
-  const { data: hist } = useQuery({ queryKey: ['music-history'], queryFn: () => getHistory(12), enabled: !offline })
-  const { data: railsData } = useQuery({ queryKey: ['music-rails'], queryFn: getRails, enabled: !offline, staleTime: 30 * 60 * 1000 })
+  const { data: buckets } = useQuery({ ...musicStationsQueryOptions(), enabled: !offline })
+  const { data: hist } = useQuery({ ...musicHistoryQueryOptions(12), enabled: !offline })
+  const { data: railsData } = useQuery({ ...musicRailsQueryOptions(), enabled: !offline })
 
   const recent = hist?.history ?? []
   const rails = railsData?.rails ?? []

@@ -102,6 +102,10 @@ async function stampCoverForStation(row: CoverlessStation): Promise<boolean> {
   }
 
   if (!cover) return false
+  // Tier-2 stamps (videoId set): the frontend's useSongArt still tries iTunes first with
+  // this artist+title, so warm that exact lookup now. Usually a miss, and a cached miss
+  // is the point: the first visitor's tile resolves with zero live external calls.
+  if (cover.videoId && cover.artist) void itunesSongArt(cover.artist, cover.title).catch(() => {})
   await db.update(musicStations)
     .set({ coverTrackJson: JSON.stringify(cover) })
     .where(and(eq(musicStations.id, row.id), isNull(musicStations.coverTrackJson)))

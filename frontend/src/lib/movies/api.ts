@@ -141,6 +141,11 @@ export async function getInTheaters(zip = ''): Promise<MovieSummary[]> {
 
 // Full "what's playing near you" payload with theaters + showtimes. Resolves the household ZIP
 // server-side when none is passed, so the section works with zero setup.
+/** Shared factory: InTheatersSection + the movies idle prefetcher read the same key. */
+export function showtimesNearMeQueryOptions() {
+  return { queryKey: ['movies-near-me'] as const, queryFn: () => getShowtimesNearMe(), staleTime: 30 * 60 * 1000 }
+}
+
 export async function getShowtimesNearMe(zip = ''): Promise<NearMe> {
   return getJson<NearMe>(`/api/movies/near-me${zip ? `?zip=${encodeURIComponent(zip)}` : ''}`)
 }

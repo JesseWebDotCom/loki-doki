@@ -221,6 +221,18 @@ async function persistMixes(userId: string, mixes: Mix[]): Promise<Mix[]> {
     })
   }
   emptyComputedAt.set(userId, mixes.length ? 0 : Date.now())
+  // Warm the exact iTunes art lookup each mix card will make (its lead track), so the
+  // Made-For-You rail paints from the 30-day cache on its very first render. Paced,
+  // fire-and-forget; runs inside the daily intel job / stale recompute, never a request.
+  void (async () => {
+    const { itunesSongArt } = await import('@/lib/music/catalog')
+    for (const m of mixes) {
+      const lead = m.tracks[0]
+      if (!lead?.artist || !lead.title) continue
+      await itunesSongArt(lead.artist, lead.title).catch(() => {})
+      await new Promise((r) => setTimeout(r, 300))
+    }
+  })()
   return mixes
 }
 

@@ -41,7 +41,7 @@ export function ImmersivePlayer({ open, onClose }: { open: boolean; onClose: () 
   const track = radio.currentTrack
   // Real square album art when it resolves; the 16:9 video thumbnail (letterboxed) only
   // as the instant fallback - same contract as the overlay and now-playing page.
-  const squareArt = useSongArt(track?.videoId, track?.title, track?.author)
+  const squareArt = useSongArt(track?.videoId, track?.title, track?.author, null)
   const artUrl = squareArt ?? (track?.thumbnail ? proxyImgAuto(track.thumbnail) : '')
   const palette = useArtPalette(artUrl || null)
   const accent = accentOf(palette)

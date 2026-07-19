@@ -9,7 +9,7 @@ import { EpisodeRow } from '@/components/podcast/EpisodeRow'
 import { DirectoryCard, previewHref } from '@/components/podcast/DirectoryCard'
 import { CardGridSkeleton } from '@/components/store/SectionHead'
 import { SectionHeader } from '@/components/shared/SectionHeader'
-import { coverUrl, toTrack, getCharts, getSuggestedPodcasts, type DirectoryResult, type Show } from '@/lib/podcast/api'
+import { coverUrl, toTrack, podcastChartsQueryOptions, getSuggestedPodcasts, type DirectoryResult, type Show } from '@/lib/podcast/api'
 import { DismissableCard } from '@/components/shared/DismissableCard'
 import { PitchBanner } from '@/components/shared/PitchBanner'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
@@ -22,8 +22,6 @@ import { proxyImg } from '@/lib/img'
 import { useFamilyAudio } from '@/hooks/useFamilyAudio'
 import { FamilyAudioBlockedCard } from '@/components/shared/FamilyAudioBlockedCard'
 import type { PodcastFeed } from '@/lib/podcast/useFeed'
-
-const CHARTS_STALE_MS = 30 * 60 * 1000
 
 /** iTunes chart art comes back ~170px; mzstatic URLs encode the size, so ask for 600. */
 function hiResArt(url: string | null): string | null {
@@ -40,18 +38,12 @@ export function ListenNowPage() {
   const { data: family } = useFamilyAudio()
   // Same query keys as the Browse page so chart fetches are shared between the two.
   const { data: charts } = useQuery({
-    queryKey: ['podcast-dir-charts', null],
-    queryFn: () => getCharts(null),
-    staleTime: CHARTS_STALE_MS,
+    ...podcastChartsQueryOptions(null),
     enabled: !family?.allowlistOnly,
   })
   const genres = (charts?.genres ?? []).slice(0, 3)
   const genreCharts = useQueries({
-    queries: genres.map((g) => ({
-      queryKey: ['podcast-dir-charts', g.id],
-      queryFn: () => getCharts(g.id),
-      staleTime: CHARTS_STALE_MS,
-    })),
+    queries: genres.map((g) => podcastChartsQueryOptions(g.id)),
   })
 
   if (family?.allowlistOnly) {
