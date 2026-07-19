@@ -103,7 +103,13 @@ interface PreparedDj { text: string | null; blobUrl: string | null }
 const DEFAULT_FADE = 1300  // default crossfade ramp length (ms)
 const INTRO_BED = 0.22  // level a song plays at while it's the backing bed (DJ talks over it)
 // First real lyric this close to the start means the DJ speaks FIRST, then the song begins clean.
+// This is only the floor: the real decision also measures the prepared DJ clip, because a
+// 10-second DJ segment can't fit before a lyric at 6 seconds either (see djFitsBeforeLyric).
 const IMMEDIATE_LYRICS_THRESHOLD = 4   // seconds
+// Pause between the DJ finishing and the first vocal that we insist on when choosing to talk over.
+const DJ_LYRIC_MARGIN = 0.5   // seconds
+// speak()'s no-audio fallback wait, as seconds (kept in sync with the 2400ms below).
+const DJ_NO_AUDIO_WAIT_SEC = 2.4
 
 // ── Lyric-timing helpers ─────────────────────────────────────────────────────
 interface LyricLine { sec: number; text: string }
@@ -132,6 +138,19 @@ async function fetchFirstRealLyricSec(track: QueuedTrack): Promise<number | null
     if (!synced?.length) return null
     return synced.find(l => !isFillerLine(l.text))?.sec ?? null
   } catch { return null }
+}
+
+/** Duration (sec) of an audio blob URL via metadata, or null if unreadable. */
+function blobDurationSec(blobUrl: string): Promise<number | null> {
+  return new Promise(res => {
+    const a = new Audio()
+    const done = (v: number | null) => { a.onloadedmetadata = null; a.onerror = null; res(v) }
+    a.onloadedmetadata = () => done(Number.isFinite(a.duration) && a.duration > 0 ? a.duration : null)
+    a.onerror = () => done(null)
+    setTimeout(() => done(null), 1500)   // blob URLs load locally; this never fires in practice
+    a.preload = 'metadata'
+    a.src = blobUrl
+  })
 }
 
 // Strip the promo noise YouTube titles are littered with — "(Official Video)", "[OFFICIAL
@@ -647,6 +666,13 @@ export class RadioEngine {
     }
   }
 
+  // How long speak(dj) will actually take, so lyric-gap decisions can use the real clip length.
+  private async djDurationSec(dj: PreparedDj): Promise<number> {
+    if (this.effectiveDjMode() === 'silent') return 0
+    if (!dj.blobUrl) return DJ_NO_AUDIO_WAIT_SEC
+    return (await blobDurationSec(dj.blobUrl)) ?? DJ_NO_AUDIO_WAIT_SEC
+  }
+
   // Play a DJ blob over the song; resolves when the voice finishes (or on error/no-audio).
   private async speak(dj: PreparedDj): Promise<void> {
     // Hard gate: if the user has silenced the DJ, never play voice — even a segment that was
@@ -708,9 +734,12 @@ export class RadioEngine {
   // full. Guarantees there's always music under the DJ between songs.
   //
   // firstRealLyricSec: timestamp of the first non-filler lyric in the incoming track (or null).
-  //   • null / >= IMMEDIATE_LYRICS_THRESHOLD → normal bed path; swell is timed to the lyric.
-  //   • < IMMEDIATE_LYRICS_THRESHOLD → DJ-first: outgoing song fades under the DJ, then the
-  //     incoming song starts clean from the top so the vocal enters at full volume.
+  //   • null, or far enough out that the DJ clip fits before it → normal bed path; swell is
+  //     timed to the lyric.
+  //   • otherwise → DJ-first: outgoing song fades under the DJ, then the incoming song starts
+  //     clean from the top so the vocal enters at full volume. "Fits" is measured against the
+  //     real clip length, not just IMMEDIATE_LYRICS_THRESHOLD: a lyric at 6s is just as
+  //     un-talkable-over as one at 2s when the DJ segment runs 10s.
   private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj, display: Partial<RadioState>, quick = false, firstRealLyricSec: number | null = null) {
     this.set({ djText: dj.text })
 
@@ -738,10 +767,17 @@ export class RadioEngine {
       return
     }
 
-    // IMMEDIATE LYRICS path: the next track's vocals start within a few seconds of the beginning, so
-    // there's no safe instrumental gap to talk over. Fade the outgoing song under the DJ, then start
-    // the incoming track from position 0 at full volume once the DJ finishes — no bleed-in bed.
-    if (firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD) {
+    // IMMEDIATE LYRICS path: the DJ speech won't fit in the instrumental gap before the first
+    // vocal. On the bed path the DJ starts speaking ~1.3s into the incoming song (bed settle),
+    // so the clip has to end before the lyric with a small breath to spare; otherwise fade the
+    // outgoing song under the DJ, then start the incoming track from position 0 at full volume
+    // once the DJ finishes: no bleed-in bed, no talked-over vocal.
+    const djFitsBeforeLyric = firstRealLyricSec === null
+      || firstRealLyricSec > Math.max(
+        IMMEDIATE_LYRICS_THRESHOLD,
+        1.3 + (await this.djDurationSec(dj)) + DJ_LYRIC_MARGIN,
+      )
+    if (!djFitsBeforeLyric) {
       // No overlap on this path (the incoming song starts clean after the DJ), so there's
       // nothing to beat-match - undo the AutoMix rate before the song starts.
       if (mixRate !== null) this.resetDeckRate(toDeck)
@@ -850,7 +886,7 @@ export class RadioEngine {
       const firstRealLyricSec = await fetchFirstRealLyricSec(head[0]!)
       if (this.stale(runId)) return
 
-      const immediateStart = firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD
+      let immediateStart = firstRealLyricSec !== null && firstRealLyricSec <= IMMEDIATE_LYRICS_THRESHOLD
 
       // Only ramp to bed if there's a safe instrumental gap to talk over.
       if (!immediateStart) this.ramp(this.deckKey(0), INTRO_BED, 900)
@@ -858,6 +894,18 @@ export class RadioEngine {
       const intro = await this.prepareDj({ station, track: head[0]!, position: 'intro' })
       if (this.stale(runId)) return
       const deck0El = this.deckEl(0)
+
+      // The clip is in hand and the song has been playing under DJ generation, so measure the
+      // real fit: from where the song is NOW, does the speech end before the first vocal? If
+      // not, flip to DJ-first (mute the bed and restart the song clean after the DJ) instead
+      // of talking over the lyric.
+      if (!immediateStart && firstRealLyricSec !== null) {
+        const djDur = await this.djDurationSec(intro)
+        if (firstRealLyricSec <= deck0El.currentTime + djDur + DJ_LYRIC_MARGIN) {
+          immediateStart = true
+          this.ramp(this.deckKey(0), 0, 400)
+        }
+      }
 
       this.set({ djText: intro.text, djSpeaking: true })
       await this.speak(intro)
