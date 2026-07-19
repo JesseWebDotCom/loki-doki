@@ -497,7 +497,7 @@ function WidgetWeather() {
   const { snapshot, status } = useWeatherSnapshot();
 
   return (
-    <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
+    <Link to="/weather" className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
       <div className="flex items-center gap-1.5 text-overline text-muted-foreground/60">
         <span>⛅</span>
         <span>Weather</span>
@@ -507,16 +507,16 @@ function WidgetWeather() {
         <p className="text-[12px] text-muted-foreground/60">No location set. Configure in Settings.</p>
       )}
       {status === "ready" && snapshot && (
-        <Link to="/weather" className="flex items-center gap-3 group">
+        <div className="flex items-center gap-3 group">
           <img src={weatherIconSrc(snapshot.info.icon)} className="size-10 shrink-0" alt="" />
           <div>
             <p className="text-2xl font-semibold tabular-nums leading-none">{snapshot.temp}°</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">{snapshot.info.desc}</p>
             <p className="text-[10px] text-muted-foreground/50 mt-0.5 leading-tight">{snapshot.location}</p>
           </div>
-        </Link>
+        </div>
       )}
-    </div>
+    </Link>
   );
 }
 
