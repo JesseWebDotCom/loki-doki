@@ -666,6 +666,21 @@ export class RadioEngine {
     }
   }
 
+  // Skip-through-the-DJ support. skipResolve only exists while waitTail runs, so historically
+  // every second of the intro/transition sequence (DJ prep, bed settle, the voice itself, the
+  // timed swell) was a dead zone where the skip button did nothing. These two make a skip press
+  // there cut the DJ short and swell straight into the song instead.
+  private djSkip: (() => void) | null = null       // live only while the DJ audio is playing
+  private djSkipRequested = false                  // sticky until the current sequence consumes it
+
+  // Skippable sleep for the timed swell: resolves early when the listener hits skip.
+  private swellWait(ms: number): Promise<void> {
+    return new Promise(r => {
+      const t = setTimeout(() => { this.djSkip = null; r() }, ms)
+      this.djSkip = () => { clearTimeout(t); this.djSkip = null; r() }
+    })
+  }
+
   // How long speak(dj) will actually take, so lyric-gap decisions can use the real clip length.
   private async djDurationSec(dj: PreparedDj): Promise<number> {
     if (this.effectiveDjMode() === 'silent') return 0
@@ -678,13 +693,22 @@ export class RadioEngine {
     // Hard gate: if the user has silenced the DJ, never play voice — even a segment that was
     // pre-generated for this transition before they toggled. Don't pause either; just continue.
     if (this.effectiveDjMode() === 'silent') { if (dj.blobUrl) URL.revokeObjectURL(dj.blobUrl); return }
-    if (!dj.blobUrl) { await new Promise(r => setTimeout(r, 2400)); return }
+    // Skip pressed before the DJ opened their mouth (during prep / bed settle): drop the clip.
+    if (this.djSkipRequested) { if (dj.blobUrl) URL.revokeObjectURL(dj.blobUrl); return }
+    if (!dj.blobUrl) {
+      await new Promise<void>(r => {
+        const t = setTimeout(() => { this.djSkip = null; r() }, 2400)
+        this.djSkip = () => { clearTimeout(t); this.djSkip = null; r() }
+      })
+      return
+    }
     const el = this.ch.dj.el
     el.src = dj.blobUrl
     this.ramp('dj', 1, 0)
     await new Promise<void>(res => {
-      const fin = () => { el.onended = null; el.onerror = null; res() }
+      const fin = () => { el.onended = null; el.onerror = null; this.djSkip = null; res() }
       el.onended = fin; el.onerror = fin
+      this.djSkip = () => { try { el.pause() } catch { /* noop */ } ; fin() }
       el.play().then(() => { try { ensureMediaGraph(el, { kind: 'voice' }) } catch { /* optional */ } }).catch(fin)
     })
     URL.revokeObjectURL(dj.blobUrl)
@@ -828,13 +852,14 @@ export class RadioEngine {
     if (this.stale(runId)) return
 
     // If we know when the first vocal line hits, hold the bed until just before it so the swell
-    // lands right as the song kicks in vocally. Skip the wait if the DJ already ran past that point.
-    if (firstRealLyricSec !== null) {
+    // lands right as the song kicks in vocally. Skip the wait if the DJ already ran past that
+    // point, or if the listener cut the DJ off (they want the song NOW, not a timed swell).
+    if (firstRealLyricSec !== null && !this.djSkipRequested) {
       const remaining = firstRealLyricSec - el.currentTime - this.fadeMs() / 1000
-      if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
+      if (remaining > 0.2) await this.swellWait(remaining * 1000)
       if (this.stale(runId)) return
     }
-    this.ramp(this.deckKey(toDeck), 1, this.fadeMs())
+    this.ramp(this.deckKey(toDeck), 1, this.djSkipRequested ? 450 : this.fadeMs())
     // The overlap has blended - ease the tempo nudge back to natural speed.
     if (mixRate !== null) this.easeRateBack(toDeck, runId, this.fadeMs() + 200)
   }
@@ -919,12 +944,13 @@ export class RadioEngine {
       } else {
         // Timed swell: hold the bed until just before the first real lyric so the full-volume
         // moment lands with the vocal. If the DJ already ran past that point, swell immediately.
-        if (firstRealLyricSec !== null) {
+        // A skip press during the intro also collapses the wait: straight into the song.
+        if (firstRealLyricSec !== null && !this.djSkipRequested) {
           const remaining = firstRealLyricSec - deck0El.currentTime - this.fadeMs() / 1000
-          if (remaining > 0.2) await new Promise(r => setTimeout(r, remaining * 1000))
+          if (remaining > 0.2) await this.swellWait(remaining * 1000)
           if (this.stale(runId)) return
         }
-        this.ramp(this.deckKey(0), 1, this.fadeMs())
+        this.ramp(this.deckKey(0), 1, this.djSkipRequested ? 450 : this.fadeMs())
       }
       this.set({ djSpeaking: false, djText: null })
     } else {
@@ -994,6 +1020,7 @@ export class RadioEngine {
     this.songsRef = songs
     for (let i = 0; i < songs.length; i++) {
       if (this.stale(runId)) return
+      this.djSkipRequested = false   // the previous transition consumed any mid-DJ skip
       const cur = songs[i]!
       // Shuffle: pick what plays after this song BEFORE the next deck is pre-cued, so the
       // whole transition pipeline (prewarm, DJ prep, lyrics peek) targets the right track.
@@ -1174,6 +1201,13 @@ export class RadioEngine {
   }
 
   skip() {
+    // Mid-DJ (or anywhere in the intro/transition sequence, where the queue can't advance
+    // yet): cut the voice short and swell straight into the song. Never a dead click.
+    if (this.state.djSpeaking || this.state.phase === 'intro' || this.state.phase === 'transition') {
+      this.djSkipRequested = true
+      this.djSkip?.()
+      return
+    }
     // Immediate UI feedback so the listener knows the click registered (the actual hand-off takes a
     // beat to cue + crossfade). Cleared when the next song takes over.
     if (this.state.phase === 'playing' && this.skipResolve) this.set({ skipping: true })
@@ -1348,6 +1382,8 @@ export class RadioEngine {
   stop() {
     this.runId++
     this.skipResolve = null
+    this.djSkip = null
+    this.djSkipRequested = false
     this.songsRef = null
     if (this.sleepTimeout) { clearTimeout(this.sleepTimeout); this.sleepTimeout = null }
     if (this.built) {
