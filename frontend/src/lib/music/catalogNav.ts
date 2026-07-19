@@ -9,7 +9,7 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { catalogSearch } from '@/lib/music/catalogApi'
+import { catalogSearch, getArtistId, getAlbumId } from '@/lib/music/catalogApi'
 
 export function useCatalogNav() {
   const navigate = useNavigate()
@@ -22,8 +22,9 @@ export function useCatalogNav() {
     if (!q || pending) return
     setPending('artist')
     try {
-      const { artists } = await catalogSearch(q, 'artists')
-      const mbid = artists?.[0]?.mbid
+      // The identity-bearing resolver (server-picked MusicBrainz id). The plain catalog
+      // search is Deezer-first and its hits carry mbid '' - never resolve through it.
+      const { mbid } = await getArtistId(q)
       if (mbid) navigate(`/music/artist/${mbid}`)
       else toast.error(`No catalog match for "${q}"`)
     } catch { toast.error(`Couldn't open "${q}"`) } finally { setPending(null) }
@@ -38,12 +39,18 @@ export function useCatalogNav() {
     try {
       const { songs } = await catalogSearch(`${(artist || '').trim()} ${t}`.trim(), 'songs')
       const s = songs?.[0]
+      // Direct ids only exist on the MusicBrainz fallback path; Deezer-first results carry
+      // none, so resolve the album (then artist) through the identity-bearing endpoints.
       if (s?.albumMbid) { navigate(`/music/album/${s.albumMbid}`); return }
       if (s?.artistMbid) { navigate(`/music/artist/${s.artistMbid}`); return }
-      const a = (artist || '').trim()
+      const a = (artist || '').trim() || s?.artistName || ''
+      if (s?.albumTitle && a) {
+        const { mbid } = await getAlbumId(s.albumTitle, a)
+        if (mbid) { navigate(`/music/album/${mbid}`); return }
+      }
       if (a) {
-        const { artists } = await catalogSearch(a, 'artists')
-        if (artists?.[0]?.mbid) { navigate(`/music/artist/${artists[0].mbid}`); return }
+        const { mbid } = await getArtistId(a)
+        if (mbid) { navigate(`/music/artist/${mbid}`); return }
       }
       toast.error(`No catalog match for "${t}"`)
     } catch { toast.error(`Couldn't open "${t}"`) } finally { setPending(null) }
