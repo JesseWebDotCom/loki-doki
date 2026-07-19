@@ -205,32 +205,31 @@ export async function searchArtists(query: string, limit = 12): Promise<CatalogA
   } catch (err) {
     logger.debug(`[catalog] deezer searchArtists failed, falling back to MB: ${String(err)}`)
   }
-  return mbSearchArtists(q, limit)
+  // Interactive search degrades to empty on an MB hiccup, but the miss is NOT cached.
+  return mbSearchArtists(q, limit).catch(() => [])
 }
 
 // MusicBrainz artist search — the identity-bearing path (results carry real MBIDs).
 // Backs both the Deezer-empty fallback above and pickArtistMbid, which must NOT go
 // through the Deezer-first search: Deezer hits have mbid='' and would make every
 // name → artist-page resolution come up empty.
+// Transient failures (throttle, timeout, network) THROW so cachedLookup never stores
+// them — a caught-and-cached [] here poisons artist navigation for 30 days.
+// (v2: v1 rows include such error-driven empties.)
 async function mbSearchArtists(q: string, limit: number): Promise<CatalogArtist[]> {
-  return cachedLookup('mb-artist-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
-    try {
-      const data = await mbFetch(`/artist?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
-      return (data.artists ?? [])
-        // MusicBrainz's compilation placeholder matches nearly every genre-word query and
-        // is never what a browser wants - pure noise in the Artists rail.
-        .filter((a: any) => a.id !== '89ad4ac3-39f7-470e-963a-56509c546377' && a.name?.toLowerCase() !== 'various artists')
-        .map((a: any): CatalogArtist => ({
+  return cachedLookup('mb-artist-search-v2', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
+    const data = await mbFetch(`/artist?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
+    return (data.artists ?? [])
+      // MusicBrainz's compilation placeholder matches nearly every genre-word query and
+      // is never what a browser wants - pure noise in the Artists rail.
+      .filter((a: any) => a.id !== '89ad4ac3-39f7-470e-963a-56509c546377' && a.name?.toLowerCase() !== 'various artists')
+      .map((a: any): CatalogArtist => ({
         mbid: a.id,
         name: a.name,
         disambiguation: a.disambiguation || null,
         type: a.type || null,
         country: a.country || null,
       }))
-    } catch (err) {
-      logger.debug(`[catalog] searchArtists failed: ${String(err)}`)
-      return []
-    }
   })
 }
 
@@ -278,21 +277,23 @@ export async function searchAlbums(query: string, limit = 16): Promise<CatalogAl
 export async function albumMbidFor(title: string, artist: string): Promise<string | null> {
   const t = title.trim(); const a = artist.trim()
   if (!t) return null
-  return cachedLookup('mb-album-id', `${a}~${t}`.toLowerCase(), THIRTY_DAYS_MS, async () => {
-    try {
-      const parts = [`releasegroup:(${lucene(t)})`]
-      if (a) parts.push(`artist:(${lucene(a)})`)
-      const data = await mbFetch(`/release-group?query=${encodeURIComponent(parts.join(' AND '))}&limit=5`)
-      const groups = data['release-groups'] ?? []
-      // Prefer an exact-ish title match, else the top hit.
-      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-      const want = norm(t)
-      const pick = groups.find((g: any) => norm(g.title ?? '') === want) ?? groups[0]
-      return pick?.id ?? null
-    } catch (err) {
-      logger.debug(`[catalog] albumMbidFor failed: ${String(err)}`)
-      return null
-    }
+  // Transient MB failures THROW (nothing cached) — a cached null pins 'no such album'
+  // for 30 days. v2: v1 rows include such error-driven nulls.
+  return cachedLookup('mb-album-id-v2', `${a}~${t}`.toLowerCase(), THIRTY_DAYS_MS, async () => {
+    const parts = [`releasegroup:(${lucene(t)})`]
+    if (a) parts.push(`artist:(${lucene(a)})`)
+    const data = await mbFetch(`/release-group?query=${encodeURIComponent(parts.join(' AND '))}&limit=5`)
+    const groups = data['release-groups'] ?? []
+    // Prefer an exact-ish title match, else the top hit. Among exact matches rank
+    // Album > EP > Single: title-track singles share the album's exact name ("Slave to
+    // the Grind") and would otherwise open a 2-track page instead of the record.
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const want = norm(t)
+    const typeRank = (g: any) => g['primary-type'] === 'Album' ? 0 : g['primary-type'] === 'EP' ? 1 : 2
+    const exacts = groups.filter((g: any) => norm(g.title ?? '') === want)
+      .sort((x: any, y: any) => typeRank(x) - typeRank(y))
+    const pick = exacts[0] ?? groups[0]
+    return pick?.id ?? null
   })
 }
 
@@ -349,49 +350,44 @@ export async function searchSongs(query: string, limit = 20, artist?: string): P
 
 // ── Entity detail / browse ─────────────────────────────────────────────────────────
 
+// Transient MB failures THROW (nothing cached) — a cached null renders the artist page
+// empty for 30 days. Callers that prefer degrading catch at the call site.
+// (v2: v1 rows include such error-driven nulls.)
 export async function getArtist(mbid: string): Promise<CatalogArtistDetail | null> {
   if (!mbid) return null
-  return cachedLookup('mb-artist', mbid, THIRTY_DAYS_MS, async () => {
-    try {
-      const a = await mbFetch(`/artist/${mbid}?inc=url-rels+tags`)
-      const rels: any[] = a.relations ?? []
-      const findRel = (type: string) => rels.find(r => r.type === type)?.url?.resource ?? null
-      // MusicBrainz editors curate a direct "image" relation to Wikimedia Commons for many
-      // artists - the authoritative photo, no Wikipedia title guessing. Convert the File:
-      // page URL into a directly loadable Special:FilePath thumbnail.
-      const imageRel = rels.find(r => r.type === 'image' && typeof r.url?.resource === 'string' && r.url.resource.includes('commons.wikimedia.org'))?.url?.resource as string | undefined
-      let imageUrl: string | null = null
-      if (imageRel) {
-        const file = imageRel.split('/File:').pop()
-        if (file && file !== imageRel) imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(decodeURIComponent(file))}?width=400`
-      }
-      const tags = (a.tags ?? [])
-        .filter((t: any) => (t.count ?? 0) > 0)
-        .sort((x: any, y: any) => (y.count ?? 0) - (x.count ?? 0))
-        .slice(0, 8)
-        .map((t: any) => t.name as string)
-      return {
-        mbid: a.id,
-        name: a.name,
-        disambiguation: a.disambiguation || null,
-        type: a.type || null,
-        country: a.country || null,
-        wikipediaUrl: findRel('wikipedia'),
-        wikidataId: (findRel('wikidata') as string | null)?.split('/').pop() ?? null,
-        officialUrl: findRel('official homepage'),
-        imageUrl,
-        tags,
-      }
-    } catch (err) {
-      logger.debug(`[catalog] getArtist failed: ${String(err)}`)
-      return null
+  return cachedLookup('mb-artist-v2', mbid, THIRTY_DAYS_MS, async () => {
+    const a = await mbFetch(`/artist/${mbid}?inc=url-rels+tags`)
+    const rels: any[] = a.relations ?? []
+    const findRel = (type: string) => rels.find(r => r.type === type)?.url?.resource ?? null
+    // MusicBrainz editors curate a direct "image" relation to Wikimedia Commons for many
+    // artists - the authoritative photo, no Wikipedia title guessing. Convert the File:
+    // page URL into a directly loadable Special:FilePath thumbnail.
+    const imageRel = rels.find(r => r.type === 'image' && typeof r.url?.resource === 'string' && r.url.resource.includes('commons.wikimedia.org'))?.url?.resource as string | undefined
+    let imageUrl: string | null = null
+    if (imageRel) {
+      const file = imageRel.split('/File:').pop()
+      if (file && file !== imageRel) imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(decodeURIComponent(file))}?width=400`
+    }
+    const tags = (a.tags ?? [])
+      .filter((t: any) => (t.count ?? 0) > 0)
+      .sort((x: any, y: any) => (y.count ?? 0) - (x.count ?? 0))
+      .slice(0, 8)
+      .map((t: any) => t.name as string)
+    return {
+      mbid: a.id,
+      name: a.name,
+      disambiguation: a.disambiguation || null,
+      type: a.type || null,
+      country: a.country || null,
+      wikipediaUrl: findRel('wikipedia'),
+      wikidataId: (findRel('wikidata') as string | null)?.split('/').pop() ?? null,
+      officialUrl: findRel('official homepage'),
+      imageUrl,
+      tags,
     }
   })
 }
 
-/** Pick THE MusicBrainz artist for a bare name (genre-chart chips → real artist pages).
- *  Exact-name matches only; when several acts share the name ("Skid Row" US vs Irish),
- *  prefer the one with a curated photo - the famous act, in practice. Cached 30 days. */
 /** Name equality across catalog spelling quirks: MusicBrainz writes "Guns N’ Roses"
  *  (typographic apostrophe), Deezer writes "Guns N' Roses" - fold apostrophe variants,
  *  diacritics, case, and whitespace before comparing. */
@@ -404,71 +400,73 @@ export function sameArtistName(a: string, b: string): boolean {
   return fold(a) === fold(b)
 }
 
+/** Pick THE MusicBrainz artist for a bare name (genre-chart chips → real artist pages).
+ *  Exact-name matches preferred (fuzzy top hit as fallback); when several acts share the
+ *  name ("Skid Row" US vs Irish), prefer the one with a curated photo - the famous act,
+ *  in practice. Cached 30 days. */
 export async function pickArtistMbid(name: string): Promise<string | null> {
   const n = name.trim()
   if (!n) return null
-  // v3: v2 entries were poisoned with '' when this briefly resolved through the
-  // Deezer-first searchArtists (Deezer results carry no MBID).
-  return cachedLookup('mb-artist-pick-v3', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
+  // v4: v3 entries include nulls cached while mbSearchArtists swallowed transient MB
+  // failures as [] (and strict-exact misses, relaxed below). v2 was poisoned with ''
+  // when this briefly resolved through the Deezer-first searchArtists.
+  return cachedLookup('mb-artist-pick-v4', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
     const hits = await mbSearchArtists(n, 5)
     const exacts = hits.filter(h => sameArtistName(h.name, n))
-    if (!exacts.length) return null
+    // No exact spelling match (Deezer and MB sometimes write the same act differently):
+    // MB's fuzzy top hit for a full artist name is almost always the act itself, and an
+    // artist page beats dead-ending the click on 'No catalog match'.
+    if (!exacts.length) return hits[0]?.mbid ?? null
     if (exacts.length === 1) return exacts[0]!.mbid
     for (const e of exacts.slice(0, 2)) {
-      const a = await getArtist(e.mbid)
+      const a = await getArtist(e.mbid).catch(() => null)
       if (a?.imageUrl || a?.wikidataId) return e.mbid
     }
     return exacts[0]!.mbid
   })
 }
 
-/** An artist's discography (albums + singles + EPs), newest first. */
+/** An artist's discography (albums + singles + EPs), newest first.
+ *  Transient MB failures THROW (nothing cached) — a cached [] blanks the discography
+ *  for 30 days. (v2: v1 rows include such error-driven empties.) */
 export async function getArtistAlbums(mbid: string, limit = 100): Promise<CatalogAlbum[]> {
   if (!mbid) return []
-  return cachedLookup('mb-artist-albums', `${mbid}:${limit}`, THIRTY_DAYS_MS, async () => {
-    try {
-      const data = await mbFetch(`/release-group?artist=${mbid}&type=album|ep|single&limit=${limit}&inc=artist-credits`)
-      const albums = (data['release-groups'] ?? []).map(mapReleaseGroup)
-      return albums.sort((a: CatalogAlbum, b: CatalogAlbum) => (b.year ?? 0) - (a.year ?? 0))
-    } catch (err) {
-      logger.debug(`[catalog] getArtistAlbums failed: ${String(err)}`)
-      return []
-    }
+  return cachedLookup('mb-artist-albums-v2', `${mbid}:${limit}`, THIRTY_DAYS_MS, async () => {
+    const data = await mbFetch(`/release-group?artist=${mbid}&type=album|ep|single&limit=${limit}&inc=artist-credits`)
+    const albums = (data['release-groups'] ?? []).map(mapReleaseGroup)
+    return albums.sort((a: CatalogAlbum, b: CatalogAlbum) => (b.year ?? 0) - (a.year ?? 0))
   })
 }
 
-/** An album's tracklist, taken from a representative release of the release-group. */
+/** An album's tracklist, taken from a representative release of the release-group.
+ *  Transient MB failures THROW (nothing cached) — a cached empty blanks the album page
+ *  for 30 days. (v2: v1 rows include such error-driven empties.) */
 export async function getAlbum(releaseGroupMbid: string): Promise<{ album: CatalogAlbum | null; songs: CatalogSong[] }> {
   if (!releaseGroupMbid) return { album: null, songs: [] }
-  return cachedLookup('mb-album', releaseGroupMbid, THIRTY_DAYS_MS, async () => {
-    try {
-      const rg = await mbFetch(`/release-group/${releaseGroupMbid}?inc=artist-credits+releases`)
-      const album = mapReleaseGroup(rg)
-      // Pick the first official release of the group and pull its recordings.
-      const releases: any[] = rg.releases ?? []
-      const chosen = releases.find(r => r.status === 'Official') ?? releases[0]
-      if (!chosen) return { album, songs: [] }
-      const rel = await mbFetch(`/release/${chosen.id}?inc=recordings+artist-credits`)
-      const songs: CatalogSong[] = []
-      for (const medium of rel.media ?? []) {
-        for (const tr of medium.tracks ?? []) {
-          const rec = tr.recording ?? {}
-          songs.push({
-            mbid: rec.id ?? tr.id,
-            title: tr.title ?? rec.title ?? '',
-            durationSec: (tr.length ?? rec.length) ? Math.round((tr.length ?? rec.length) / 1000) : null,
-            artistName: creditName(rec['artist-credit'] ?? rel['artist-credit']),
-            artistMbid: (rec['artist-credit'] ?? rel['artist-credit'])?.[0]?.artist?.id ?? null,
-            albumTitle: album.title,
-            albumMbid: album.mbid,
-          })
-        }
+  return cachedLookup('mb-album-v2', releaseGroupMbid, THIRTY_DAYS_MS, async () => {
+    const rg = await mbFetch(`/release-group/${releaseGroupMbid}?inc=artist-credits+releases`)
+    const album = mapReleaseGroup(rg)
+    // Pick the first official release of the group and pull its recordings.
+    const releases: any[] = rg.releases ?? []
+    const chosen = releases.find(r => r.status === 'Official') ?? releases[0]
+    if (!chosen) return { album, songs: [] }
+    const rel = await mbFetch(`/release/${chosen.id}?inc=recordings+artist-credits`)
+    const songs: CatalogSong[] = []
+    for (const medium of rel.media ?? []) {
+      for (const tr of medium.tracks ?? []) {
+        const rec = tr.recording ?? {}
+        songs.push({
+          mbid: rec.id ?? tr.id,
+          title: tr.title ?? rec.title ?? '',
+          durationSec: (tr.length ?? rec.length) ? Math.round((tr.length ?? rec.length) / 1000) : null,
+          artistName: creditName(rec['artist-credit'] ?? rel['artist-credit']),
+          artistMbid: (rec['artist-credit'] ?? rel['artist-credit'])?.[0]?.artist?.id ?? null,
+          albumTitle: album.title,
+          albumMbid: album.mbid,
+        })
       }
-      return { album, songs }
-    } catch (err) {
-      logger.debug(`[catalog] getAlbum failed: ${String(err)}`)
-      return { album: null, songs: [] }
     }
+    return { album, songs }
   })
 }
 

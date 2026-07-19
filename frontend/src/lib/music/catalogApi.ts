@@ -105,13 +105,14 @@ export function getGenreLanding(genre: string) {
   return mfetch<{ tracks: Array<{ title: string; artist: string }>; artists: Array<{ name: string; picture: string | null }> }>(
     `/catalog/genre?g=${encodeURIComponent(genre)}`)
 }
-/** Bare artist name → THE MusicBrainz artist id (server-picked among same-named acts). */
+/** Bare artist name → THE MusicBrainz artist id (server-picked among same-named acts).
+ *  v=2 busts browser-cached {mbid:null} responses from before misses became no-store. */
 export function getArtistId(name: string) {
-  return mfetch<{ mbid: string | null }>(`/catalog/artist-id?name=${encodeURIComponent(name)}`)
+  return mfetch<{ mbid: string | null }>(`/catalog/artist-id?name=${encodeURIComponent(name)}&v=2`)
 }
 /** Album title + artist → THE release-group MBID (Deezer search results have no MBID). */
 export function getAlbumId(title: string, artist: string) {
-  return mfetch<{ mbid: string | null }>(`/catalog/album-id?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`)
+  return mfetch<{ mbid: string | null }>(`/catalog/album-id?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&v=2`)
 }
 // Batch owned-copy lookup: which of these songs does the family's library (local/Plex)
 // already have? Powers the "Yours" badges - a hit means playback uses the owned copy.

@@ -131,8 +131,14 @@ musicCatalog.get('/genre', async (c) => {
 musicCatalog.get('/artist-id', async (c) => {
   const name = c.req.query('name')?.trim() ?? ''
   if (!name) return c.json({ error: 'name required' }, 400)
-  const mbid = await pickArtistMbid(name)
-  return c.json({ mbid }, 200, { 'Cache-Control': 'private, max-age=86400' })
+  // Only a FOUND id may be browser-cached: a null pinned for a day kept 'No catalog
+  // match' sticky on every artist click even after the server-side resolver was fixed.
+  try {
+    const mbid = await pickArtistMbid(name)
+    return c.json({ mbid }, 200, { 'Cache-Control': mbid ? 'private, max-age=86400' : 'no-store' })
+  } catch {
+    return c.json({ mbid: null }, 200, { 'Cache-Control': 'no-store' })
+  }
 })
 
 // GET /api/music/catalog/album-id?title=&artist= — album name → THE release-group MBID, so a
@@ -141,8 +147,12 @@ musicCatalog.get('/album-id', async (c) => {
   const title = c.req.query('title')?.trim() ?? ''
   const artist = c.req.query('artist')?.trim() ?? ''
   if (!title) return c.json({ error: 'title required' }, 400)
-  const mbid = await albumMbidFor(title, artist)
-  return c.json({ mbid }, 200, { 'Cache-Control': 'private, max-age=86400' })
+  try {
+    const mbid = await albumMbidFor(title, artist)
+    return c.json({ mbid }, 200, { 'Cache-Control': mbid ? 'private, max-age=86400' : 'no-store' })
+  } catch {
+    return c.json({ mbid: null }, 200, { 'Cache-Control': 'no-store' })
+  }
 })
 
 // GET /api/music/catalog/resolve?mbid=&title=&artist=&duration= — identity → playable ref.
