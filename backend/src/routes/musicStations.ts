@@ -3,12 +3,13 @@
 // built-in default roster reconciled on every install.
 
 import { Hono } from 'hono'
-import { eq, or, and, isNull, like, desc, inArray } from 'drizzle-orm'
+import { eq, or, and, isNull, like, desc, gt, inArray } from 'drizzle-orm'
 
 import { db } from '@/db'
 import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDjCache, musicFavorites, musicHistory, ytDownloads, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
+import { serveStationHead, warmStationHeads } from '@/lib/music/stationHeadCache'
 import { itunesSongArt } from '@/lib/music/catalog'
 import { backfillCoverForStation } from '@/lib/music/coverBackfill'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
@@ -515,6 +516,18 @@ musicStations_route.get('/', async (c) => {
   // own, or family-shared alike); blocklisted stations disappear for anyone they apply to.
   const sets = await familyEntrySetsFor(user.id)
   if (sets.hasAny) all = all.filter(s => stationAllowed(sets, s.id))
+
+  // Opening the Music page is the tune-in tell: pre-build station heads (and pre-resolve
+  // their openers' stream URLs) in the background so pressing play is instant. Bounded and
+  // deduped inside warmStationHeads; fire-and-forget.
+  const visibleIds = new Set(all.map(s => s.id))
+  void warmStationHeads(rows
+    .filter(r => visibleIds.has(r.s.id) && (!!r.s.aiPrompt || !!r.s.seedValue))
+    .map(r => ({
+      name: r.s.name, aiPrompt: r.s.aiPrompt ?? '',
+      seedType: r.s.seedType as StationSeedType, seedValue: r.s.seedValue ?? undefined,
+    })))
+
   return c.json({
     builtin: all.filter(s => s.isBuiltin),
     mine: all.filter(s => !s.isBuiltin && s.owned),
@@ -968,7 +981,25 @@ musicStations_route.post('/queue', async (c) => {
     }
   }
 
-  const result = await buildStationQueue(seed, { fast: body.fast === true })
+  // Variety: songs the listener heard recently (ANY station) never open a fresh queue.
+  // Without this, adjacent concepts ("hair metal" / "80s rock") share the same top search
+  // hits and can open on the exact same anthem back to back, and repeat tune-ins replay
+  // yesterday's openers. The client's session excludes keep priority under the 200 cap.
+  try {
+    const since = new Date(Date.now() - 48 * 3600_000)
+    const recent = await db.select({ videoId: musicHistory.videoId }).from(musicHistory)
+      .where(and(eq(musicHistory.userId, gateUser.id), gt(musicHistory.playedAt, since)))
+      .orderBy(desc(musicHistory.playedAt)).limit(75)
+    const merged = new Set([...(seed.excludeVideoIds ?? []), ...recent.map(r => r.videoId)])
+    seed.excludeVideoIds = [...merged].slice(0, 200)
+  } catch { /* history is an optimization, never a build blocker */ }
+
+  // Fast tune-ins serve from the station head cache (pre-built pools + pre-resolved opener
+  // streams; see stationHeadCache.ts). Exact-song seeds skip it - they ride ytmusicRadio
+  // off the given videoId and have near-zero reuse.
+  const result = body.fast === true && !seed.seedVideoId
+    ? await serveStationHead(seed, Math.min(Math.max(seed.count ?? 3, 1), 4))
+    : await buildStationQueue(seed, { fast: body.fast === true })
 
   // Stamp the station's "cover song" so cards + hero show real album art. Fire-and-forget.
   if (body.stationId) void stampStationCoverIfEmpty(body.stationId, result.tracks ?? [])

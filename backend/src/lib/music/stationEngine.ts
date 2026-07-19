@@ -70,7 +70,10 @@ async function llmSearchQueries(seed: StationSeed): Promise<string[]> {
     const sys = 'You convert a radio-station description into concise YouTube Music search queries that ' +
       'surface the RIGHT SONGS. Return 3-5 short queries (2-5 words each) that a music fan would type. ' +
       'Use genre, era, mood, soundtrack, and artist terms; avoid brand names and full sentences. ' +
-      'Honor any era/decade in the description. Output JSON only.'
+      'Honor any era/decade in the description, and repeat it in MOST queries. Preserve specific ' +
+      'subgenres exactly as named ("hair metal", "glam metal", "melodic death metal") - never ' +
+      'generalize a subgenre to its parent genre, which surfaces the wrong scene entirely. ' +
+      'Output JSON only.'
     const user = `Station name: "${seed.name ?? ''}". Description: "${seed.aiPrompt}". Give 3-5 search queries.`
     const chat = await ollamaChat(model, [{ role: 'system', content: sys }, { role: 'user', content: user }], [], { temperature: 0.6, num_predict: 200 }, QUERIES_SCHEMA)
     const parsed = JSON.parse(chat.message?.content?.trim() || '{}') as { queries?: string[] }
@@ -85,14 +88,18 @@ async function llmSearchQueries(seed: StationSeed): Promise<string[]> {
 async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>, queries: string[]): Promise<ResolvedTrack[]> {
   if (!queries.length) return []
 
+  // All queries fan out in parallel: search latency is the slowest round-trip, not the sum
+  // (this sat on the tune-in critical path as a serial loop with an 8s timeout per query).
+  const pages = await Promise.all(queries.map(q => ytmusicSearch(q, Math.max(3, Math.ceil(want / queries.length) + 1) + 5).catch(() => [])))
+
   const seen = new Set<string>(exclude)
   const out: ResolvedTrack[] = []
   // Pull a spread of music-only songs from each query (cap per query so no single one dominates).
   const perQuery = Math.max(3, Math.ceil(want / queries.length) + 1)
-  for (const q of queries) {
+  for (const page of pages) {
     if (out.length >= want) break
     let added = 0
-    for (const t of await ytmusicSearch(q, perQuery + 5)) {
+    for (const t of page) {
       if (out.length >= want || added >= perQuery) break
       if (!t.videoId || seen.has(t.videoId)) continue
       if (isJunkTrack(t.title, t.author ?? '')) continue   // drop sfx/type-beat/compilation junk
@@ -148,7 +155,10 @@ async function llmFitFilter(seed: StationSeed, tracks: ResolvedTrack[], opts?: {
       'candidate list, reply with JSON {"drop":[numbers]} for songs that do not fit the station\'s ' +
       'genre, era, or theme. Judge well-known songs by what they ACTUALLY are: famous pop, soul, ' +
       'soft-rock, reggae, disco, or schlager songs never belong on a rock/metal station no matter ' +
-      'what playlist they came from. Keep genre-adjacent picks; keep songs you do not recognize. JSON only.'
+      'what playlist they came from. Era and scene are strict: a station pinned to a decade or a ' +
+      'named subgenre keeps only songs from that scene and period - modern songs in a similar ' +
+      'style, later re-recordings, and the parent genre\'s other scenes do not fit (no metalcore ' +
+      'on a hair-metal station). Keep genre-adjacent picks; keep songs you do not recognize. JSON only.'
 
     const judgeBatch = async (batch: ResolvedTrack[]): Promise<ResolvedTrack[]> => {
       const list = batch.map((t, i) => `${i}. ${t.artist || '?'} — ${t.title}`).join('\n')
@@ -309,12 +319,15 @@ function fromYtmusic(tracks: Array<{ videoId: string; title: string; author: str
  * Build a playable queue for a station. Picks the strategy from the seed type, resolves to
  * YouTube, and backfills from YouTube Music radio when the LLM path comes up short.
  */
-export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boolean }): Promise<StationQueueResult> {
+export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boolean; judge?: 'fast' | 'main' }): Promise<StationQueueResult> {
   // Fast mode builds just enough to START PLAYING (the caller fills the rest in the background),
   // so a tune-in resolves the first track in ~one round-trip instead of building a full queue.
   const fast = opts?.fast ?? false
+  // Fit-judge model. Fast builds default to the small judge for latency; background head-cache
+  // warms pass judge:'main' so even the FIRST tracks get the big model's music knowledge.
+  const judgeFast = opts?.judge ? opts.judge === 'fast' : fast
   const want = fast
-    ? Math.min(Math.max(seed.count ?? 3, 1), 4)
+    ? Math.min(Math.max(seed.count ?? 3, 1), 12)   // cap fits the head-cache pool builds
     : Math.min(Math.max(seed.count ?? 24, 6), 100)
   const exclude = new Set(seed.excludeVideoIds ?? [])
 
@@ -362,12 +375,14 @@ export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boole
   // the same "one search, then play" that makes a normal YouTube video start instantly; the
   // background full build handles curation/quality for the rest of the queue.
   if (fast) {
-    // Fetch a small surplus so the fit pass below has room to drop misfits and still
-    // hand back a full fast queue - the FIRST song is the one a bad fit hurts most.
-    const yt = dropJunk(await ytmusicMix(seed, want + 3, exclude, queries))
+    // Fetch a surplus so the fit pass below has room to drop misfits and still hand back a
+    // full fast queue - the FIRST song is the one a bad fit hurts most. The wider pool also
+    // de-correlates openers: adjacent stations ("hair metal" / "80s rock") share the same
+    // handful of top relevance hits, and a 6-candidate pool made them open identically.
+    const yt = dropJunk(await ytmusicMix(seed, want + 9, exclude, queries))
     let picked = yt
     if (!isChartStation(seed)) {
-      const judged = await llmFitFilter(seed, dedupe(yt), { fast: true })
+      const judged = await llmFitFilter(seed, dedupe(yt), { fast: judgeFast })
       // A judge that rejects everything can't stall the tune-in - play the sources' best
       // and let the full background build (with its LLM fallback) correct the queue.
       picked = judged.length ? judged : yt
