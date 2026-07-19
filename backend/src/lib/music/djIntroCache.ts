@@ -8,12 +8,21 @@
 // and serving CONSUMES the variant, with a background replenish topping the pool back up.
 // The same tune-in never opens with the same line twice in a row.
 //
+// Audio lives on disk (data/cache/dj-intros/*.wav) with a small JSON index alongside -
+// the head cache now warms EVERY station, and hundreds of base64 WAVs would be hundreds
+// of MB of RAM. Disk also means a backend restart (routine in dev) keeps the warmed
+// voices instead of rewinding them all to cold.
+//
 // Only 'full'-style intros are warmed: minimal-mode intros are a one-line announcement
 // and cheap enough to generate live, and warming both styles would double the TTS bill.
 
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
-interface IntroVariant { text: string; wavB64: string | null }
+interface IntroVariant { text: string; wavFile: string | null }   // filename under CACHE_DIR
 interface IntroParams {
   stationName: string
   videoId: string          // cache identity - exact, unlike titles, which each side cleans differently
@@ -24,17 +33,64 @@ interface IntroParams {
 }
 interface IntroEntry { params: IntroParams; variants: IntroVariant[]; at: number; building: boolean }
 
-const TTL_MS = 4 * 60 * 60_000     // matches the station head pool TTL
+const TTL_MS = 24 * 60 * 60_000    // matches the station head pool TTL
 const VARIANTS_PER_TRACK = 2
-const MAX_ENTRIES = 24             // ~memory cap; each variant holds a short base64 WAV
+const MAX_ENTRIES = 400            // every station warms OPENER_WARM openers; audio is on disk, not RAM
+const CACHE_DIR = join(dataDir, 'cache', 'dj-intros')
+const INDEX_PATH = join(CACHE_DIR, 'index.json')
 
 const cache = new Map<string, IntroEntry>()
 
 const keyFor = (p: { stationName: string; videoId: string; style: string; voice: string }): string =>
   [p.stationName, p.videoId, p.style, p.voice].join('\u0000').toLowerCase()
 
+// ── Disk persistence ───────────────────────────────────────────────────────────
+let loaded: Promise<void> | null = null
+function ensureLoaded(): Promise<void> {
+  loaded ??= (async () => {
+    try {
+      await mkdir(CACHE_DIR, { recursive: true })
+      const raw = JSON.parse(await readFile(INDEX_PATH, 'utf8')) as {
+        entries?: Array<[string, { params: IntroParams; variants: IntroVariant[]; at: number }]>
+      }
+      const referenced = new Set<string>()
+      for (const [key, e] of raw.entries ?? []) {
+        if (!e?.params || Date.now() - e.at >= TTL_MS) continue
+        cache.set(key, { params: e.params, variants: e.variants ?? [], at: e.at, building: false })
+        for (const v of e.variants ?? []) if (v.wavFile) referenced.add(v.wavFile)
+      }
+      // Sweep orphans (crash between wav write and index write, or pruned entries).
+      for (const f of await readdir(CACHE_DIR).catch(() => [] as string[])) {
+        if (f.endsWith('.wav') && !referenced.has(f)) void unlink(join(CACHE_DIR, f)).catch(() => {})
+      }
+    } catch { /* first boot or unreadable index - start cold */ }
+  })()
+  return loaded
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+function persistSoon(): void {
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    void (async () => {
+      try {
+        const entries = [...cache.entries()]
+          .filter(([, e]) => Date.now() - e.at < TTL_MS)
+          .map(([k, e]) => [k, { params: e.params, variants: e.variants, at: e.at }])
+        await mkdir(CACHE_DIR, { recursive: true })
+        await writeFile(INDEX_PATH, JSON.stringify({ entries }))
+      } catch (err) { logger.debug(`[djIntro] persist failed: ${err}`) }
+    })()
+  }, 3000)
+}
+
+function dropVariantFile(v: IntroVariant): void {
+  if (v.wavFile) void unlink(join(CACHE_DIR, v.wavFile)).catch(() => {})
+}
+
 // One generation at a time, app-wide: intro warms ride behind whatever the LLM/TTS are
-// already doing instead of bursting 10 concurrent jobs at the GPU on a Music-page open.
+// already doing instead of bursting concurrent jobs at the GPU on a Music-page open.
 let genChain: Promise<void> = Promise.resolve()
 const enqueueGen = (job: () => Promise<void>): Promise<void> => {
   genChain = genChain.then(job, job)
@@ -46,7 +102,10 @@ function evictIfFull(): void {
   let oldestKey: string | null = null
   let oldestAt = Infinity
   for (const [k, e] of cache) if (e.at < oldestAt) { oldestAt = e.at; oldestKey = k }
-  if (oldestKey) cache.delete(oldestKey)
+  if (oldestKey) {
+    for (const v of cache.get(oldestKey)?.variants ?? []) dropVariantFile(v)
+    cache.delete(oldestKey)
+  }
 }
 
 async function generateVariant(params: IntroParams): Promise<IntroVariant | null> {
@@ -63,7 +122,13 @@ async function generateVariant(params: IntroParams): Promise<IntroVariant | null
       voice: params.voice,
       angleHint: pickIntroAngle(),
     })
-    return { text, wavB64: wav ? wav.toString('base64') : null }
+    let wavFile: string | null = null
+    if (wav) {
+      wavFile = `${crypto.randomUUID()}.wav`
+      await mkdir(CACHE_DIR, { recursive: true })
+      await writeFile(join(CACHE_DIR, wavFile), wav)
+    }
+    return { text, wavFile }
   } catch (err) {
     logger.debug(`[djIntro] generate failed for "${params.stationName}" / "${params.trackName}": ${err}`)
     return null
@@ -84,6 +149,7 @@ function replenish(key: string): void {
         if (!v) break
         live.variants.push(v)
         live.at = Date.now()
+        persistSoon()
       }
     } finally {
       const live = cache.get(key)
@@ -94,11 +160,12 @@ function replenish(key: string): void {
 
 /** Serve (and consume) a cached intro matching the request, or null for a live generate.
  *  Consuming keeps repeat tune-ins fresh; the pool refills in the background. */
-export function takeCachedIntro(req: {
+export async function takeCachedIntro(req: {
   stationName?: string; trackVideoId?: string
   style?: 'full' | 'minimal'; voice: string
-}): IntroVariant | null {
+}): Promise<{ text: string; wavB64: string | null } | null> {
   if (!req.stationName || !req.trackVideoId) return null
+  await ensureLoaded()
   const key = keyFor({
     stationName: req.stationName, videoId: req.trackVideoId,
     style: req.style === 'minimal' ? 'minimal' : 'full', voice: req.voice,
@@ -107,7 +174,15 @@ export function takeCachedIntro(req: {
   if (!entry || Date.now() - entry.at > TTL_MS || !entry.variants.length) return null
   const [variant] = entry.variants.splice(Math.floor(Math.random() * entry.variants.length), 1)
   replenish(key)
-  return variant ?? null
+  persistSoon()
+  if (!variant) return null
+  let wavB64: string | null = null
+  if (variant.wavFile) {
+    try { wavB64 = (await readFile(join(CACHE_DIR, variant.wavFile))).toString('base64') }
+    catch { /* wav vanished (manual cleanup?) - text-only still beats a live generate */ }
+    dropVariantFile(variant)
+  }
+  return { text: variant.text, wavB64 }
 }
 
 /** Pre-generate intro variants for a station's likely opener(s). Fire-and-forget from the
@@ -117,6 +192,7 @@ export async function warmIntros(
   tracks: Array<{ videoId: string; title: string; artist?: string | null }>,
 ): Promise<void> {
   if (!stationName) return
+  await ensureLoaded()
   let voice: string
   try {
     const { appDefaultVoice } = await import('@/lib/voice/config')
@@ -131,6 +207,7 @@ export async function warmIntros(
     const existing = cache.get(key)
     if (existing && Date.now() - existing.at < TTL_MS && (existing.variants.length >= VARIANTS_PER_TRACK || existing.building)) continue
     if (!existing || Date.now() - existing.at >= TTL_MS) {
+      for (const v of existing?.variants ?? []) dropVariantFile(v)
       evictIfFull()
       cache.set(key, { params, variants: [], at: Date.now(), building: false })
     }

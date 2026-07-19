@@ -363,7 +363,7 @@ musicRadio.post('/dj-segment', async (c) => {
     // on serve, so the next tune-in gets a different line. Misses fall through to live.
     if (body.position === 'intro') {
       const { takeCachedIntro } = await import('@/lib/music/djIntroCache')
-      const cached = takeCachedIntro({
+      const cached = await takeCachedIntro({
         stationName: body.stationName, trackVideoId: body.trackVideoId,
         style: body.style, voice: body.voice ?? await appDefaultVoice(),
       })
