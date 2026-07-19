@@ -1,4 +1,4 @@
-// Music library API — favorites (songs / stations / playlists) and listening history
+// Music library API — favorites (songs / artists / albums / stations / playlists) and listening history
 // ("Continue listening" + recently played). All per-user.
 
 import { Hono } from 'hono'
@@ -17,7 +17,8 @@ import type { AppEnv } from '@/types'
 export const musicLibrary = new Hono<AppEnv>()
 musicLibrary.use('*', requireAuth)
 
-type FavKind = 'song' | 'station' | 'playlist'
+type FavKind = 'song' | 'station' | 'playlist' | 'artist' | 'album'
+const FAV_KINDS: readonly FavKind[] = ['song', 'station', 'playlist', 'artist', 'album']
 
 // ── Favorites ─────────────────────────────────────────────────────────────────────
 musicLibrary.get('/favorites', async (c) => {
@@ -32,7 +33,7 @@ musicLibrary.get('/favorites', async (c) => {
 musicLibrary.put('/favorites', async (c) => {
   const user = c.get('user')
   const body = await c.req.json<{ kind?: FavKind; refId?: string; title?: string; artist?: string; mbid?: string }>().catch(() => ({} as { kind?: FavKind; refId?: string; title?: string; artist?: string; mbid?: string }))
-  if (!body.kind || !body.refId) return c.json({ error: 'kind and refId required' }, 400)
+  if (!body.kind || !FAV_KINDS.includes(body.kind) || !body.refId) return c.json({ error: 'kind and refId required' }, 400)
   await db.insert(musicFavorites).values({
     id: crypto.randomUUID(), userId: user.id, kind: body.kind, refId: body.refId,
     title: body.title || null, artist: body.artist || null, mbid: body.mbid || null, addedAt: new Date(),

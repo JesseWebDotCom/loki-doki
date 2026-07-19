@@ -2,9 +2,10 @@ import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter, Users, Rss } from 'lucide-react'
+import { Heart, HeartOff, ListMusic, History, Download, Plus, Play, Pause, Trash2, Sparkles, Pencil, Check, X, RadioTower, Square, Library, ChevronRight, Wand2, Filter, Users, Rss } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { SongArt } from '@/components/music/SongArt'
+import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -40,8 +41,8 @@ import { Switch } from '@/components/ui/switch'
 import { getAutocache, setAutocache } from '@/lib/music/intelApi'
 import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
-  getFavorites, getHistory, listPlaylists, createPlaylist,
-  listOffline, listOfflineStations, removeOffline, removeOfflineStation,
+  getFavorites, getHistory, listPlaylists, createPlaylist, removeFavorite, caaCoverUrl,
+  listOffline, listOfflineStations, removeOffline, removeOfflineStation, type Favorite,
 } from '@/lib/music/catalogApi'
 import { OfflineSelectionToolbar } from '@/components/shared/OfflineSelectionToolbar'
 
@@ -136,21 +137,43 @@ function SongThumb({ videoId, title, artist }: { videoId: string; title?: string
   return <SongArt trackRef={videoId} title={title} artist={artist} className="size-10" rounded="rounded-control" />
 }
 
+const FAV_KIND_LABEL: Record<Favorite['kind'], string> = {
+  song: 'Song', station: 'Station', playlist: 'Playlist', artist: 'Artist', album: 'Album',
+}
+
 function FavoritesTab() {
   const radio = useRadio()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
   const avail = useOfflineAvailable()
   const { data } = useQuery({ queryKey: ['music-favorites'], queryFn: () => getFavorites() })
   let favs = data?.favorites ?? []
   if (avail) favs = favs.filter(f => f.kind === 'song' ? avail.songs.has(f.refId) : f.kind === 'station' ? avail.stations.has(f.refId) : false)
-  if (!favs.length) return <Empty icon={Heart} text={avail ? 'None of your favorites are saved offline yet.' : 'Songs and stations you heart will show up here.'} />
+  const open = (f: Favorite) => {
+    if (f.kind === 'song') radio.playTrack({ videoId: f.refId, title: f.title ?? '', author: f.artist })
+    else if (f.kind === 'station') navigate(`/music/station/${f.refId}`)
+    else if (f.kind === 'playlist') navigate(`/music/playlist/${f.refId}`)
+    else if (f.kind === 'artist') navigate(`/music/artist/${f.refId}`)
+    else navigate(`/music/album/${f.refId}`)
+  }
+  const unfavorite = async (f: Favorite) => {
+    try { await removeFavorite(f.kind, f.refId); void qc.invalidateQueries({ queryKey: ['music-favorites'] }) }
+    catch { toast.error('Could not remove favorite') }
+  }
+  if (!favs.length) return <Empty icon={Heart} text={avail ? 'None of your favorites are saved offline yet.' : 'Songs, artists, albums, and stations you heart will show up here.'} />
   return (
     <div className="divide-y divide-border/50 rounded-card border border-border/60">
       {favs.map(f => (
         <div key={f.id} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
-          <button onClick={() => f.kind === 'song' && radio.playTrack({ videoId: f.refId, title: f.title ?? '', author: f.artist })}
-            className="flex min-w-0 flex-1 items-center gap-3 text-left">
-            {f.kind === 'song' ? <SongThumb videoId={f.refId} title={f.title} artist={f.artist} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>{f.artist && <p className="truncate text-xs text-muted-foreground">{f.artist}</p>}</div>
+          <button onClick={() => open(f)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+            {f.kind === 'song' ? <SongThumb videoId={f.refId} title={f.title} artist={f.artist} />
+              : f.kind === 'artist' ? <ArtistAvatar name={f.title ?? ''} mbid={f.refId} className="size-10 shrink-0 rounded-full" />
+              : f.kind === 'album' ? <AlbumCover coverUrl={caaCoverUrl(f.refId)} artist={f.artist ?? undefined} album={f.title ?? undefined} className="size-10 shrink-0 rounded-control" />
+              : <Heart className="size-4 shrink-0 fill-current text-brand" />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>
+              <p className="truncate text-xs text-muted-foreground">{f.artist ?? FAV_KIND_LABEL[f.kind]}</p>
+            </div>
           </button>
           {f.kind === 'song' && (
             <>
@@ -160,6 +183,10 @@ function FavoritesTab() {
               <SongDownloadButton videoId={f.refId} title={f.title ?? ''} />
             </>
           )}
+          <button onClick={() => void unfavorite(f)} aria-label="Remove from favorites" title="Remove from favorites"
+            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground">
+            <HeartOff className="size-4" />
+          </button>
         </div>
       ))}
     </div>

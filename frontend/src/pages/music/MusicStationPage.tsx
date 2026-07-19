@@ -21,8 +21,10 @@ import { useRadio } from '@/context/RadioContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import {
   getStation, previewStationQueue, deleteStation, shareStation, cloneStation,
-  getOfflineStatus, getOfflineTracks, addFavorite, stationToDj,
+  getOfflineStatus, getOfflineTracks, stationToDj,
 } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
+import { cn } from '@/lib/cn'
 
 const DJ_LABEL: Record<string, string> = { full: 'Full DJ', minimal: 'DJ minimal', silent: 'No DJ' }
 
@@ -37,6 +39,7 @@ export function MusicStationPage() {
   const [saveOpen, setSaveOpen] = useState(false)
 
   const { data, isLoading } = useQuery({ queryKey: ['music-station', id], queryFn: () => getStation(id), enabled: !!id })
+  const fav = useFavorite('station', id)
   const { data: preview, isLoading: previewLoading } = useQuery({
     queryKey: ['music-station-preview', id], queryFn: () => previewStationQueue(id, 12), enabled: !!id, staleTime: 5 * 60_000,
   })
@@ -97,10 +100,7 @@ export function MusicStationPage() {
 
   const refresh = () => { qc.invalidateQueries({ queryKey: ['music-stations'] }); qc.invalidateQueries({ queryKey: ['music-station', id] }) }
   const play = () => { radio.start(stationToDj(s)); navigate('/music/now-playing') }
-  const favorite = async () => {
-    try { await addFavorite({ kind: 'station', refId: s.id, title: s.name }); toast.success('Added to favorites') }
-    catch { toast.error('Could not favorite') }
-  }
+  const favorite = () => { void fav.toggle({ title: s.name }) }
   const toggleShare = async () => {
     try { const { visibility } = await shareStation(s.id, s.visibility !== 'shared'); refresh(); toast.success(visibility === 'shared' ? 'Shared with the family' : 'Made private') }
     catch { toast.error('Could not update sharing') }
@@ -145,7 +145,9 @@ export function MusicStationPage() {
       <div className="flex flex-wrap gap-2 px-5 pt-4">
         {canListen && <Button onClick={play}><Headphones className="size-4" /> Listen</Button>}
         {canWatch && <Button variant="secondary" onClick={() => navigate(`/music/watch/${s.id}`)}><MonitorPlay className="size-4" /> Watch</Button>}
-        <Button variant="secondary" onClick={favorite}><Heart className="size-4" /> Favorite</Button>
+        <Button variant="secondary" onClick={favorite}>
+          <Heart className={cn('size-4', fav.isFavorite && 'fill-current text-brand')} /> {fav.isFavorite ? 'Favorited' : 'Favorite'}
+        </Button>
         <Button variant="secondary" onClick={() => setSaveOpen(true)} disabled={offBusy}>
           {offBusy ? <Spinner className="text-current" /> : offReady ? <CheckCircle2 className="size-4 text-success" /> : <Download className="size-4" />}
           {offBusy ? `Saving… ${offPct}%` : offReady ? 'Saved offline' : offSaved ? 'Manage offline' : 'Save offline'}

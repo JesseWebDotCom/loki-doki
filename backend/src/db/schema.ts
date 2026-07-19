@@ -774,12 +774,13 @@ export const musicPlaylistTracks = sqliteTable('music_playlist_tracks', {
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
 })
 
-// Favorites: songs, stations, or playlists a user has hearted. refId is a videoId (songs) or
-// the station/playlist id. Favoriting a shared station keeps it linked to the original.
+// Favorites: songs, artists, albums, stations, or playlists a user has hearted. refId is a
+// videoId (songs), a MusicBrainz id (artists / release-group albums), or the station/playlist
+// id. Favoriting a shared station keeps it linked to the original.
 export const musicFavorites = sqliteTable('music_favorites', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['song', 'station', 'playlist'] }).notNull(),
+  kind: text('kind', { enum: ['song', 'station', 'playlist', 'artist', 'album'] }).notNull(),
   refId: text('ref_id').notNull(),
   title: text('title'),               // denormalized for song favorites (videoId has no row)
   artist: text('artist'),

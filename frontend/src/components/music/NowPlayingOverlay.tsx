@@ -27,7 +27,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
 import { LyricsPanel, AboutStrip, SmartLinksRow, SectionLabel, UpNextList, TuningLyrics, useSourceBackLink, useNowPlayingPrefetch } from './nowPlayingParts'
 import { EqPanel } from './EqPanel'
-import { addFavorite, saveOffline, listTrackMoments, addTrackMoment, removeTrackMoment } from '@/lib/music/catalogApi'
+import { saveOffline, listTrackMoments, addTrackMoment, removeTrackMoment } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
 import { MomentsPanel } from '@/components/shared/MomentsPanel'
 import { AskTrackPanel } from '@/components/music/AskTrackPanel'
 import { startTrackRadio } from '@/components/music/TrackRadioButton'
@@ -77,6 +78,7 @@ export function NowPlayingOverlay() {
   const stripVariant = useVisualizerPref()
   // Loudness envelope for the strip Soundprint at the bottom of the overlay.
   const stripPeaks = useWaveform(curForArt?.videoId)
+  const { isFavorite, toggle: toggleFavorite } = useFavorite('song', curForArt?.videoId)
 
   if (!open) return null
 
@@ -90,11 +92,7 @@ export function NowPlayingOverlay() {
   const canSeek = radio.phase === 'playing' && !radio.djSpeaking && radio.durationSec > 0
   const upNext = radio.queue.slice(radio.index + 1, radio.index + 25)
 
-  const favorite = async () => {
-    if (!cur) return
-    try { await addFavorite({ kind: 'song', refId: cur.videoId, title: cur.title, artist }); toast.success('Added to favorites') }
-    catch { toast.error('Could not favorite') }
-  }
+  const favorite = () => { if (cur) void toggleFavorite({ title: cur.title, artist }) }
   const download = async () => {
     if (!cur) return
     try { const r = await saveOffline({ videoId: cur.videoId, title: cur.title }); toast.success(r.status === 'already-saved' ? 'Already saved offline' : 'Saving for offline…') }
@@ -215,8 +213,9 @@ export function NowPlayingOverlay() {
 
         {/* Transport */}
         <div className="mt-3 flex items-center justify-center gap-4">
-          <button onClick={favorite} aria-label="Favorite" className="grid size-10 place-items-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
-            <Heart className="size-5" />
+          <button onClick={favorite} aria-label={isFavorite ? 'Remove from favorites' : 'Favorite'}
+            className={cn('grid size-10 place-items-center rounded-full hover:bg-white/10 hover:text-white', isFavorite ? 'text-white' : 'text-white/80')}>
+            <Heart className={cn('size-5', isFavorite && 'fill-current')} />
           </button>
           <button onClick={() => radio.setRepeatOne(!radio.repeatOne)} aria-label="Repeat one"
             title={radio.repeatOne ? 'Repeat on' : 'Repeat off'}

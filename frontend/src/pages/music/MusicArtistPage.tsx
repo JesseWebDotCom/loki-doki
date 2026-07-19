@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Radio, ExternalLink, Disc3, Hourglass } from 'lucide-react'
+import { Radio, ExternalLink, Disc3, Heart, Hourglass } from 'lucide-react'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
 import { AlbumFilterButton, albumPassesFilters, defaultAlbumFilters, type AlbumFilters } from '@/components/music/AlbumFilterButton'
 import { Button } from '@/components/ui/button'
@@ -9,8 +9,10 @@ import { Badge } from '@/components/ui/badge'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { proxyImg } from '@/lib/img'
+import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { getArtist, getArtistInfo, instantStationDj, type CatalogAlbum } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
 
 export function MusicArtistPage() {
   const { mbid = '' } = useParams()
@@ -27,6 +29,7 @@ export function MusicArtistPage() {
     enabled: !!artistName, staleTime: Infinity,
   })
   const [logoBroken, setLogoBroken] = useState(false)
+  const fav = useFavorite('artist', mbid)
   // Live tapes, demos, and mixtapes bury the real discography (MB catalogs every club
   // bootleg) - hidden by default; the filter button by the section header adjusts.
   const [filters, setFilters] = useState<AlbumFilters>(defaultAlbumFilters)
@@ -101,6 +104,9 @@ export function MusicArtistPage() {
               navigate('/music/now-playing')
             }}>
             <Hourglass className="size-4" /> Time travel
+          </Button>
+          <Button variant="secondary" onClick={() => void fav.toggle({ title: artist.name, mbid: artist.mbid })}>
+            <Heart className={cn('size-4', fav.isFavorite && 'fill-current text-brand')} /> {fav.isFavorite ? 'Favorited' : 'Favorite'}
           </Button>
           {bioUrl && (
             <Button variant="secondary" asChild><a href={bioUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> Wikipedia</a></Button>

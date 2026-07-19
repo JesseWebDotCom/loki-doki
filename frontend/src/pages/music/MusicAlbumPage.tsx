@@ -1,12 +1,14 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, Play, Radio } from 'lucide-react'
+import { ExternalLink, Heart, Play, Radio } from 'lucide-react'
 import { AlbumCover } from '@/components/music/MediaArt'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { Button } from '@/components/ui/button'
 import { useRadio } from '@/context/RadioContext'
 import { toast } from 'sonner'
+import { cn } from '@/lib/cn'
 import { getAlbum, getAlbumSmartLinks, instantStationDj, resolveSong, type CatalogSong } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
 
 const fmt = (sec: number | null) => sec == null ? '' : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 
@@ -15,6 +17,7 @@ export function MusicAlbumPage() {
   const navigate = useNavigate()
   const radio = useRadio()
   const { data, isLoading } = useQuery({ queryKey: ['music-album', mbid], queryFn: () => getAlbum(mbid), enabled: !!mbid })
+  const fav = useFavorite('album', mbid)
   const albumTitle = data?.album?.title ?? ''
   const albumArtist = data?.album?.artistName ?? ''
   const { data: linksData } = useQuery({
@@ -46,6 +49,9 @@ export function MusicAlbumPage() {
           <div className="mt-3 flex gap-2">
             <Button onClick={playAlbum} disabled={!songs.length}><Play className="size-4 fill-current" /> Play</Button>
             <Button variant="secondary" onClick={() => { radio.start(instantStationDj({ type: 'artist', value: album.artistName })); navigate('/music/now-playing') }}><Radio className="size-4" /> Artist station</Button>
+            <Button variant="secondary" onClick={() => void fav.toggle({ title: album.title, artist: album.artistName, mbid })}>
+              <Heart className={cn('size-4', fav.isFavorite && 'fill-current text-brand')} /> {fav.isFavorite ? 'Favorited' : 'Favorite'}
+            </Button>
           </div>
           {linksData?.links && linksData.links.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">

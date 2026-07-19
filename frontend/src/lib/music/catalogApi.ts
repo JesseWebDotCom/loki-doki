@@ -49,7 +49,7 @@ export interface PlaylistTrack {
   artist: string | null; durationSec: number | null; position: number
 }
 export interface Favorite {
-  id: string; kind: 'song' | 'station' | 'playlist'; refId: string
+  id: string; kind: 'song' | 'station' | 'playlist' | 'artist' | 'album'; refId: string
   title: string | null; artist: string | null; mbid: string | null
 }
 export interface HistoryItem {

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import { SkipForward, SkipBack, Headphones, Heart, Play, ListVideo, SquareArrowOutDownLeft, ExternalLink } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { cn } from '@/lib/cn'
@@ -12,7 +11,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
 import { useMusicModeOptional } from '@/components/music/MusicLayout'
-import { getStation, previewStationQueue, getOfflineVideoQueue, prefetchMedia, prefetchReady, addFavorite, stationToDj } from '@/lib/music/catalogApi'
+import { getStation, previewStationQueue, getOfflineVideoQueue, prefetchMedia, prefetchReady, stationToDj } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
 import { useCatalogNav } from '@/lib/music/catalogNav'
 
 interface WatchTrack { videoId: string; title: string; artist: string | null }
@@ -90,6 +90,7 @@ export function MusicWatchStationPage() {
 
   const [index, setIndex] = useState(handoff?.index ?? 0)
   const cur = tracks[index] ?? null
+  const { isFavorite, toggle: toggleFavorite } = useFavorite('song', cur?.videoId)
 
   // The resume position only applies to the exact hand-off / re-expand song; clears the moment you move.
   const [resume, setResume] = useState(
@@ -169,11 +170,7 @@ export function MusicWatchStationPage() {
     else if (station) radio.start(stationToDj(station))
     navigate('/music/now-playing')
   }
-  const favorite = async () => {
-    if (!cur) return
-    try { await addFavorite({ kind: 'song', refId: cur.videoId, title: cur.title, artist: cur.artist ?? undefined }); toast.success('Added to favorites') }
-    catch { toast.error('Could not favorite') }
-  }
+  const favorite = () => { if (cur) void toggleFavorite({ title: cur.title, artist: cur.artist }) }
 
   // Cold open of a real station still loads; "watch current" rides the live session (radio.station).
   if (!isCurrent && !station) return <div className="px-5 pt-10 text-sm text-muted-foreground">Loading…</div>
@@ -231,7 +228,10 @@ export function MusicWatchStationPage() {
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button className={CTRL} onClick={back} aria-label="Previous" title="Previous"><SkipBack className="size-4" /></button>
                     <button className={CTRL} onClick={advance} aria-label="Next" title="Next"><SkipForward className="size-4" /></button>
-                    <button className={CTRL} onClick={favorite} aria-label="Favorite" title="Favorite"><Heart className="size-4" /></button>
+                    <button className={cn(CTRL, isFavorite && 'text-brand hover:text-brand')} onClick={favorite}
+                      aria-label={isFavorite ? 'Remove from favorites' : 'Favorite'} title={isFavorite ? 'Remove from favorites' : 'Favorite'}>
+                      <Heart className={cn('size-4', isFavorite && 'fill-current')} />
+                    </button>
                     <Button variant="outline" onClick={listen} title="Listen instead - switch to audio at the same spot"
                       className="border-border/60 text-muted-foreground hover:text-foreground">
                       <Headphones className="size-4" /> Listen
