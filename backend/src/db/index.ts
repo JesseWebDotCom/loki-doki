@@ -901,6 +901,9 @@ export function runMigrations() {
       is_adult INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      category TEXT,
+      loading_messages TEXT,
+      source_ref TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_music_stations_user ON music_stations(user_id);
