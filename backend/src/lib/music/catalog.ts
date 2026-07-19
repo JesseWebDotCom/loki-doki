@@ -205,6 +205,14 @@ export async function searchArtists(query: string, limit = 12): Promise<CatalogA
   } catch (err) {
     logger.debug(`[catalog] deezer searchArtists failed, falling back to MB: ${String(err)}`)
   }
+  return mbSearchArtists(q, limit)
+}
+
+// MusicBrainz artist search — the identity-bearing path (results carry real MBIDs).
+// Backs both the Deezer-empty fallback above and pickArtistMbid, which must NOT go
+// through the Deezer-first search: Deezer hits have mbid='' and would make every
+// name → artist-page resolution come up empty.
+async function mbSearchArtists(q: string, limit: number): Promise<CatalogArtist[]> {
   return cachedLookup('mb-artist-search', `${q}:${limit}`, THIRTY_DAYS_MS, async () => {
     try {
       const data = await mbFetch(`/artist?query=${encodeURIComponent(lucene(q))}&limit=${limit}`)
@@ -399,8 +407,10 @@ export function sameArtistName(a: string, b: string): boolean {
 export async function pickArtistMbid(name: string): Promise<string | null> {
   const n = name.trim()
   if (!n) return null
-  return cachedLookup('mb-artist-pick-v2', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
-    const hits = await searchArtists(n, 5)
+  // v3: v2 entries were poisoned with '' when this briefly resolved through the
+  // Deezer-first searchArtists (Deezer results carry no MBID).
+  return cachedLookup('mb-artist-pick-v3', n.toLowerCase(), THIRTY_DAYS_MS, async () => {
+    const hits = await mbSearchArtists(n, 5)
     const exacts = hits.filter(h => sameArtistName(h.name, n))
     if (!exacts.length) return null
     if (exacts.length === 1) return exacts[0]!.mbid
