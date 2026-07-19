@@ -75,9 +75,12 @@ export async function getGeneratedTranscriptCues(source: string, videoId: string
 }
 
 /** Queue local transcription for a video (idempotent: an in-flight job is reused; a
- *  finished/failed one is reset). Marks the transcript row pending. */
+ *  finished/failed one is reset). Marks the transcript row pending. Pass an
+ *  OPPORTUNISTIC_PRIORITY `priority` for proactive passes nobody is waiting on, so the
+ *  idle gate holds the Whisper run until the system is quiet. */
 export async function enqueueVideoTranscription(
   source: string, videoId: string, url: string | null, durationSec: number | null, requestedBy: string | null,
+  opts: { priority?: number } = {},
 ): Promise<void> {
   const existing = await getRow(source, videoId)
   if (existing?.status === 'ready') return
@@ -101,7 +104,7 @@ export async function enqueueVideoTranscription(
       id: crypto.randomUUID(), type: 'video-transcribe', refId, variantKey: null,
       domain: source === 'youtube' ? 'youtube' : source === 'reddit' ? 'reddit' : source === 'tiktok' ? 'tiktok' : source === 'vimeo' ? 'vimeo' : 'local',
       sizeClass: 'small', label: `Transcribe: ${videoId}`,
-      priority: 70, status: 'pending', attempts: 0, maxAttempts: 2,
+      priority: opts.priority ?? 70, status: 'pending', attempts: 0, maxAttempts: 2,
       nextEligibleAt: null, lastError: null, progress: null, createdAt: now, updatedAt: now,
     })
   }

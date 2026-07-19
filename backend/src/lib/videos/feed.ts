@@ -168,6 +168,11 @@ async function pollOnce(): Promise<void> {
   }
   // Follow/subscription-level remove-once-watched rides the same tick (covers YouTube too).
   await runOfflineWatchedSweep().catch((err) => logger.warn(`[videos-feed] offline watched sweep failed: ${err}`))
+
+  // Continue-watching transcript warm rides the same tick: captions grabbed now, Whisper
+  // parked in the idle band. Self-gates on the opportunistic switch + busy signals.
+  const { runContinueWatchTranscriptPass } = await import('@/lib/videos/continueWatchTranscripts')
+  await runContinueWatchTranscriptPass().catch((err) => logger.warn(`[videos-feed] continue-watch transcript pass failed: ${err}`))
 }
 
 const MAX_WARM_CREATORS = 30   // bound background yt-dlp load per source per tick
@@ -182,7 +187,12 @@ async function warmBrowseCaches(): Promise<void> {
   // Reddit included: its browse is cachedLookup-backed like the others, and it was the
   // one provider still fanning out cold on the hub home's first page (the /home route
   // composes from these same provider caches, so warming them warms the home feed too).
-  for (const source of ['tiktok', 'vimeo', 'reddit'] as const) {
+  // YouTube included for its browse feeds only: fetchTrending/fetchPopular cache for 30
+  // minutes (longer than the poll cadence) and enrichChannelThumbs' avatar cache is
+  // indefinite, so this warm is what keeps the hub home's heaviest provider off its
+  // ~4.5s cold path. Its creator pages have no backing cache, so warming those would
+  // be wasted network calls (hence the creator-warm skip below).
+  for (const source of ['tiktok', 'vimeo', 'reddit', 'youtube'] as const) {
     const provider = getProvider(source)
     if (!provider?.browse) continue
     const creatorIds = new Set<string>()
@@ -202,7 +212,8 @@ async function warmBrowseCaches(): Promise<void> {
 
     // Creator-profile pages are a separate cache from browse's own — warm those too
     // (browsed creators + anyone any user follows) so opening one is never a cold hit.
-    if (!provider.getCreator) continue
+    // YouTube's channel lookups aren't cache-backed, so a warm there caches nothing.
+    if (source === 'youtube' || !provider.getCreator) continue
     const follows = await db.select({ externalId: videoFollows.externalId }).from(videoFollows)
       .where(eq(videoFollows.source, source))
     for (const f of follows) creatorIds.add(f.externalId)
