@@ -1,33 +1,5 @@
 [
     {
-        "id": "trained_hey_atlas_mqx68exu",
-        "phrase": "Hey Atlas",
-        "file": "trained_hey_atlas_mqx68exu.onnx",
-        "threshold": 0.45,
-        "accuracy": 0.984327759610045
-    },
-    {
-        "id": "trained_hey_indigo_mqx5hgf7",
-        "phrase": "Hey Indigo",
-        "file": "trained_hey_indigo_mqx5hgf7.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.987624798230406
-    },
-    {
-        "id": "trained_hey_quill_mqx6mppd",
-        "phrase": "Hey Quill",
-        "file": "trained_hey_quill_mqx6mppd.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.988231123714995
-    },
-    {
-        "id": "trained_hey_riff_mqx5vk5n",
-        "phrase": "Hey Riff",
-        "file": "trained_hey_riff_mqx5vk5n.onnx",
-        "threshold": 0.5,
-        "accuracy": 0.986369999263243
-    },
-    {
         "id": "trained_hey_loki_doki_v2",
         "phrase": "Hey Loki Doki",
         "file": "trained_hey_loki_doki_v2.onnx",
@@ -236,5 +208,33 @@
         "file": "trained_hey_marlow_mrr3jpzy.onnx",
         "threshold": 0.78,
         "accuracy": 0.9792914958477872
+    },
+    {
+        "id": "trained_hey_indigo_mrr3yq6c",
+        "phrase": "Hey Indigo",
+        "file": "trained_hey_indigo_mrr3yq6c.onnx",
+        "threshold": 0.76,
+        "accuracy": 0.95885826031364
+    },
+    {
+        "id": "trained_hey_riff_mrr4ek6g",
+        "phrase": "Hey Riff",
+        "file": "trained_hey_riff_mrr4ek6g.onnx",
+        "threshold": 0.76,
+        "accuracy": 0.9694690265486726
+    },
+    {
+        "id": "trained_hey_atlas_mrr4sn01",
+        "phrase": "Hey Atlas",
+        "file": "trained_hey_atlas_mrr4sn01.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.981159420289855
+    },
+    {
+        "id": "trained_hey_quill_mrr56t0d",
+        "phrase": "Hey Quill",
+        "file": "trained_hey_quill_mrr56t0d.onnx",
+        "threshold": 0.8,
+        "accuracy": 0.9602850797913547
     }
 ]
