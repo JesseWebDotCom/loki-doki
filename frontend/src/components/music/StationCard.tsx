@@ -1,4 +1,4 @@
-import { Play, ArrowDownToLine } from 'lucide-react'
+import { Play, ArrowDownToLine, Heart } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { cn } from '@/lib/cn'
@@ -9,6 +9,7 @@ import { StationArt } from '@/components/music/StationArt'
 import { useSongArt } from '@/components/music/SongArt'
 import { useOfflineStationMap } from '@/lib/music/useOffline'
 import { stationToDj, type Station } from '@/lib/music/catalogApi'
+import { useFavorite } from '@/lib/music/useFavorite'
 
 // Re-exported for back-compat with callers that imported it from here.
 export { stationGradient } from '@/lib/music/stationColors'
@@ -21,7 +22,9 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
   // Real album art from the station's "cover song" (last built queue's lead track) - keeps
   // the card visually consistent with the blended-cover detail hero it opens into.
   const coverUrl = useSongArt(station.coverTrack?.videoId, station.coverTrack?.title, station.coverTrack?.artist)
+  const { isFavorite, toggle } = useFavorite('station', station.id)
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
+  const favorite = (e: React.MouseEvent) => { e.stopPropagation(); void toggle({ title: station.name }) }
   const open = () => (onOpen ? onOpen(station) : navigate(`/music/station/${station.id}`))
 
   // Caption lives INSIDE the art (StationArt subtitle) so every card is exactly the same
@@ -51,6 +54,18 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
               : <Spinner size="sm" className="text-warning" />}
           </span>
         )}
+        {/* Hover heart beside the play control - stays visible (filled) once favorited. */}
+        {/* design-ok(backdrop-blur-outside-chrome): favorite control floats over station artwork */}
+        <button onClick={favorite}
+          aria-label={isFavorite ? `Remove ${station.name} from favorites` : `Favorite ${station.name}`}
+          title={isFavorite ? 'Remove from favorites' : 'Favorite'}
+          className={cn(
+            'absolute bottom-3 right-[3.75rem] flex size-9 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur transition', // design-ok(backdrop-blur-outside-chrome): over artwork
+            'opacity-0 group-hover:opacity-100 hover:scale-105',
+            isFavorite && 'opacity-100',
+          )}>
+          <Heart className={cn('size-4', isFavorite && 'fill-current')} />
+        </button>
         {/* design-ok(backdrop-blur-outside-chrome): play control floats over station artwork */}
         <button onClick={play} aria-label={`Play ${station.name}`}
           className={cn(
