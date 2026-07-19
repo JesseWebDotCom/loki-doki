@@ -45,7 +45,7 @@ export function MusicStationPage() {
   // lead only fills in for stations never built before.
   const previewLead = preview?.tracks?.[0] ?? null
   const coverSong = data?.station?.coverTrack ?? (previewLead ? { videoId: previewLead.videoId, title: previewLead.title, artist: previewLead.artist ?? null } : null)
-  const heroArt = useSongArt(coverSong?.videoId, coverSong?.title, coverSong?.artist)
+  const heroArt = useSongArt(coverSong?.videoId, coverSong?.title, coverSong?.artist, null)
   // Live offline-save progress - polls while a snapshot is downloading/rendering.
   const { data: offline } = useQuery({
     queryKey: ['music-offline-status', id], queryFn: () => getOfflineStatus(id), enabled: !!id,

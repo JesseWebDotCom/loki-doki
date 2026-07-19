@@ -33,13 +33,16 @@ const YT_IMG_HOSTS = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtub
  *  read-through cache, which only allows Google hosts), everything else through /api/img.
  *  Lets shared components (avatars, cards) render images from any source without callers
  *  plumbing a proxy choice around. */
-export function proxyImgAuto(url: string | null | undefined): string {
+export function proxyImgAuto(url: string | null | undefined, w?: number): string {
   if (!url) return ''
   try {
     const u = new URL(url, window.location.origin)
     if ((u.protocol === 'https:' || u.protocol === 'http:') && YT_IMG_HOSTS.test(u.hostname)) {
+      // The YouTube proxy serves its own DB-cached bytes and has no resize path; YouTube
+      // thumbnails are already size-tiered upstream (mqdefault/hqdefault), so `w` is
+      // intentionally ignored on this branch.
       return `/api/youtube/img?u=${encodeURIComponent(u.toString())}`
     }
   } catch { /* fall through to the generic proxy's own handling */ }
-  return proxyImg(url)
+  return proxyImg(url, w)
 }

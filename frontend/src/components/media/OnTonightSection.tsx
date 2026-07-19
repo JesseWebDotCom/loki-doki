@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Tv, Radio } from 'lucide-react'
-import { mediaImg, getOnTvToday, type ScheduleEntry } from '@/lib/shows/api'
+import { mediaImg, onTvTodayQueryOptions, type ScheduleEntry } from '@/lib/shows/api'
 
 // Current local time as "HH:MM", used to flag what's airing in the current hour. TVMaze
 // airtimes are in the network's local zone (US broadcast is mostly ET), so this is a
@@ -53,11 +53,7 @@ function OnTonightCard({ e, live }: { e: ScheduleEntry; live: boolean }) {
 // "On TV Tonight": what's airing this evening (broadcast/cable) plus streaming premieres today.
 // Focuses on tonight (primetime onward) but falls back to the full day's schedule if that's thin.
 export function OnTonightSection() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['shows-on-tv'],
-    queryFn: getOnTvToday,
-    staleTime: 30 * 60 * 1000,
-  })
+  const { data, isLoading } = useQuery(onTvTodayQueryOptions())
 
   if (isLoading) return null
   const all = data?.entries ?? []

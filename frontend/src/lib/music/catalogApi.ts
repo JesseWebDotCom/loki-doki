@@ -232,6 +232,19 @@ export function getHistory(limit = 40) { return mfetch<{ history: HistoryItem[] 
 // `ref` (songKey) is set only on the interest-engine Suggested rail: the "Not interested" dismiss key.
 export interface Rail { key: string; title: string; subtitle: string; tracks: Array<{ videoId: string; title: string; artist: string; ref?: string }> }
 export function getRails() { return mfetch<{ rails: Rail[] }>('/rails') }
+
+// Shared factories so the idle warmer / hover prefetch (lib/prefetch/registry) warm
+// exactly the queries the Music home reads, and so hub revisits paint from cache
+// (stations/rails are slow-moving; history gets a short window).
+export function musicStationsQueryOptions() {
+  return { queryKey: ['music-stations'] as const, queryFn: listStations, staleTime: 5 * 60 * 1000 }
+}
+export function musicHistoryQueryOptions(limit: number) {
+  return { queryKey: ['music-history', limit] as const, queryFn: () => getHistory(limit), staleTime: 60 * 1000 }
+}
+export function musicRailsQueryOptions() {
+  return { queryKey: ['music-rails'] as const, queryFn: getRails, staleTime: 30 * 60 * 1000 }
+}
 export interface Replay {
   year: number; totalPlays: number; totalMinutes: number
   topSongs: Array<{ videoId: string; title: string; artist: string; plays: number }>

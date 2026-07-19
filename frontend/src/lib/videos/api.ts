@@ -114,6 +114,16 @@ export function getHubHome(sources?: VideoSource[], cursor?: string | null): Pro
   return getJson(`/api/videos/home${qs ? `?${qs}` : ''}`)
 }
 
+// Shared factories/keys so the idle warmer (lib/prefetch/registry) warms exactly what
+// the hub reads. The home key MUST mirror VideosHomePage's: the ACTIVE source ids,
+// sorted and comma-joined (empty filter = all enabled sources).
+export function videosSourcesQueryOptions() {
+  return { queryKey: ['videos-sources'] as const, queryFn: getVideoSources, staleTime: 5 * 60_000 }
+}
+export function videosHomeQueryKey(activeIds: VideoSource[]): (string | null)[] {
+  return ['videos-home', [...activeIds].sort().join(',')]
+}
+
 /** Cross-source "Suggested for you" from the interest engine. `building` = the first
  *  pool build is still running (caller polls; the shelf stays hidden until items land). */
 export function getSuggested(): Promise<{ items: HubVideoItem[]; building: boolean }> {

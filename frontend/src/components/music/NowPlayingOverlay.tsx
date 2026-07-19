@@ -68,7 +68,7 @@ export function NowPlayingOverlay() {
   // and its extracted palette for the UltraBlur wash. Prefetch keeps the next track's
   // art/lyrics/info warm even while the overlay is closed (staleTime:Infinity cache warming,
   // inherited from the retired NowPlayingPage).
-  const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author)
+  const overlayArt = useSongArt(curForArt?.videoId, curForArt?.title, curForArt?.author, null)
   const palette = useArtPalette(overlayArt ?? (curForArt?.thumbnail ? proxyImg(curForArt.thumbnail) : null))
   const mask = useTitleMask()
   const sourceBackLink = useSourceBackLink()

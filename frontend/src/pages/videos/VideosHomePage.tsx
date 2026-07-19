@@ -26,7 +26,7 @@ import { MINE_META } from '@/lib/videos/sources'
 import { VIDEO_CATEGORIES, getVideoCategory, type VideoCategory } from '@/lib/videos/categories'
 import { getHistory } from '@/lib/youtube/api'
 import { historyToItem } from '@/lib/youtube/types'
-import { getBlend, getHubHistory, getHubHome, getSuggested, getVideoSources, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
+import { getBlend, getHubHistory, getHubHome, getSuggested, videosHomeQueryKey, videosSourcesQueryOptions, type HubVideoItem, type SourceInfo, type VideoSource } from '@/lib/videos/api'
 import { useSuggestionDismiss } from '@/hooks/useSuggestionDismiss'
 import { useSourceFilter } from '@/lib/videos/useSourceFilter'
 import { PlaySomethingButton } from '@/components/videos/PlaySomethingButton'
@@ -58,7 +58,7 @@ function HubLanding() {
   const { data: mineBin } = useQuery({ queryKey: ['studio-bin'], queryFn: listStudioBin, enabled: mineOnly })
   const mineItems = useMemo(() => (mineBin?.items ?? []).filter(isMineBinItem), [mineBin])
 
-  const { data: sourcesData } = useQuery({ queryKey: ['videos-sources'], queryFn: getVideoSources, staleTime: 5 * 60_000 })
+  const { data: sourcesData } = useQuery(videosSourcesQueryOptions())
   const sources = (sourcesData?.sources ?? []).filter((s) => s.enabled)
   // Approved-only mode (kids): no discovery affordances. The feed below is already
   // server-filtered to approved creators; hiding chips/suggestions removes dead ends.
@@ -69,7 +69,7 @@ function HubLanding() {
   const active: VideoSource[] = selected.length === 0 ? allIds : selected
 
   const homeQuery = useInfiniteQuery({
-    queryKey: ['videos-home', [...active].sort().join(',')],
+    queryKey: videosHomeQueryKey(active),
     queryFn: ({ pageParam }) => getHubHome(selected.length === 0 ? undefined : selected, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.cursor,

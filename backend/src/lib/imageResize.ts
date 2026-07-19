@@ -11,7 +11,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { ensureVips, vipsAvailable, vipsBin } from '@/lib/vips'
 import { logger } from '@/lib/logger'
@@ -52,7 +52,13 @@ export async function getResizedVariant(srcPath: string, contentType: string, bu
   }
   const outPath = `${srcPath}.w${bucket}.webp`
   if (existsSync(outPath)) {
-    try { return { data: await readFile(outPath), contentType: 'image/webp' } } catch { /* re-render */ }
+    // Proxy-cache sources are immutable per hash, but direct-file sources (uploaded
+    // podcast covers) can be replaced in place: a variant older than its source is stale.
+    try {
+      const [src, out] = await Promise.all([stat(srcPath), stat(outPath)])
+      if (out.mtimeMs >= src.mtimeMs) return { data: await readFile(outPath), contentType: 'image/webp' }
+      await unlink(outPath).catch(() => {})
+    } catch { /* re-render */ }
   }
 
   const key = outPath

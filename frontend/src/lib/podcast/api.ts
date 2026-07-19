@@ -139,7 +139,9 @@ export interface Subscription {
 const J = { 'Content-Type': 'application/json' }
 const opts: RequestInit = { credentials: 'include' }
 
-export const coverUrl = (showId: string) => `/api/podcasts/shows/${showId}/cover`
+/** Optional `w` = device-pixel width: the route serves a bucketed webp downscale.
+ *  Omit on full-bleed surfaces (Now Playing backdrop, player art). */
+export const coverUrl = (showId: string, w?: number) => `/api/podcasts/shows/${showId}/cover${w ? `?w=${Math.round(w)}` : ''}`
 
 export async function getShows(): Promise<Show[]> {
   const r = await fetch('/api/podcasts/shows', opts)
@@ -338,6 +340,11 @@ export async function getCharts(genreId?: number | null): Promise<DirectoryChart
   if (!r.ok) throw new Error('directory-charts')
   const d = await r.json() as Partial<DirectoryCharts>
   return { results: d.results ?? [], provider: d.provider ?? 'itunes', genres: d.genres ?? [] }
+}
+
+/** Shared factory: Listen Now, Browse, and the idle prefetcher all read the same key. */
+export function podcastChartsQueryOptions(genreId: number | null) {
+  return { queryKey: ['podcast-dir-charts', genreId] as const, queryFn: () => getCharts(genreId), staleTime: 30 * 60 * 1000 }
 }
 
 export interface SubscribeInput {

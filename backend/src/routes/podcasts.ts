@@ -7,7 +7,7 @@ import { eq, and, or, desc, inArray } from 'drizzle-orm'
 import { requireAuth } from '@/middleware/auth'
 import { resolveUserPath, userPath, toRelativePath } from '@/lib/storage/paths'
 import { ensureStingerSoundfont } from '@/lib/download'
-import { getOrFetchProxyImage } from '@/lib/imageProxy'
+import { getOrFetchProxyImageResized } from '@/lib/imageProxy'
 import { acquireRead, releaseRead, blobAbsPath } from '@/lib/content/store'
 import { enclosureFormat, formatContentType } from '@/lib/podcast/offline'
 import { safeFetch } from '@/lib/ssrfGuard'
@@ -426,6 +426,8 @@ podcastsRoute.put('/shows/:id/cover', async (c) => {
 })
 
 // Serve a show's cover image. 404 when unset so the client renders a generated fallback.
+// Optional ?w= serves a bucketed webp downscale (lib/imageResize) — the hub renders this
+// cover dozens of times at tile size, so full-res PNGs were the heaviest bytes on the page.
 podcastsRoute.get('/shows/:id/cover', async (c) => {
   const showId = c.req.param('id')
   const [show] = await db.select({ coverRelPath: podcastShows.coverRelPath, artworkUrl: podcastShows.artworkUrl })
@@ -434,7 +436,7 @@ podcastsRoute.get('/shows/:id/cover', async (c) => {
   // RSS shows: no uploaded cover, but remote channel art — serve it through the disk-cached
   // image proxy so ShowCover/now-playing render unchanged and the CDN never sees the client.
   if (!show.coverRelPath && show.artworkUrl) {
-    const img = await getOrFetchProxyImage(show.artworkUrl).catch(() => null)
+    const img = await getOrFetchProxyImageResized(show.artworkUrl, c.req.query('w')).catch(() => null)
     if (!img) return c.json({ error: 'No cover' }, 404)
     return new Response(new Uint8Array(img.data), {
       headers: { 'Content-Type': img.contentType, 'Cache-Control': 'public, max-age=86400' },
@@ -446,6 +448,17 @@ podcastsRoute.get('/shows/:id/cover', async (c) => {
   try { absPath = await resolveUserPath(show.coverRelPath) } catch { return c.json({ error: 'Missing' }, 404) }
   let stat: ReturnType<typeof statSync>
   try { stat = statSync(absPath) } catch { return c.json({ error: 'Missing' }, 404) }
+
+  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(c.req.query('w'))
+  if (bucket) {
+    const variant = await getResizedVariant(absPath, 'image/png', bucket).catch(() => null)
+    if (variant) {
+      return new Response(new Uint8Array(variant.data), {
+        headers: { 'Content-Type': variant.contentType, 'Cache-Control': 'no-cache' },
+      })
+    }
+  }
 
   return new Response(createReadStream(absPath) as any, {
     headers: {

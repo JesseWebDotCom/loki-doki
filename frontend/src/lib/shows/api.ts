@@ -231,6 +231,11 @@ export function getSuggestedShows(): Promise<{ items: Array<ShowSummary & { ref:
   return getJson('/api/shows/suggested')
 }
 
+/** Shared factory: OnTonightSection + the shows idle prefetcher read the same key. */
+export function onTvTodayQueryOptions() {
+  return { queryKey: ['shows-on-tv'] as const, queryFn: getOnTvToday, staleTime: 30 * 60 * 1000 }
+}
+
 export async function getOnTvToday(): Promise<OnTvToday> {
   return getJson<OnTvToday>('/api/shows/on-tv')
 }

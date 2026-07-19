@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { mediaImg } from '@/lib/shows/api'
 import { RatingBadge } from '@/components/media/RatingBadge'
-import { getShowtimesNearMe, setMovieZip, movieTo, type ShowMovie } from '@/lib/movies/api'
+import { showtimesNearMeQueryOptions, setMovieZip, movieTo, type ShowMovie } from '@/lib/movies/api'
 
 // Inline 5-digit ZIP entry, shared by the "set a ZIP" prompt and the "change ZIP" control.
 function ZipInput({
@@ -79,11 +79,7 @@ export function InTheatersSection() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['movies-near-me'],
-    queryFn: () => getShowtimesNearMe(),
-    staleTime: 30 * 60 * 1000,
-  })
+  const { data, isLoading } = useQuery(showtimesNearMeQueryOptions())
 
   const saveZip = async () => {
     const z = draft.trim()

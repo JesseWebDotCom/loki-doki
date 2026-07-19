@@ -5,7 +5,7 @@ import { Link2, Plus, Search, Sparkles, Users } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import {
   getShows, getSuggestions, acceptSuggestion, dismissSuggestion,
-  getCharts, searchDirectory, subscribePodcast,
+  podcastChartsQueryOptions, searchDirectory, subscribePodcast,
 } from '@/lib/podcast/api'
 import { ShowCover } from '@/components/podcast/ShowCover'
 import { DirectoryCard } from '@/components/podcast/DirectoryCard'
@@ -43,8 +43,7 @@ export function PodcastBrowsePage() {
   const { data: shows = [] } = useQuery({ queryKey: ['podcast-shows'], queryFn: getShows })
   const { data: suggestions = [], isLoading } = useQuery({ queryKey: ['podcast-suggestions'], queryFn: getSuggestions })
   const { data: charts, isLoading: chartsLoading } = useQuery({
-    queryKey: ['podcast-dir-charts', genreId],
-    queryFn: () => getCharts(genreId),
+    ...podcastChartsQueryOptions(genreId),
     enabled: !q,
   })
   const { data: searchResults = [], isFetching: searching } = useQuery({

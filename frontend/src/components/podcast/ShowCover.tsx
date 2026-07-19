@@ -59,7 +59,7 @@ export function ShowCover({ showId, title, size = 96, fill, rounded = 'rounded-c
       {/* Stored cover image overlays the fallback once loaded */}
       {showId && !failed && (
         <img
-          src={coverUrl(showId)}
+          src={coverUrl(showId, size * 2)}
           alt=""
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}

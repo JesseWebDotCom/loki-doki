@@ -120,7 +120,7 @@ function Artwork({ url, title }: { url: string | null; title: string }) {
       </div>
       {url && !failed && (
         <img
-          src={proxyImg(url)}
+          src={proxyImg(url, 480)}
           alt={title}
           loading="lazy"
           onError={() => setFailed(true)}

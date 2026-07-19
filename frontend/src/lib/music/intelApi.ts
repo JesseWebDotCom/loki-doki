@@ -48,6 +48,11 @@ export interface MixForYou {
 }
 export function getMixes() { return ifetch<{ mixes: MixForYou[] }>('/mixes') }
 
+/** Shared factory for the Mixes-For-You rail (see lib/prefetch/registry). */
+export function musicMixesQueryOptions() {
+  return { queryKey: ['music-mixes'] as const, queryFn: getMixes, staleTime: 30 * 60 * 1000 }
+}
+
 // ── Family Blend ────────────────────────────────────────────────────────────────────
 export interface Blend {
   id: string
