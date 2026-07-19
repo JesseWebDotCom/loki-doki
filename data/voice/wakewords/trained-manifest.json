@@ -1,31 +1,10 @@
 [
     {
-        "id": "trained_hey_astro_mqwslx41",
-        "phrase": "Hey Astro",
-        "file": "trained_hey_astro_mqwslx41.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.986550100874243
-    },
-    {
         "id": "trained_hey_atlas_mqx68exu",
         "phrase": "Hey Atlas",
         "file": "trained_hey_atlas_mqx68exu.onnx",
         "threshold": 0.45,
         "accuracy": 0.984327759610045
-    },
-    {
-        "id": "trained_hey_clover_mqwvzy95",
-        "phrase": "Hey Clover",
-        "file": "trained_hey_clover_mqwvzy95.onnx",
-        "threshold": 0.46,
-        "accuracy": 0.984486503257834
-    },
-    {
-        "id": "trained_hey_daisy_mqwwtwpu",
-        "phrase": "Hey Daisy",
-        "file": "trained_hey_daisy_mqwwtwpu.onnx",
-        "threshold": 0.48,
-        "accuracy": 0.985378493429576
     },
     {
         "id": "trained_hey_indigo_mqx5hgf7",
@@ -35,13 +14,6 @@
         "accuracy": 0.987624798230406
     },
     {
-        "id": "trained_hey_marlow_mqwxnz60",
-        "phrase": "Hey Marlow",
-        "file": "trained_hey_marlow_mqwxnz60.onnx",
-        "threshold": 0.47,
-        "accuracy": 0.981923173487321
-    },
-    {
         "id": "trained_hey_quill_mqx6mppd",
         "phrase": "Hey Quill",
         "file": "trained_hey_quill_mqx6mppd.onnx",
@@ -49,32 +21,11 @@
         "accuracy": 0.988231123714995
     },
     {
-        "id": "trained_hey_raven_mqwqnkv2",
-        "phrase": "Hey Raven",
-        "file": "trained_hey_raven_mqwqnkv2.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.987853002836355
-    },
-    {
         "id": "trained_hey_riff_mqx5vk5n",
         "phrase": "Hey Riff",
         "file": "trained_hey_riff_mqx5vk5n.onnx",
         "threshold": 0.5,
         "accuracy": 0.986369999263243
-    },
-    {
-        "id": "trained_hey_velvet_mqwvl6a5",
-        "phrase": "Hey Velvet",
-        "file": "trained_hey_velvet_mqwvl6a5.onnx",
-        "threshold": 0.47,
-        "accuracy": 0.982633305460861
-    },
-    {
-        "id": "trained_hey_willow_mqws8q7t",
-        "phrase": "Hey Willow",
-        "file": "trained_hey_willow_mqws8q7t.onnx",
-        "threshold": 0.49,
-        "accuracy": 0.986653386454183
     },
     {
         "id": "trained_hey_loki_doki_v2",
@@ -236,5 +187,54 @@
         "file": "trained_hey_bramble_mrr0o0ag.onnx",
         "threshold": 0.74,
         "accuracy": 0.9777206856408815
+    },
+    {
+        "id": "trained_hey_velvet_mrr12ixd",
+        "phrase": "Hey Velvet",
+        "file": "trained_hey_velvet_mrr12ixd.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.9772083863291346
+    },
+    {
+        "id": "trained_hey_raven_mrr1h4yk",
+        "phrase": "Hey Raven",
+        "file": "trained_hey_raven_mrr1h4yk.onnx",
+        "threshold": 0.72,
+        "accuracy": 0.9650889693881612
+    },
+    {
+        "id": "trained_hey_willow_mrr1vuuc",
+        "phrase": "Hey Willow",
+        "file": "trained_hey_willow_mrr1vuuc.onnx",
+        "threshold": 0.76,
+        "accuracy": 0.9640678927710273
+    },
+    {
+        "id": "trained_hey_astro_mrr2aqsg",
+        "phrase": "Hey Astro",
+        "file": "trained_hey_astro_mrr2aqsg.onnx",
+        "threshold": 0.8,
+        "accuracy": 0.9716394716394716
+    },
+    {
+        "id": "trained_hey_clover_mrr2pkpl",
+        "phrase": "Hey Clover",
+        "file": "trained_hey_clover_mrr2pkpl.onnx",
+        "threshold": 0.74,
+        "accuracy": 0.9641276087414798
+    },
+    {
+        "id": "trained_hey_daisy_mrr34jgx",
+        "phrase": "Hey Daisy",
+        "file": "trained_hey_daisy_mrr34jgx.onnx",
+        "threshold": 0.76,
+        "accuracy": 0.940268840750598
+    },
+    {
+        "id": "trained_hey_marlow_mrr3jpzy",
+        "phrase": "Hey Marlow",
+        "file": "trained_hey_marlow_mrr3jpzy.onnx",
+        "threshold": 0.78,
+        "accuracy": 0.9792914958477872
     }
 ]
