@@ -458,6 +458,7 @@ export class RadioEngine {
       sayStation: minimal ? args.position === 'intro' : (args.sayStation ?? args.position === 'intro'),
       trackName: args.track?.title,
       artistName: args.track?.author ?? undefined,
+      trackVideoId: args.track?.videoId,
       nextTrackName: args.next?.title,
       nextArtistName: args.next?.author ?? undefined,
       position: args.position,

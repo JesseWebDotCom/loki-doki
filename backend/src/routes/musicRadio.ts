@@ -219,6 +219,9 @@ export interface DjSegmentOpts {
   sayStation?: boolean
   trackName?: string
   artistName?: string
+  /** The current track's ref, only used as the intro-cache identity (titles are cleaned
+   *  differently on each side, so they can't key a cache). */
+  trackVideoId?: string
   nextTrackName?: string
   nextArtistName?: string
   weather?: string
@@ -228,7 +231,22 @@ export interface DjSegmentOpts {
   style?: 'full' | 'minimal'
   /** Pre-fetched Wikipedia facts — skips the network lookup when provided. */
   facts?: string
+  /** Extra flavor instruction for intro scripts (see INTRO_ANGLES). Callers that omit it
+   *  get a random angle per generation, so live intros vary too. */
+  angleHint?: string
 }
+
+// Intro flavor angles: one is worked into every full-style intro prompt so repeat tune-ins
+// of the same station don't all produce the same "You're on X, up now Y" line. The empty
+// string is the classic station-ID shape (it keeps the example in the prompt).
+const INTRO_ANGLES = [
+  '',
+  'Lead with the vibe of the set in two or three words before naming the track.',
+  'Lead with the artist, like you are proud to have them on the show.',
+  'Make it feel like a warm welcome back to a favorite hangout.',
+  'Big-energy cold open: hit the track name fast.',
+]
+export const pickIntroAngle = (): string => INTRO_ANGLES[Math.floor(Math.random() * INTRO_ANGLES.length)]!
 
 /** Write the DJ script (LLM) and synthesize it to a WAV buffer (Kokoro). Shared by the live
  *  `/dj-segment` route and the offline station pre-render so both behave identically. `wav` is
@@ -276,10 +294,15 @@ export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: st
     }
   } else
   switch (position) {
-    case 'intro':
-      // Talks OVER the first song, so keep it tight — one short line.
-      djPrompt = `Open a ${genre} set in ONE short line. ${stationLine}Then name what's up now: "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${ctx} Max 14 words. Example shape: "You're on ${stationName ?? 'the station'} — up now, ${trackName ?? 'a track'}${artistName ? ` by ${artistName}` : ''}."`
+    case 'intro': {
+      // Talks OVER the first song, so keep it tight: one short line. The angle varies the
+      // shape between generations; the classic example is only anchored when no angle asks
+      // for a different lead (it pulls the model back to the same line every time otherwise).
+      const angle = opts.angleHint ?? pickIntroAngle()
+      const example = angle ? '' : ` Example shape: "You're on ${stationName ?? 'the station'} — up now, ${trackName ?? 'a track'}${artistName ? ` by ${artistName}` : ''}."`
+      djPrompt = `Open a ${genre} set in ONE short line. ${stationLine}Then name what's up now: "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${ctx} ${angle ? `${angle} ` : ''}Max 14 words.${example}`
       break
+    }
     case 'outro':
       djPrompt = `Sign off the ${genre} set in one short line. ${stationLine}Mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Max 18 words.`
       break
@@ -335,6 +358,21 @@ export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: st
 musicRadio.post('/dj-segment', async (c) => {
   const body = await c.req.json<DjSegmentOpts>().catch(() => ({} as DjSegmentOpts))
   try {
+    // Intros: serve a pre-generated variant when the head cache warmed one for this
+    // station+track (djIntroCache.ts), so tune-in DJ speech starts near-instantly. Consumed
+    // on serve, so the next tune-in gets a different line. Misses fall through to live.
+    if (body.position === 'intro') {
+      const { takeCachedIntro } = await import('@/lib/music/djIntroCache')
+      const cached = takeCachedIntro({
+        stationName: body.stationName, trackVideoId: body.trackVideoId,
+        style: body.style, voice: body.voice ?? await appDefaultVoice(),
+      })
+      if (cached) {
+        return c.json(cached.wavB64
+          ? { text: cached.text, audio: cached.wavB64, audioMime: 'audio/wav' }
+          : { text: cached.text, audio: null })
+      }
+    }
     const { text, wav } = await generateDjSegment(body)
     return c.json(wav
       ? { text, audio: wav.toString('base64'), audioMime: 'audio/wav' }

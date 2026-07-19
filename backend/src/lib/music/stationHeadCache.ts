@@ -37,8 +37,10 @@ const keyFor = (seed: StationSeed): string =>
   [seed.name ?? '', seed.aiPrompt, seed.seedType ?? '', seed.seedValue ?? ''].join('\u0000')
 
 // Pre-resolve stream URLs for the likely openers (plain YouTube refs only - library
-// local:/plex: refs stream straight off disk and have no resolver latency to hide).
-function prewarmOpeners(tracks: StationQueueResult['tracks']): void {
+// local:/plex: refs stream straight off disk and have no resolver latency to hide),
+// and pre-generate DJ intro variants for them (djIntroCache.ts) so the voice is as
+// instant as the audio.
+function prewarmOpeners(seed: StationSeed, tracks: StationQueueResult['tracks']): void {
   void (async () => {
     try {
       const { resolveStreamUrl } = await import('@/lib/youtube/stream')
@@ -47,6 +49,12 @@ function prewarmOpeners(tracks: StationQueueResult['tracks']): void {
         await resolveStreamUrl(t.videoId, 'audio').catch(() => null)
       }
     } catch { /* stream lib unavailable - the lazy per-request resolve still works */ }
+    try {
+      if (seed.name) {
+        const { warmIntros } = await import('@/lib/music/djIntroCache')
+        await warmIntros(seed.name, tracks.slice(0, 2))
+      }
+    } catch { /* intro warm is a fast path only - live generation still works */ }
   })()
 }
 
@@ -71,7 +79,7 @@ async function refresh(key: string, seed: StationSeed): Promise<void> {
     if (result.tracks.length) {
       evictIfFull()
       cache.set(key, { tracks: result.tracks, source: result.source, at: Date.now(), building: false })
-      prewarmOpeners(result.tracks)
+      prewarmOpeners(seed, result.tracks)
     } else if (existing) {
       existing.building = false
     }
@@ -102,7 +110,7 @@ export async function serveStationHead(seed: StationSeed, want: number): Promise
   if (result.tracks.length) {
     evictIfFull()
     cache.set(key, { tracks: result.tracks, source: result.source, at: Date.now(), building: false })
-    prewarmOpeners(result.tracks)
+    prewarmOpeners(seed, result.tracks)
   }
   const usable = result.tracks.filter(t => !exclude.has(t.videoId))
   return { tracks: (usable.length ? usable : result.tracks).slice(0, want), source: result.source }

@@ -100,6 +100,7 @@ export async function fetchDjSegment(params: {
   sayStation?: boolean
   trackName?: string
   artistName?: string
+  trackVideoId?: string
   nextTrackName?: string
   nextArtistName?: string
   weather?: string
