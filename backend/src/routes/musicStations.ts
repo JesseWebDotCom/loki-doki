@@ -518,11 +518,16 @@ musicStations_route.get('/', async (c) => {
   if (sets.hasAny) all = all.filter(s => stationAllowed(sets, s.id))
 
   // Opening the Music page is the tune-in tell: pre-build station heads (and pre-resolve
-  // their openers' stream URLs) in the background so pressing play is instant. Bounded and
-  // deduped inside warmStationHeads; fire-and-forget.
+  // their openers' stream URLs) in the background so pressing play is instant. Deduped and
+  // paced inside warmStationHeads; fire-and-forget. Warm in on-screen order - the user's
+  // own and family-shared stations first, then built-ins by roster order (Featured leads
+  // the roster AND the page) - so the stations a fresh boot is most likely to see clicked
+  // are the first ones ready, not whatever the DB list happened to lead with.
   const visibleIds = new Set(all.map(s => s.id))
+  const rosterIdx = new Map(DEFAULT_MUSIC_STATIONS.map((s, i) => [s.id, i]))
   void warmStationHeads(rows
     .filter(r => visibleIds.has(r.s.id) && (!!r.s.aiPrompt || !!r.s.seedValue))
+    .sort((a, b) => (rosterIdx.get(a.s.id) ?? -1) - (rosterIdx.get(b.s.id) ?? -1))
     .map(r => ({
       name: r.s.name, aiPrompt: r.s.aiPrompt ?? '',
       seedType: r.s.seedType as StationSeedType, seedValue: r.s.seedValue ?? undefined,

@@ -673,6 +673,10 @@ export class RadioEngine {
   // there cut the DJ short and swell straight into the song instead.
   private djSkip: (() => void) | null = null       // live only while the DJ audio is playing
   private djSkipRequested = false                  // sticky until the current sequence consumes it
+  // A skip arrived while the sequence couldn't advance the queue yet (station intro, or a
+  // transition whose display already flipped to the incoming song). playFrom consumes it at
+  // the top of its wait and quick-skips immediately, so the DJ never swallows a "next".
+  private pendingAdvance = false
 
   // Skippable sleep for the timed swell: resolves early when the listener hits skip.
   private swellWait(ms: number): Promise<void> {
@@ -917,7 +921,18 @@ export class RadioEngine {
       // Only ramp to bed if there's a safe instrumental gap to talk over.
       if (!immediateStart) this.ramp(this.deckKey(0), INTRO_BED, 900)
 
-      const intro = await this.prepareDj({ station, track: head[0]!, position: 'intro' })
+      // Race the DJ generation against a skip press: on a cache miss the generate can take
+      // seconds, and a skip during it used to sit dead until the clip arrived. If the skip
+      // wins, proceed with a silent segment (speak() drops late audio via djSkipRequested).
+      const introP = this.prepareDj({ station, track: head[0]!, position: 'intro' })
+      const intro = await Promise.race([
+        introP,
+        (async (): Promise<PreparedDj> => {
+          while (!this.djSkipRequested && !this.stale(runId)) await new Promise(r => setTimeout(r, 150))
+          return { text: null, blobUrl: null }
+        })(),
+      ])
+      if (intro.blobUrl === null) void introP.then(d => { if (d.blobUrl) URL.revokeObjectURL(d.blobUrl) })
       if (this.stale(runId)) return
       const deck0El = this.deckEl(0)
 
@@ -1028,7 +1043,8 @@ export class RadioEngine {
       if (this.shuffleMode !== 'off') this.pickShuffleNext(songs, i)
       if (this.shuffleMode === 'bag') this.addToBag(cur.videoId)
       const next = songs[i + 1] ?? null
-      this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing', skipping: false })
+      // Keep the skipping badge lit when a mid-DJ skip is about to advance right past this song.
+      this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing', skipping: this.pendingAdvance })
 
       const otherDeck = this.deck === 0 ? 1 : 0
       let preparedNext: Promise<PreparedDj> | null = null
@@ -1038,11 +1054,15 @@ export class RadioEngine {
         // and Plex streams have no resolver latency to hide.
         if (!this.offline && isYouTubeRef(next.videoId)) prewarmStream(next.videoId, 'audio')
         this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the hand-off is instant
-        preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
+        // A queued mid-DJ advance goes quick (no DJ) - don't burn an LLM+TTS generation on it.
+        preparedNext = this.pendingAdvance ? null : this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
         lyricsFetch = fetchFirstRealLyricSec(next)   // parallel — resolves long before the song ends
       }
 
-      const reason = await this.waitTail(runId, this.deck)
+      // A mid-DJ skip queued an advance: don't wait for the tail at all - hand off now,
+      // exactly like a skip pressed during normal playback.
+      const reason = this.pendingAdvance ? 'skip' as const : await this.waitTail(runId, this.deck)
+      this.pendingAdvance = false
       if (this.stale(runId)) return
 
       // Repeat-one: replay the current song from the top instead of advancing (a manual skip
@@ -1202,9 +1222,16 @@ export class RadioEngine {
   }
 
   skip() {
-    // Mid-DJ (or anywhere in the intro/transition sequence, where the queue can't advance
-    // yet): cut the voice short and swell straight into the song. Never a dead click.
+    // Mid-DJ (or anywhere in the intro/transition sequence): a skip means NEXT SONG, not
+    // just "stop talking". Cut the voice short AND queue an advance for the moment the
+    // sequence lands, so the DJ can never block a skip. The advance is skipped only early
+    // in a transition (display not yet flipped to the incoming song) - there the incoming
+    // song IS the next one, so cutting the voice already lands the skip.
     if (this.state.djSpeaking || this.state.phase === 'intro' || this.state.phase === 'transition') {
+      if (this.state.phase === 'intro' || (this.state.phase === 'transition' && this.state.djSpeaking)) {
+        this.pendingAdvance = true
+        this.set({ skipping: true })
+      }
       this.djSkipRequested = true
       this.djSkip?.()
       return
@@ -1385,6 +1412,7 @@ export class RadioEngine {
     this.skipResolve = null
     this.djSkip = null
     this.djSkipRequested = false
+    this.pendingAdvance = false
     this.songsRef = null
     if (this.sleepTimeout) { clearTimeout(this.sleepTimeout); this.sleepTimeout = null }
     if (this.built) {

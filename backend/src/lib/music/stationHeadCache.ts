@@ -39,7 +39,7 @@ const ROTATE_MS = 10 * 60_000     // a pool older than this rebuilds after servi
 const HEAD_POOL = 10              // tracks banked per station (serves stay well-fed after filtering)
 const OPENER_WARM = 3             // pool tracks whose stream URL + DJ intro get pre-warmed
 const MAX_ENTRIES = 300           // ~120 built-ins + personal/shared stations, with headroom
-const WARM_CONCURRENCY = 2
+const WARM_CONCURRENCY = 1        // one background build at a time - warms share the LLM with live tune-ins
 const PERSIST_PATH = join(dataDir, 'cache', 'station-heads.json')
 
 interface HeadEntry {
@@ -50,6 +50,12 @@ interface HeadEntry {
 }
 
 const cache = new Map<string, HeadEntry>()
+
+// Live (listener-waiting) cold builds in flight. The warm sweep polls this and parks
+// between stations while it's non-zero: a background warm queued ahead of a click would
+// otherwise hold the LLM and make the listener's cold build SLOWER than before warming
+// existed. Module-level (not per-sweep) so overlapping sweeps all yield.
+let interactiveBuilds = 0
 
 const keyFor = (seed: StationSeed): string =>
   [seed.name ?? '', seed.aiPrompt, seed.seedType ?? '', seed.seedValue ?? ''].join('\u0000')
@@ -188,7 +194,9 @@ export async function serveStationHead(seed: StationSeed, want: number): Promise
     if (usable.length) {
       if (Date.now() - entry.at > ROTATE_MS) void refresh(key, seed)
       prewarmOpeners(seed, usable)   // self-heal expired stream URLs / consumed intros
-      logger.debug(`[stationHead] hit "${seed.name ?? seed.aiPrompt}" (pool ${entry.tracks.length}, usable ${usable.length})`)
+      // Info-level on purpose: hit-vs-cold is the first question when tune-in feels slow,
+      // and debug lines never make it into app.log at the default level.
+      logger.info(`[stationHead] hit "${seed.name ?? seed.aiPrompt}" (pool ${entry.tracks.length}, usable ${usable.length})`)
       return { tracks: usable.slice(0, want), source: entry.source }
     }
     // Every pooled track is in the listener's recent history. An instant repeat beats the
@@ -196,14 +204,21 @@ export async function serveStationHead(seed: StationSeed, want: number): Promise
     // in the background so the NEXT tune-in differs.
     void refresh(key, seed)
     prewarmOpeners(seed, entry.tracks)
-    logger.debug(`[stationHead] hit (all ${entry.tracks.length} in history) "${seed.name ?? seed.aiPrompt}"`)
+    logger.info(`[stationHead] hit (all ${entry.tracks.length} in history) "${seed.name ?? seed.aiPrompt}"`)
     return { tracks: entry.tracks.slice(0, want), source: entry.source }
   }
 
   // Cold path: the listener is waiting, so build with the latency defaults (small judge),
   // bank the surplus pool, and let the rotation rebuild upgrade it in the background.
-  logger.debug(`[stationHead] cold build "${seed.name ?? seed.aiPrompt}"`)
-  const result = await buildStationQueue({ ...seed, count: HEAD_POOL }, { fast: true })
+  // The interactive counter parks the warm sweep so this build gets the LLM to itself.
+  logger.info(`[stationHead] cold build "${seed.name ?? seed.aiPrompt}"`)
+  interactiveBuilds++
+  let result: StationQueueResult
+  try {
+    result = await buildStationQueue({ ...seed, count: HEAD_POOL }, { fast: true })
+  } finally {
+    interactiveBuilds--
+  }
   if (result.tracks.length) {
     evictIfFull()
     cache.set(key, { tracks: result.tracks, source: result.source, at: Date.now(), building: false })
@@ -227,10 +242,12 @@ export async function warmStationHeads(seeds: StationSeed[]): Promise<void> {
       return !e || (!e.building && (Date.now() - e.at > TTL_MS / 2 || !e.tracks.length))
     })
   if (!due.length) return
-  logger.debug(`[stationHead] warming ${due.length} station(s)`)
+  logger.info(`[stationHead] warming ${due.length} station(s)`)
   const queue = [...due]
   await Promise.all(Array.from({ length: Math.min(WARM_CONCURRENCY, queue.length) }, async () => {
     for (let s = queue.shift(); s; s = queue.shift()) {
+      // Park while a listener is waiting on a cold build - warms take the leftovers.
+      while (interactiveBuilds > 0) await new Promise(r => setTimeout(r, 250))
       await refresh(keyFor(s), s).catch(() => {})
     }
   }))
