@@ -18,7 +18,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/cn";
 import { useAppHeader } from "@/context/BreadcrumbSearchContext";
 
-type ConnStatus = "connecting" | "open" | "closed";
+// "closed" is terminal: the server refused us (auth expired, feature disabled), where
+// retrying would just be refused again. Transport drops (backend restart, network blip)
+// go through "reconnecting" and retry automatically; the tmux session survives them.
+type ConnStatus = "connecting" | "open" | "reconnecting" | "closed";
 type PaneAction = "split-h" | "split-v" | "close";
 
 export function CodingPage() {
@@ -56,26 +59,48 @@ export function CodingPage() {
     term.open(container);
     fit.fit();
 
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/api/coding/terminal`);
-    wsRef.current = ws;
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
 
     const sendResize = () => {
-      if (ws.readyState === WebSocket.OPEN) {
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       }
     };
 
-    ws.onopen = () => { setStatus("open"); sendResize(); };
-    ws.onmessage = (evt) => { term.write(evt.data as string); };
-    ws.onclose = () => setStatus("closed");
-    ws.onerror = () => setStatus("closed");
+    // Reconnect on drop, reusing the same xterm instance: tmux repaints the screen on
+    // reattach, and local scrollback survives (a full page reload would lose it). A
+    // backend restart can keep the port dark for a while (the updater rebuilds before
+    // it comes back), so retries are unbounded with the backoff capped at 15s.
+    const connect = () => {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${proto}//${location.host}/api/coding/terminal`);
+      wsRef.current = ws;
+
+      ws.onopen = () => { attempts = 0; setStatus("open"); sendResize(); };
+      ws.onmessage = (evt) => { term.write(evt.data as string); };
+      // No onerror handler: a failed socket always fires close as well, so close is
+      // the single place drops are handled (an error-only handler would double-fire).
+      ws.onclose = (evt) => {
+        if (disposed || wsRef.current !== ws) return;
+        // 44xx closes are deliberate refusals from the upgrade handler (session
+        // expired, feature disabled, no capability) where retrying would loop forever.
+        if (evt.code >= 4400 && evt.code < 4500) { setStatus("closed"); return; }
+        setStatus("reconnecting");
+        retryTimer = setTimeout(connect, Math.min(15_000, 1_000 * 2 ** attempts));
+        attempts++;
+      };
+    };
+    connect();
 
     // xterm.js's own onData is always a string (keystrokes, paste, or mouse-mode
     // escape sequences), sent as-is; the sidecar treats any non-JSON text frame as
     // raw PTY input (see coding-pty-sidecar.ts).
     const dataSub = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -85,9 +110,11 @@ export function CodingPage() {
     resizeObserver.observe(container);
 
     return () => {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       resizeObserver.disconnect();
       dataSub.dispose();
-      ws.close();
+      wsRef.current?.close();
       term.dispose();
       wsRef.current = null;
     };
@@ -167,15 +194,18 @@ export function CodingPage() {
         </Button>
       </div>
       <div className="relative flex-1 overflow-hidden">
-        {status === "connecting" && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+        {(status === "connecting" || status === "reconnecting") && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/80">
             <Spinner size="lg" />
+            {status === "reconnecting" && (
+              <p className="text-sm text-muted-foreground">Reconnecting to the coding terminal… your session and scrollback are preserved.</p>
+            )}
           </div>
         )}
         {status === "closed" && (
           <div className={cn("absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/80 p-6 text-center")}>
             <ShieldAlert className="size-8 text-destructive" />
-            <p className="text-sm text-muted-foreground">Lost connection to the coding terminal. Reload to reconnect, your session and scrollback are preserved.</p>
+            <p className="text-sm text-muted-foreground">The server refused the connection. Your sign-in may have expired or the coding feature was turned off. Reload the page to try again; your session and scrollback are preserved.</p>
           </div>
         )}
         <div ref={termContainerRef} className="h-full w-full p-2" />
