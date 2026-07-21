@@ -89,8 +89,23 @@ export function CodingPage() {
         // expired, feature disabled, no capability) where retrying would loop forever.
         if (evt.code >= 4400 && evt.code < 4500) { setStatus("closed"); return; }
         setStatus("reconnecting");
-        retryTimer = setTimeout(connect, Math.min(15_000, 1_000 * 2 ** attempts));
-        attempts++;
+        // A handshake the server REFUSED (feature toggled off, signed out) surfaces in
+        // the browser as the same bare 1006 as a transport drop, so probe a plain HTTP
+        // endpoint on the same gate to tell them apart: 401/403 means retrying would
+        // just be refused again; unreachable/other means the backend is down/restarting
+        // and the retry loop is exactly right.
+        void (async () => {
+          try {
+            const r = await fetch("/api/coding/capabilities", { credentials: "include" });
+            if (r.status === 401 || r.status === 403) {
+              if (!disposed && wsRef.current === ws) setStatus("closed");
+              return;
+            }
+          } catch { /* backend unreachable; keep retrying */ }
+          if (disposed || wsRef.current !== ws) return;
+          retryTimer = setTimeout(connect, Math.min(15_000, 1_000 * 2 ** attempts));
+          attempts++;
+        })();
       };
     };
     connect();
@@ -128,7 +143,13 @@ export function CodingPage() {
 
   useEffect(() => {
     fetch("/api/coding/capabilities", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // A definitive non-ok answer (e.g. the feature gate 403s everything) means the
+        // optimistic mac defaults are wrong: hide the pane controls rather than show
+        // buttons that can only fail. Only a network error keeps the defaults.
+        if (!r.ok) { setSplits(false); setCanUnsandbox(false); return null; }
+        return r.json();
+      })
       .then((caps: { splits?: boolean; canUnsandbox?: boolean } | null) => {
         if (caps && typeof caps.splits === "boolean") setSplits(caps.splits);
         if (caps && typeof caps.canUnsandbox === "boolean") setCanUnsandbox(caps.canUnsandbox);
@@ -205,7 +226,7 @@ export function CodingPage() {
         {status === "closed" && (
           <div className={cn("absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/80 p-6 text-center")}>
             <ShieldAlert className="size-8 text-destructive" />
-            <p className="text-sm text-muted-foreground">The server refused the connection. Your sign-in may have expired or the coding feature was turned off. Reload the page to try again; your session and scrollback are preserved.</p>
+            <p className="text-sm text-muted-foreground">The server refused the connection. The Coding feature may be turned off (an admin can enable it under Admin, Features) or your sign-in expired. Reload the page to try again; your session and scrollback are preserved.</p>
           </div>
         )}
         <div ref={termContainerRef} className="h-full w-full p-2" />

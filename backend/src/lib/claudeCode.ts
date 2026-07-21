@@ -22,12 +22,19 @@ export const CLAUDE_BIN = join(BIN_DIR, IS_WIN ? 'claude.exe' : 'claude')
 // (install.cjs) provisions from a platform optionalDependency into node_modules/.../bin. That
 // binary is what actually runs, so it's the meaningful "is it installed" signal.
 const CLAUDE_PKG_BIN = join(CLAUDE_CODE_DIR, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', IS_WIN ? 'claude.exe' : 'claude')
+// Newer Bun skips the postinstall provisioning entirely and links `.bin/claude` straight at the
+// platform optionalDependency's binary (confirmed live: 2.1.200 under Bun 1.3 has NO bin/claude
+// on mac, yet `claude --version` works via this path). Either location counts as the real binary.
+const CLAUDE_PLATFORM_BIN = join(
+  CLAUDE_CODE_DIR, 'node_modules', '@anthropic-ai',
+  `claude-code-${process.platform}-${process.arch}`, IS_WIN ? 'claude.exe' : 'claude',
+)
 
 export function isClaudeCodeInstalled(): boolean {
   // Require BOTH the launcher shim AND the real native binary it points at. Checking the shim
   // alone reports "installed" while the CLI fails at runtime with "bin executable does not exist
   // on disk" — exactly what happens when Bun skips the postinstall that provisions the binary.
-  return existsSync(CLAUDE_BIN) && existsSync(CLAUDE_PKG_BIN)
+  return existsSync(CLAUDE_BIN) && (existsSync(CLAUDE_PKG_BIN) || existsSync(CLAUDE_PLATFORM_BIN))
 }
 
 export async function installClaudeCode(onStatus: (msg: string) => void, signal?: AbortSignal): Promise<void> {
