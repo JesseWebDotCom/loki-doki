@@ -93,3 +93,36 @@ export async function getICloudMailStatus(): Promise<ICloudMailAccountStatus[] |
   if (r.status === 403) return null   // feature gated off
   return unwrap(r, 'accounts')
 }
+
+export interface ICloudMailVerdictRow {
+  id: string
+  bucket: 'ignore' | 'notify' | 'respond'
+  method: 'heuristic' | 'llm' | 'rule'
+  confidence: number
+  reason: string
+  model: string | null
+  createdAt: string
+  subject: string | null
+  fromName: string | null
+}
+
+export interface ICloudMailVerdictAggregate {
+  accountId: string
+  bucket: 'ignore' | 'notify' | 'respond'
+  method: 'heuristic' | 'llm' | 'rule'
+  n: number
+}
+
+export interface ICloudMailVerdicts {
+  own: ICloudMailVerdictRow[]
+  aggregates: ICloudMailVerdictAggregate[]
+}
+
+/** Admin triage-tuning data: full rows for the admin's OWN mail + counts for all. */
+export async function getICloudMailVerdicts(): Promise<ICloudMailVerdicts | null> {
+  const r = await fetch('/api/icloud/mail/verdicts', opts)
+  if (r.status === 403) return null
+  const body = await r.json().catch(() => null) as ICloudMailVerdicts | null
+  if (!r.ok || !body) throw new Error('Request failed')
+  return body
+}

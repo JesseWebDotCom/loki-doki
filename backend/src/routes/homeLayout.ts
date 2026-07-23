@@ -22,7 +22,7 @@ export interface HomeRow {
   cols: HomeWidget[]
 }
 
-export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast' | 'calendar'
+export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast' | 'calendar' | 'mail'
 
 export interface TickerConfig {
   enabled: boolean

@@ -17,6 +17,8 @@ import {
 } from '@/lib/icloud/accounts'
 import { syncAccountNow } from '@/lib/icloud/calendarPoller'
 import { mailWatcherStatus } from '@/lib/icloud/mail/watcher'
+import { notifyItemsFor } from '@/lib/icloud/mail/notify'
+import { icloudMailVerdicts } from '@/db/schema'
 
 const icloud = new Hono<AppEnv>()
 
@@ -175,6 +177,50 @@ icloud.get('/mail/messages', requireAuth, requireFeature('icloud-mail'), async (
     .orderBy(desc(icloudMailMessages.receivedAt))
     .limit(limit)
   return c.json({ messages: rows })
+})
+
+// Flagged items for the signed-in viewer (own + kids-if-admin, per the visibility
+// model in lib/icloud/mail/notify.ts). Powers the opt-in mail ticker section.
+icloud.get('/mail/notify', requireAuth, requireFeature('icloud-mail'), async (c) => {
+  const user = c.get('user')
+  if (!(await userMayUseCapability(user, 'icloud-mail'))) {
+    return c.json({ error: 'feature_not_granted', feature: 'icloud-mail' }, 403)
+  }
+  return c.json({ items: await notifyItemsFor(user) })
+})
+
+// Triage tuning data for Admin: full verdict rows for the admin's OWN mail, and
+// content-free aggregate counts for every account (the privacy model again).
+icloud.get('/mail/verdicts', requireAdmin, requireFeature('icloud-mail'), async (c) => {
+  const user = c.get('user')
+  const own = await db
+    .select({
+      id: icloudMailVerdicts.id,
+      bucket: icloudMailVerdicts.bucket,
+      method: icloudMailVerdicts.method,
+      confidence: icloudMailVerdicts.confidence,
+      reason: icloudMailVerdicts.reason,
+      model: icloudMailVerdicts.model,
+      createdAt: icloudMailVerdicts.createdAt,
+      subject: icloudMailMessages.subject,
+      fromName: icloudMailMessages.fromName,
+    })
+    .from(icloudMailVerdicts)
+    .innerJoin(icloudMailMessages, eq(icloudMailVerdicts.messageId, icloudMailMessages.id))
+    .innerJoin(icloudAccounts, eq(icloudMailVerdicts.accountId, icloudAccounts.id))
+    .where(eq(icloudAccounts.userId, user.id))
+    .orderBy(desc(icloudMailVerdicts.createdAt))
+    .limit(50)
+  const aggregates = await db
+    .select({
+      accountId: icloudMailVerdicts.accountId,
+      bucket: icloudMailVerdicts.bucket,
+      method: icloudMailVerdicts.method,
+      n: count(),
+    })
+    .from(icloudMailVerdicts)
+    .groupBy(icloudMailVerdicts.accountId, icloudMailVerdicts.bucket, icloudMailVerdicts.method)
+  return c.json({ own, aggregates })
 })
 
 export { icloud }

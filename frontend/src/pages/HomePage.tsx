@@ -4,7 +4,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity, Bookmark, BookOpen, CalendarDays, CirclePlay, CloudSun, Gauge, Heart, Headphones, Home, Laugh, LayoutGrid,
-  Lightbulb, ListVideo, LockOpen, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
+  Lightbulb, ListVideo, LockOpen, Mail, Music, Newspaper, Pencil, Play, PlaySquare, Plus,
   Power, RotateCw, Search, ShieldCheck, Star, Sunrise, Tag, Trophy, Tv, Upload, Volume2, X, type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -199,6 +199,7 @@ const MIN_MOMENTUM = 0.008;
 
 type TickerItem =
   | { type: 'calendar'; title: string; time?: string | null; member?: string | null }
+  | { type: 'mail'; title: string; member?: string | null; fromName?: string | null }
   | { type: 'sports'; title: string }
   | { type: 'youtube'; videoId: string; title: string; channelThumb?: string | null; localKind?: 'audio' | 'video' }
   | { type: 'news'; title: string; url?: string | null; imageUrl?: string | null; faviconHost?: string | null }
@@ -211,6 +212,7 @@ type TickerSection = { source: TickerSource; items: TickerItem[] }
 // the source, the label the context (see Visual Language: accent discipline).
 const SECTION_STYLES: Record<TickerSource, { Icon: React.ElementType; accent: string; bg: string; label: string }> = {
   calendar:{ Icon: CalendarDays, accent: 'text-muted-foreground/70', bg: '', label: 'Today'   },
+  mail:    { Icon: Mail,        accent: 'text-muted-foreground/70', bg: '', label: 'Mail'     },
   sports:  { Icon: Trophy,      accent: 'text-muted-foreground/70', bg: '', label: 'Scores'   },
   youtube: { Icon: PlaySquare,  accent: 'text-muted-foreground/70', bg: '', label: 'YouTube'  },
   news:    { Icon: Newspaper,   accent: 'text-muted-foreground/70', bg: '', label: 'News'     },
@@ -228,6 +230,16 @@ function SectionBadge({ source }: { source: TickerSource }) {
 }
 
 function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDown: () => void }) {
+  if (item.type === 'mail') {
+    return (
+      <span className="inline-flex items-center gap-2 px-4 whitespace-nowrap">
+        <span className="text-[12px] font-medium text-foreground/80 max-w-[260px] truncate">{item.title}</span>
+        {item.fromName && <span className="text-[10px] text-muted-foreground/55">{item.fromName}</span>}
+        {item.member && <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50">{item.member}</span>}
+        <span className="text-border/40">·</span>
+      </span>
+    )
+  }
   if (item.type === 'calendar') {
     return (
       <span className="inline-flex items-center gap-2 px-4 whitespace-nowrap">
@@ -339,11 +351,19 @@ function HomeTicker({ config }: { config: TickerConfig }) {
     const dayEnd = dayStart.getTime() + 86_400_000
     Promise.all([
       has('calendar') ? fetch(`/api/icloud/calendar/events?from=${dayStart.getTime()}&to=${dayEnd}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+      has('mail') ? fetch('/api/icloud/mail/notify', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('sports')  ? fetch('/api/sports/today',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('youtube') ? fetch('/api/youtube/feed?limit=10', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('news')    ? fetch('/api/news?limit=8',        { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('podcast') ? fetch('/api/podcasts/feed',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
-    ]).then(([calendar, sports, youtube, news, podcast]) => {
+    ]).then(([calendar, mailNotify, sports, youtube, news, podcast]) => {
+      type MailItem = { id: string; subject: string | null; fromName: string | null; member: string; own: boolean }
+      const mailItems: TickerItem[] = ((mailNotify as { items?: MailItem[] } | null)?.items ?? []).slice(0, 6).map(m => ({
+        type: 'mail',
+        title: m.subject ?? 'No subject',
+        fromName: m.fromName,
+        member: m.own ? null : m.member,
+      }))
       type CalEvent = { id: string; summary: string | null; startsAt: string; allDay: boolean; member: string }
       const calItems: TickerItem[] = ((calendar as { events?: CalEvent[] } | null)?.events ?? []).map(e => ({
         type: 'calendar',
@@ -372,6 +392,7 @@ function HomeTicker({ config }: { config: TickerConfig }) {
       const ordered: TickerItem[] = []
       for (const s of config.sources) {
         if (s === 'calendar') ordered.push(...calItems)
+        else if (s === 'mail') ordered.push(...mailItems)
         else if (s === 'sports')  ordered.push(...sportItems)
         else if (s === 'youtube') ordered.push(...ytItems)
         else if (s === 'news')    ordered.push(...newsItems)

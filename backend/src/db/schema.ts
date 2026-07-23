@@ -4217,3 +4217,20 @@ export const icloudSenderStats = sqliteTable('icloud_sender_stats', {
 }, t => ({
   accountSenderUnique: unique().on(t.accountId, t.senderAddress),
 }))
+
+// Triage verdicts, append-only (M5). The newest row per message is the live verdict
+// (cache); the full table is the audit log Admin renders for tuning. Phase 1 is
+// dry-run by design: verdicts never trigger folder moves or deletes.
+export const icloudMailVerdicts = sqliteTable('icloud_mail_verdicts', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  messageId: text('message_row_id').notNull().references(() => icloudMailMessages.id, { onDelete: 'cascade' }),
+  bucket: text('bucket', { enum: ['ignore', 'notify', 'respond'] }).notNull(),
+  method: text('method', { enum: ['heuristic', 'llm', 'rule'] }).notNull(),
+  confidence: real('confidence').notNull(),
+  reason: text('reason').notNull(),
+  model: text('model'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  accountMessageIdx: index('icloud_mail_verdicts_msg_idx').on(t.accountId, t.messageId, t.createdAt),
+}))

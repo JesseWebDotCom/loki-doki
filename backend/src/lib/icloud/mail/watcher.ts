@@ -7,6 +7,7 @@ import { emitNotification } from '@/lib/notify'
 import { getAccountCredentials } from '@/lib/icloud/accounts'
 import { createImapClient, MAIL_FOLDERS, logImapError } from '@/lib/icloud/mail/imapClient'
 import { ingestInbox, ingestSentReplies } from '@/lib/icloud/mail/ingest'
+import { startTriageDrain, triagePending } from '@/lib/icloud/mail/triage'
 import { logger } from '@/lib/logger'
 
 // Per-account IMAP watchers (iCloud plan M4). imapflow auto-IDLEs whenever no
@@ -76,6 +77,7 @@ async function runIngest(w: Watcher, includeSent: boolean): Promise<void> {
     const added = await ingestInbox(w.accountId, w.client)
     if (added > 0) logger.info(`[icloud-mail] account ${w.accountId}: +${added} messages`)
     if (includeSent) await ingestSentReplies(w.accountId, w.client)
+    if (added > 0) await triagePending()   // heuristics band runs with ingest; LLM band drains at idle
     w.lastError = null
   } catch (e) {
     w.lastError = e instanceof Error ? e.message : String(e)
@@ -185,5 +187,6 @@ export function startICloudMailWatchers(): void {
   started = true
   setTimeout(() => { void superviseTick() }, 25_000)
   setInterval(() => { void superviseTick() }, SUPERVISOR_TICK_MS)
+  startTriageDrain()
   logger.info('[icloud-mail] watcher supervisor started')
 }

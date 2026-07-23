@@ -43,6 +43,7 @@ import { activeSkillsBlock } from '@/lib/skills/resolver'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
 import { getCalendarBlock } from '@/lib/icloud/calendarBlock'
+import { getMailNotifyLine } from '@/lib/icloud/mail/notify'
 import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel, autotunedNumCtx } from '@/lib/models'
 import { isAutomatic } from '@/lib/resourceMode'
@@ -1029,6 +1030,10 @@ export async function runCompanionTurn(
       systemParts.push(`## Earlier in this conversation\n${p.conversationSummary}`)
     }
     if (p.uiContext) systemParts.push(p.uiContext)
+    // Flagged-mail line (iCloud M5): per-viewer and volatile (verdicts land all day),
+    // so it lives in the late zone. Warm-cache read; '' until the gate + a verdict exist.
+    const mailLine = getMailNotifyLine({ id: p.userId, role: p.userRole })
+    if (mailLine) systemParts.push(mailLine)
     // Per-message length nudge (Phase 3) — volatile (depends on this message's route),
     // so it sits in the late zone next to the other per-turn blocks. Cheap (~20 tokens).
     if (verbosityHint) systemParts.push(verbosityHint)

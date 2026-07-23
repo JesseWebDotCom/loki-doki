@@ -14,12 +14,14 @@ import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { AiGeneratedBadge } from '@/components/shared/AiGeneratedBadge'
 import {
   listICloudAccounts, connectICloudAccount, probeICloudAccount,
   reconnectICloudAccount, disconnectICloudAccount,
   listICloudCalendars, setICloudCalendarEnabled, syncICloudAccount,
-  getICloudMailStatus,
-  type ICloudAccount, type ICloudCalendar, type ICloudMailAccountStatus, type ICloudProbeStatus,
+  getICloudMailStatus, getICloudMailVerdicts,
+  type ICloudAccount, type ICloudCalendar, type ICloudMailAccountStatus,
+  type ICloudMailVerdicts, type ICloudProbeStatus,
 } from '@/lib/icloud/api'
 
 interface MemberRow { id: string; nickname: string; role: 'admin' | 'user' }
@@ -210,6 +212,138 @@ function AccountCard({ account, calendars, mail, onChanged }: {
   )
 }
 
+const BUCKET_STYLE: Record<'ignore' | 'notify' | 'respond', string> = {
+  ignore: 'bg-muted text-muted-foreground',
+  notify: 'bg-info/10 text-info',
+  respond: 'bg-success/10 text-success',
+}
+
+function TriagePanel() {
+  const [data, setData] = useState<ICloudMailVerdicts | null | undefined>(undefined)
+
+  useEffect(() => {
+    getICloudMailVerdicts().then(setData).catch(() => setData(null))
+  }, [])
+
+  if (data === undefined || data === null) return null   // gated off or loading
+
+  const totals = new Map<string, number>()
+  for (const a of data.aggregates) {
+    totals.set(a.bucket, (totals.get(a.bucket) ?? 0) + a.n)
+    totals.set(`m:${a.method}`, (totals.get(`m:${a.method}`) ?? 0) + a.n)
+  }
+  const total = (totals.get('ignore') ?? 0) + (totals.get('notify') ?? 0) + (totals.get('respond') ?? 0)
+  const heuristicShare = total ? Math.round(((totals.get('m:heuristic') ?? 0) / total) * 100) : 0
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Mail triage (dry run)</CardTitle>
+            <CardDescription>
+              Verdicts are recorded but never move or delete mail. Tune here before any actions ship.
+            </CardDescription>
+          </div>
+          <AiGeneratedBadge label="Judged locally" title="Uncertain messages are classified by the local model; most resolve by rules alone." />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2 text-xs">
+          {(['notify', 'respond', 'ignore'] as const).map((b) => (
+            <span key={b} className={cn('rounded-full px-2.5 py-1', BUCKET_STYLE[b])}>
+              {b}: {totals.get(b) ?? 0}
+            </span>
+          ))}
+          <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+            {heuristicShare}% decided without the LLM
+          </span>
+        </div>
+        {data.own.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No verdicts on your own mail yet.</p>
+        ) : (
+          <div className="space-y-2">
+            <Label>Your recent verdicts</Label>
+            <div className="space-y-1.5">
+              {data.own.slice(0, 12).map((v) => (
+                <div key={v.id} className="flex items-center gap-2 text-xs">
+                  <span className={cn('shrink-0 rounded-full px-2 py-0.5', BUCKET_STYLE[v.bucket])}>{v.bucket}</span>
+                  <span className="min-w-0 flex-1 truncate text-foreground/80">
+                    {v.subject ?? 'No subject'}
+                    <span className="text-muted-foreground"> from {v.fromName ?? 'unknown'}</span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground/70" title={v.reason}>
+                    {v.method === 'llm' ? 'AI' : 'rule'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function VipEditor({ member }: { member: MemberRow }) {
+  const [vips, setVips] = useState<string[] | null>(null)
+  const [draft, setDraft] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/users/${member.id}/preferences`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((prefs: Record<string, unknown>) => {
+        const v = prefs['icloud-mail.vip']
+        setVips(Array.isArray(v) ? v.map(String) : [])
+      })
+      .catch(() => setVips([]))
+  }, [member.id])
+
+  async function save(next: string[]) {
+    setVips(next)
+    await fetch(`/api/users/${member.id}/preferences`, {
+      method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'icloud-mail.vip': next }),
+    }).catch(() => toast.error('Could not save VIP list'))
+  }
+
+  if (vips === null) return null
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <Label>VIP senders</Label>
+      <p className="text-xs text-muted-foreground">
+        Mail from these addresses (or @domains) is always flagged for {member.nickname}.
+      </p>
+      {vips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {vips.map((v) => (
+            <span key={v} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs">
+              {v}
+              <button onClick={() => void save(vips.filter((x) => x !== v))}
+                className="text-muted-foreground hover:text-foreground">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input value={draft} placeholder="coach@example.com or @school.org" className="w-64"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && draft.trim()) {
+              void save([...new Set([...vips, draft.trim().toLowerCase()])])
+              setDraft('')
+            }
+          }} />
+        <Button variant="outline" size="sm" disabled={!draft.trim()}
+          onClick={() => { void save([...new Set([...vips, draft.trim().toLowerCase()])]); setDraft('') }}>
+          Add
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function AdminICloudTab() {
   const [members, setMembers] = useState<MemberRow[] | null>(null)
   const [accounts, setAccounts] = useState<ICloudAccount[] | null>(null)
@@ -286,14 +420,21 @@ export function AdminICloudTab() {
             {(account || connecting === m.id) && (
               <CardContent>
                 {account
-                  ? <AccountCard account={account} calendars={calendars.filter((c) => c.accountId === account.id)}
-                      mail={mailStatus?.find((s) => s.accountId === account.id) ?? null} onChanged={load} />
+                  ? (
+                    <>
+                      <AccountCard account={account} calendars={calendars.filter((c) => c.accountId === account.id)}
+                        mail={mailStatus?.find((s) => s.accountId === account.id) ?? null} onChanged={load} />
+                      {mailStatus !== null && <VipEditor member={m} />}
+                    </>
+                  )
                   : <ConnectForm member={m} onDone={() => { setConnecting(null); void load() }} />}
               </CardContent>
             )}
           </Card>
         )
       })}
+
+      {mailStatus !== null && <TriagePanel />}
     </div>
   )
 }
