@@ -428,8 +428,8 @@ export function LeftSidebar() {
   }
 
   // Hidden feature: with no badge showing, an admin clicking the logo runs an
-  // on-demand update check and refreshes the badge (a found update makes the
-  // badge appear; clicking again then opens the confirm flow above).
+  // on-demand update check; a found update opens the confirm dialog directly
+  // (seeded with this check's count, so the dialog skips its own re-check).
   const [logoChecking, setLogoChecking] = useState(false)
   async function logoCheckForUpdates() {
     if (logoChecking) return
@@ -438,8 +438,10 @@ export function LeftSidebar() {
       const r = await fetch('/api/admin/server/check', { method: 'POST', credentials: 'include' })
       if (r.ok) {
         const { behind } = (await r.json()) as { behind: number }
-        if (behind > 0) toast.info(`${behind} update${behind === 1 ? '' : 's'} available`)
-        else toast.success('Up to date')
+        if (behind > 0) {
+          setCheckedBehind(behind)
+          setConfirmUpdate(true)
+        } else toast.success('Up to date')
       } else if (r.status !== 409) {
         // 409 = a background check is already running; its result lands via refresh.
         toast.error('Could not check for updates')

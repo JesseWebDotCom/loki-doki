@@ -424,11 +424,10 @@ async function runUpdatePipeline(): Promise<void> {
     const launcherChanged = /^run(-dev)?\.(ps1|sh)$/m.test(changedFiles)
     step('merge', 'Applying the update', 'ok', `${beforeShort} → ${afterShort}`)
 
-    // Only reinstall/rebuild what the pulled commits actually touched — mirrors
-    // ensure_deps/ensure_frontend_build in run.sh/run.ps1, which stamp-gate the
-    // same way on manual launch. Without this, any update (even a backend-only
-    // or docs-only change) paid for a full `bun install` in both workspaces plus
-    // a full tsc + vite build every time.
+    // Only reinstall the dependencies the pulled commits actually touched —
+    // mirrors ensure_deps in run.sh/run.ps1, which stamp-gates the same way on
+    // manual launch. Without this, any update (even a backend-only or docs-only
+    // change) paid for a full `bun install` in both workspaces.
     for (const [key, dir, label, depsChanged] of [
       ['deps-backend', BACKEND_DIR, 'Refreshing backend dependencies', /^backend\/(package\.json|bun\.lock)$/m.test(changedFiles)],
       ['deps-frontend', FRONTEND_DIR, 'Refreshing frontend dependencies', /^frontend\/(package\.json|bun\.lock)$/m.test(changedFiles)],
@@ -445,11 +444,11 @@ async function runUpdatePipeline(): Promise<void> {
       step(key, label, 'ok')
     }
 
-    const frontendChanged = /^frontend\//m.test(changedFiles)
+    // The bundle is rebuilt on every update, regardless of which paths changed:
+    // gating on frontend/ paths can miss build inputs that live elsewhere, and a
+    // stale served bundle costs far more than a redundant build.
     if (process.env.NODE_ENV === 'development') {
       step('build', 'Rebuilding the app', 'skip', 'Dev mode serves the UI through Vite; no bundle to build')
-    } else if (!frontendChanged) {
-      step('build', 'Rebuilding the app', 'skip', 'No frontend changes in this update')
     } else {
       step('build', 'Rebuilding the app', 'run')
       await buildFrontendStaged(onLine)
