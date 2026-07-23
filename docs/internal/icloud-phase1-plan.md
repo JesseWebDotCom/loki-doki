@@ -1,6 +1,11 @@
 # iCloud Phase 1 — Implementation Plan (2026-07)
 
-Status: drafted 2026-07-23, not yet started.
+Status: SHIPPED on main 2026-07-23 — M1 82fc9ff, M2 3a9373a, M3 ccd1238,
+M4 833147d, M5 3bfc18b. Deviations from plan noted inline below; the notable one:
+no briefing mail source (the briefing cache is shared per location and would leak
+per-member mail across profiles) — mail surfaces are the opt-in ticker section,
+the per-viewer companion line, and the Admin triage panel instead. postal-mime was
+not needed (snippets come from bounded MIME-part downloads via imapflow).
 Scope source: `icloud-integration-research.md` (Part 1/1b/1c). Phase 1 = Apple
 account connection (ASP) + read-only CalDAV calendar + calendar surfaces/companion/
 briefing + Mail MVP (ingestion + dry-run triage, no destructive actions).
