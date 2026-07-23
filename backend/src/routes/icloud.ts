@@ -4,16 +4,19 @@
 // reconnect, immediately encrypted, and never echoed back in any response.
 
 import { Hono } from 'hono'
-import { and, asc, eq, gt, lt } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, lt } from 'drizzle-orm'
 import type { AppEnv } from '@/types'
 import { db } from '@/db'
-import { icloudAccounts, icloudCalendars, icloudEventOccurrences, users } from '@/db/schema'
+import {
+  icloudAccounts, icloudCalendars, icloudEventOccurrences, icloudMailMessages, users,
+} from '@/db/schema'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
-import { requireFeature } from '@/lib/featureGate'
+import { requireFeature, userMayUseCapability } from '@/lib/featureGate'
 import {
   listAccounts, createAccount, updateAccountPassword, deleteAccount, probeAccount,
 } from '@/lib/icloud/accounts'
 import { syncAccountNow } from '@/lib/icloud/calendarPoller'
+import { mailWatcherStatus } from '@/lib/icloud/mail/watcher'
 
 const icloud = new Hono<AppEnv>()
 
@@ -121,6 +124,57 @@ icloud.post('/accounts/:id/sync', requireAdmin, async (c) => {
   if (!result.ok) return c.json({ error: result.error ?? 'Sync failed' }, 502)
   const account = (await listAccounts()).find((a) => a.id === c.req.param('id')) ?? null
   return c.json({ ok: true, account })
+})
+
+// ── Mail (M4) ─────────────────────────────────────────────────────────────────
+// Privacy model (decided 2026-07-23): the message index is OWNER-ONLY — admins get
+// watcher status + counts here, and only M5's notify-bucket flags later, never the
+// index. The perProfile gate additionally default-denies non-admin profiles.
+
+// Admin: per-account watcher status + counts. No subjects, senders, or snippets.
+icloud.get('/mail/status', requireAdmin, requireFeature('icloud-mail'), async (c) => {
+  const statuses = new Map(mailWatcherStatus().map((s) => [s.accountId, s]))
+  const counts = await db
+    .select({ accountId: icloudMailMessages.accountId, total: count() })
+    .from(icloudMailMessages)
+    .groupBy(icloudMailMessages.accountId)
+  const totals = new Map(counts.map((r) => [r.accountId, r.total]))
+  const accounts = await listAccounts()
+  return c.json({
+    accounts: accounts.map((a) => ({
+      accountId: a.id,
+      userNickname: a.userNickname,
+      watcherConnected: statuses.get(a.id)?.connected ?? false,
+      watcherError: statuses.get(a.id)?.lastError ?? null,
+      messagesIndexed: totals.get(a.id) ?? 0,
+    })),
+  })
+})
+
+// Owner-only recent message index for the signed-in member's own account(s).
+icloud.get('/mail/messages', requireAuth, requireFeature('icloud-mail'), async (c) => {
+  const user = c.get('user')
+  if (!(await userMayUseCapability(user, 'icloud-mail'))) {
+    return c.json({ error: 'feature_not_granted', feature: 'icloud-mail' }, 403)
+  }
+  const limit = Math.min(Number(c.req.query('limit')) || 50, 200)
+  const rows = await db
+    .select({
+      id: icloudMailMessages.id,
+      fromAddress: icloudMailMessages.fromAddress,
+      fromName: icloudMailMessages.fromName,
+      subject: icloudMailMessages.subject,
+      snippet: icloudMailMessages.snippet,
+      receivedAt: icloudMailMessages.receivedAt,
+      seen: icloudMailMessages.seen,
+      hasAttachments: icloudMailMessages.hasAttachments,
+    })
+    .from(icloudMailMessages)
+    .innerJoin(icloudAccounts, eq(icloudMailMessages.accountId, icloudAccounts.id))
+    .where(eq(icloudAccounts.userId, user.id))
+    .orderBy(desc(icloudMailMessages.receivedAt))
+    .limit(limit)
+  return c.json({ messages: rows })
 })
 
 export { icloud }

@@ -4112,4 +4112,49 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS icloud_occurrences_start_idx ON icloud_event_occurrences(starts_at);
     CREATE INDEX IF NOT EXISTS icloud_occurrences_user_start_idx ON icloud_event_occurrences(user_id, starts_at);
   `)
+
+  // Apple iCloud M4: IMAP mail ingestion (folder cursors, headers-level index, sender stats)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS icloud_mail_folders (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      folder TEXT NOT NULL,
+      uid_validity INTEGER,
+      last_seen_uid INTEGER NOT NULL DEFAULT 0,
+      last_sweep_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(account_id, folder)
+    );
+    CREATE TABLE IF NOT EXISTS icloud_mail_messages (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      folder TEXT NOT NULL,
+      uid INTEGER NOT NULL,
+      message_id TEXT,
+      from_address TEXT,
+      from_name TEXT,
+      subject TEXT,
+      snippet TEXT,
+      received_at INTEGER NOT NULL,
+      seen INTEGER NOT NULL DEFAULT 0,
+      answered INTEGER NOT NULL DEFAULT 0,
+      list_unsubscribe TEXT,
+      auth_results TEXT,
+      has_attachments INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      UNIQUE(account_id, folder, uid)
+    );
+    CREATE INDEX IF NOT EXISTS icloud_mail_account_received_idx ON icloud_mail_messages(account_id, received_at);
+    CREATE TABLE IF NOT EXISTS icloud_sender_stats (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      sender_address TEXT NOT NULL,
+      seen_count INTEGER NOT NULL DEFAULT 0,
+      replied_count INTEGER NOT NULL DEFAULT 0,
+      first_seen_at INTEGER,
+      last_seen_at INTEGER,
+      UNIQUE(account_id, sender_address)
+    );
+  `)
 }

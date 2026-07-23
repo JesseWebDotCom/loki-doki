@@ -383,6 +383,9 @@ if (firstBoot) {
   import('@/lib/media/requestsPoller').then((m) => m.startMediaRequestsPoller()).catch(() => {})
   // Apple iCloud: CalDAV calendar sync (feature-gated inside; ctag-gated per tick).
   import('@/lib/icloud/calendarPoller').then((m) => m.startICloudCalendarPoller()).catch(() => {})
+  // Apple iCloud Mail: IMAP IDLE watchers behind the icloud-mail gate (supervisor
+  // reconciles connections every minute, so gate toggles need no restart).
+  import('@/lib/icloud/mail/watcher').then((m) => m.startICloudMailWatchers()).catch(() => {})
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})

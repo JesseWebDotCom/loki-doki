@@ -76,3 +76,20 @@ export async function syncICloudAccount(id: string): Promise<void> {
     throw new Error(body?.error || 'Sync failed')
   }
 }
+
+// ── Mail (M4) ─────────────────────────────────────────────────────────────────
+
+export interface ICloudMailAccountStatus {
+  accountId: string
+  userNickname: string
+  watcherConnected: boolean
+  watcherError: string | null
+  messagesIndexed: number
+}
+
+/** Admin-only watcher status + counts; 403 while the icloud-mail feature is off. */
+export async function getICloudMailStatus(): Promise<ICloudMailAccountStatus[] | null> {
+  const r = await fetch('/api/icloud/mail/status', opts)
+  if (r.status === 403) return null   // feature gated off
+  return unwrap(r, 'accounts')
+}

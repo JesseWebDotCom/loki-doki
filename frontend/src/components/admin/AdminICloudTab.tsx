@@ -18,7 +18,8 @@ import {
   listICloudAccounts, connectICloudAccount, probeICloudAccount,
   reconnectICloudAccount, disconnectICloudAccount,
   listICloudCalendars, setICloudCalendarEnabled, syncICloudAccount,
-  type ICloudAccount, type ICloudCalendar, type ICloudProbeStatus,
+  getICloudMailStatus,
+  type ICloudAccount, type ICloudCalendar, type ICloudMailAccountStatus, type ICloudProbeStatus,
 } from '@/lib/icloud/api'
 
 interface MemberRow { id: string; nickname: string; role: 'admin' | 'user' }
@@ -100,7 +101,12 @@ function CalendarList({ calendars, onChanged }: { calendars: ICloudCalendar[]; o
   )
 }
 
-function AccountCard({ account, calendars, onChanged }: { account: ICloudAccount; calendars: ICloudCalendar[]; onChanged: () => void }) {
+function AccountCard({ account, calendars, mail, onChanged }: {
+  account: ICloudAccount
+  calendars: ICloudCalendar[]
+  mail: ICloudMailAccountStatus | null
+  onChanged: () => void
+}) {
   const [testing, setTesting] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
   const [newPassword, setNewPassword] = useState('')
@@ -192,6 +198,14 @@ function AccountCard({ account, calendars, onChanged }: { account: ICloudAccount
         </div>
       )}
       <CalendarList calendars={calendars} onChanged={onChanged} />
+      {mail && (
+        <div className="flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+          <Mail className="h-3.5 w-3.5" />
+          {mail.watcherConnected
+            ? <span>Mail watcher connected. {mail.messagesIndexed} message{mail.messagesIndexed === 1 ? '' : 's'} indexed (headers only, no bodies stored).</span>
+            : <span>Mail watcher not connected{mail.watcherError ? `: ${mail.watcherError}` : ''}.</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -200,19 +214,22 @@ export function AdminICloudTab() {
   const [members, setMembers] = useState<MemberRow[] | null>(null)
   const [accounts, setAccounts] = useState<ICloudAccount[] | null>(null)
   const [calendars, setCalendars] = useState<ICloudCalendar[]>([])
+  const [mailStatus, setMailStatus] = useState<ICloudMailAccountStatus[] | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)   // member id with open form
 
   useEffect(() => { void load() }, [])
   async function load() {
     try {
-      const [users, accts, cals] = await Promise.all([
+      const [users, accts, cals, mail] = await Promise.all([
         fetch('/api/users', { credentials: 'include' }).then((r) => r.json() as Promise<MemberRow[]>),
         listICloudAccounts(),
         listICloudCalendars().catch(() => []),
+        getICloudMailStatus().catch(() => null),
       ])
       setMembers(users)
       setAccounts(accts)
       setCalendars(cals)
+      setMailStatus(mail)
     } catch { toast.error('Failed to load iCloud accounts') }
   }
 
@@ -269,7 +286,8 @@ export function AdminICloudTab() {
             {(account || connecting === m.id) && (
               <CardContent>
                 {account
-                  ? <AccountCard account={account} calendars={calendars.filter((c) => c.accountId === account.id)} onChanged={load} />
+                  ? <AccountCard account={account} calendars={calendars.filter((c) => c.accountId === account.id)}
+                      mail={mailStatus?.find((s) => s.accountId === account.id) ?? null} onChanged={load} />
                   : <ConnectForm member={m} onDone={() => { setConnecting(null); void load() }} />}
               </CardContent>
             )}

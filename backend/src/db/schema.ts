@@ -4163,3 +4163,57 @@ export const icloudEventOccurrences = sqliteTable('icloud_event_occurrences', {
   startIdx: index('icloud_occurrences_start_idx').on(t.startsAt),
   userStartIdx: index('icloud_occurrences_user_start_idx').on(t.userId, t.startsAt),
 }))
+
+// IMAP folder cursors (M4). uidValidity guards against Apple resetting a mailbox's
+// UID space; a mismatch invalidates every stored uid for the folder.
+export const icloudMailFolders = sqliteTable('icloud_mail_folders', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  folder: text('folder').notNull(),
+  uidValidity: integer('uid_validity'),
+  lastSeenUid: integer('last_seen_uid').notNull().default(0),
+  lastSweepAt: integer('last_sweep_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  accountFolderUnique: unique().on(t.accountId, t.folder),
+}))
+
+// Headers-level mail index — NO bodies are stored by design (snippet is a bounded
+// ~300-char text extract). Strictly per-member data; route authorization enforces
+// the mail-privacy model (owner sees all, admins see only M5 notify flags).
+export const icloudMailMessages = sqliteTable('icloud_mail_messages', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  folder: text('folder').notNull(),
+  uid: integer('uid').notNull(),
+  messageId: text('message_id'),
+  fromAddress: text('from_address'),
+  fromName: text('from_name'),
+  subject: text('subject'),
+  snippet: text('snippet'),
+  receivedAt: integer('received_at', { mode: 'timestamp' }).notNull(),
+  seen: integer('seen', { mode: 'boolean' }).notNull().default(false),
+  answered: integer('answered', { mode: 'boolean' }).notNull().default(false),
+  listUnsubscribe: text('list_unsubscribe'),
+  authResults: text('auth_results'),
+  hasAttachments: integer('has_attachments', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  accountFolderUidUnique: unique().on(t.accountId, t.folder, t.uid),
+  accountReceivedIdx: index('icloud_mail_account_received_idx').on(t.accountId, t.receivedAt),
+}))
+
+// Sender reputation counters feeding the M5 triage heuristics: "have they mailed
+// us before / have we ever written to them" answers most triage without any LLM.
+export const icloudSenderStats = sqliteTable('icloud_sender_stats', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  senderAddress: text('sender_address').notNull(),
+  seenCount: integer('seen_count').notNull().default(0),
+  repliedCount: integer('replied_count').notNull().default(0),
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp' }),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+}, t => ({
+  accountSenderUnique: unique().on(t.accountId, t.senderAddress),
+}))
