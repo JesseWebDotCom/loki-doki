@@ -4105,3 +4105,61 @@ export const icloudAccounts = sqliteTable('icloud_accounts', {
 }, t => ({
   userAppleUnique: unique().on(t.userId, t.appleId),
 }))
+
+// Discovered per-account calendars. `enabled` is the admin's per-calendar sync toggle;
+// ctag is the cheap change gate (unchanged ctag = skip the calendar entirely).
+export const icloudCalendars = sqliteTable('icloud_calendars', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  name: text('name').notNull(),
+  colorHex: text('color_hex'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  ctag: text('ctag'),
+  syncToken: text('sync_token'),
+  lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  accountUrlUnique: unique().on(t.accountId, t.url),
+}))
+
+// Master VEVENTs as synced (one row per object href). rawIcs is kept so occurrence
+// windows can always be re-expanded without another network fetch.
+export const icloudEvents = sqliteTable('icloud_events', {
+  id: text('id').primaryKey(),
+  calendarId: text('calendar_id').notNull().references(() => icloudCalendars.id, { onDelete: 'cascade' }),
+  uid: text('uid').notNull(),
+  href: text('href').notNull(),
+  etag: text('etag'),
+  summary: text('summary'),
+  location: text('location'),
+  allDay: integer('all_day', { mode: 'boolean' }).notNull().default(false),
+  startsAt: integer('starts_at', { mode: 'timestamp' }),
+  endsAt: integer('ends_at', { mode: 'timestamp' }),
+  rrule: integer('rrule', { mode: 'boolean' }).notNull().default(false),
+  status: text('status'),
+  rawIcs: text('raw_ics').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  calendarHrefUnique: unique().on(t.calendarId, t.href),
+  calendarIdx: index('icloud_events_calendar_idx').on(t.calendarId),
+}))
+
+// Window-expanded instances (recurrences resolved), rebuilt idempotently per sync.
+// userId is denormalized from the owning account for fast household-wide queries.
+export const icloudEventOccurrences = sqliteTable('icloud_event_occurrences', {
+  id: text('id').primaryKey(),
+  eventId: text('event_id').notNull().references(() => icloudEvents.id, { onDelete: 'cascade' }),
+  calendarId: text('calendar_id').notNull(),
+  userId: text('user_id').notNull(),
+  startsAt: integer('starts_at', { mode: 'timestamp' }).notNull(),
+  endsAt: integer('ends_at', { mode: 'timestamp' }).notNull(),
+  allDay: integer('all_day', { mode: 'boolean' }).notNull().default(false),
+  summary: text('summary'),
+  location: text('location'),
+}, t => ({
+  startIdx: index('icloud_occurrences_start_idx').on(t.startsAt),
+  userStartIdx: index('icloud_occurrences_user_start_idx').on(t.userId, t.startsAt),
+}))

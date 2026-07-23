@@ -4062,4 +4062,54 @@ export function runMigrations() {
       UNIQUE(user_id, apple_id)
     );
   `)
+
+  // Apple iCloud M2: calendar sync (calendars, master events, expanded occurrences)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS icloud_calendars (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color_hex TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      ctag TEXT,
+      sync_token TEXT,
+      last_sync_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(account_id, url)
+    );
+    CREATE TABLE IF NOT EXISTS icloud_events (
+      id TEXT NOT NULL PRIMARY KEY,
+      calendar_id TEXT NOT NULL REFERENCES icloud_calendars(id) ON DELETE CASCADE,
+      uid TEXT NOT NULL,
+      href TEXT NOT NULL,
+      etag TEXT,
+      summary TEXT,
+      location TEXT,
+      all_day INTEGER NOT NULL DEFAULT 0,
+      starts_at INTEGER,
+      ends_at INTEGER,
+      rrule INTEGER NOT NULL DEFAULT 0,
+      status TEXT,
+      raw_ics TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(calendar_id, href)
+    );
+    CREATE INDEX IF NOT EXISTS icloud_events_calendar_idx ON icloud_events(calendar_id);
+    CREATE TABLE IF NOT EXISTS icloud_event_occurrences (
+      id TEXT NOT NULL PRIMARY KEY,
+      event_id TEXT NOT NULL REFERENCES icloud_events(id) ON DELETE CASCADE,
+      calendar_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      starts_at INTEGER NOT NULL,
+      ends_at INTEGER NOT NULL,
+      all_day INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      location TEXT
+    );
+    CREATE INDEX IF NOT EXISTS icloud_occurrences_start_idx ON icloud_event_occurrences(starts_at);
+    CREATE INDEX IF NOT EXISTS icloud_occurrences_user_start_idx ON icloud_event_occurrences(user_id, starts_at);
+  `)
 }

@@ -47,3 +47,32 @@ export async function disconnectICloudAccount(id: string): Promise<void> {
   const r = await fetch(`/api/icloud/accounts/${id}`, { ...opts, method: 'DELETE' })
   if (!r.ok) throw new Error('Request failed')
 }
+
+// ── Calendars (M2) ────────────────────────────────────────────────────────────
+
+export interface ICloudCalendar {
+  id: string
+  accountId: string
+  name: string
+  colorHex: string | null
+  enabled: boolean
+  lastSyncAt: string | null
+}
+
+export async function listICloudCalendars(): Promise<ICloudCalendar[]> {
+  return unwrap(await fetch('/api/icloud/calendars', opts), 'calendars')
+}
+
+export async function setICloudCalendarEnabled(id: string, enabled: boolean): Promise<void> {
+  const r = await fetch(`/api/icloud/calendars/${id}`, { ...opts, method: 'PUT', headers: J, body: JSON.stringify({ enabled }) })
+  if (!r.ok) throw new Error('Request failed')
+}
+
+/** Force a full sync for one account (discovers calendars on a fresh connection). */
+export async function syncICloudAccount(id: string): Promise<void> {
+  const r = await fetch(`/api/icloud/accounts/${id}/sync`, { ...opts, method: 'POST' })
+  if (!r.ok) {
+    const body = await r.json().catch(() => null) as { error?: string } | null
+    throw new Error(body?.error || 'Sync failed')
+  }
+}

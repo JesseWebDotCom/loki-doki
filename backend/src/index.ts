@@ -381,6 +381,8 @@ if (firstBoot) {
   // Media requests: advance requested→downloading→ready-in-Plex + ready notifications
   // + external Overseerr request sync (lib/media/requestsPoller.ts).
   import('@/lib/media/requestsPoller').then((m) => m.startMediaRequestsPoller()).catch(() => {})
+  // Apple iCloud: CalDAV calendar sync (feature-gated inside; ctag-gated per tick).
+  import('@/lib/icloud/calendarPoller').then((m) => m.startICloudCalendarPoller()).catch(() => {})
   // Notification delivery layer: deferred/digest flush + daily reports (lib/notify),
   // and the Telegram two-way bridge long-poll loop (lib/telegram).
   import('@/lib/notify/scheduler').then((m) => m.startNotifyScheduler()).catch(() => {})

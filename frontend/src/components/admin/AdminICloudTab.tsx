@@ -5,18 +5,20 @@
 // main Apple password, so every connected card carries a Reconnect path.
 
 import { useEffect, useState } from 'react'
-import { Calendar, Cloud, ExternalLink, Mail, Plug, RefreshCw, Trash2, Wifi } from 'lucide-react'
+import { Calendar, Cloud, ExternalLink, FolderSync, Mail, Plug, RefreshCw, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import {
   listICloudAccounts, connectICloudAccount, probeICloudAccount,
   reconnectICloudAccount, disconnectICloudAccount,
-  type ICloudAccount, type ICloudProbeStatus,
+  listICloudCalendars, setICloudCalendarEnabled, syncICloudAccount,
+  type ICloudAccount, type ICloudCalendar, type ICloudProbeStatus,
 } from '@/lib/icloud/api'
 
 interface MemberRow { id: string; nickname: string; role: 'admin' | 'user' }
@@ -74,12 +76,47 @@ function ConnectForm({ member, onDone }: { member: MemberRow; onDone: () => void
   )
 }
 
-function AccountCard({ account, onChanged }: { account: ICloudAccount; onChanged: () => void }) {
+function CalendarList({ calendars, onChanged }: { calendars: ICloudCalendar[]; onChanged: () => void }) {
+  async function toggle(cal: ICloudCalendar, enabled: boolean) {
+    try { await setICloudCalendarEnabled(cal.id, enabled); onChanged() }
+    catch { toast.error('Could not update calendar') }
+  }
+  if (!calendars.length) return null
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <Label>Calendars</Label>
+      <div className="space-y-1.5">
+        {calendars.map((cal) => (
+          <div key={cal.id} className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2 text-sm">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: cal.colorHex ?? 'var(--muted-foreground)' }} />
+              <span className="truncate">{cal.name}</span>
+            </span>
+            <Switch checked={cal.enabled} onCheckedChange={(v) => void toggle(cal, v)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AccountCard({ account, calendars, onChanged }: { account: ICloudAccount; calendars: ICloudCalendar[]; onChanged: () => void }) {
   const [testing, setTesting] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [busy, setBusy] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const needsReconnect = account.caldavStatus === 'auth_error' || account.imapStatus === 'auth_error'
+
+  async function syncNow() {
+    setSyncing(true)
+    try {
+      await syncICloudAccount(account.id)
+      toast.success('Calendars synced')
+      onChanged()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Sync failed') }
+    setSyncing(false)
+  }
 
   async function test() {
     setTesting(true)
@@ -143,6 +180,9 @@ function AccountCard({ account, onChanged }: { account: ICloudAccount; onChanged
           <Button variant="outline" size="sm" onClick={test} disabled={testing}>
             {testing ? <Spinner className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}Test
           </Button>
+          <Button variant="outline" size="sm" onClick={syncNow} disabled={syncing || account.caldavStatus !== 'ok'}>
+            {syncing ? <Spinner className="h-4 w-4" /> : <FolderSync className="h-4 w-4" />}Sync now
+          </Button>
           <Button variant={needsReconnect ? 'default' : 'outline'} size="sm" onClick={() => setReconnecting(true)}>
             <RefreshCw className="h-4 w-4" />Reconnect
           </Button>
@@ -151,6 +191,7 @@ function AccountCard({ account, onChanged }: { account: ICloudAccount; onChanged
           </Button>
         </div>
       )}
+      <CalendarList calendars={calendars} onChanged={onChanged} />
     </div>
   )
 }
@@ -158,17 +199,20 @@ function AccountCard({ account, onChanged }: { account: ICloudAccount; onChanged
 export function AdminICloudTab() {
   const [members, setMembers] = useState<MemberRow[] | null>(null)
   const [accounts, setAccounts] = useState<ICloudAccount[] | null>(null)
+  const [calendars, setCalendars] = useState<ICloudCalendar[]>([])
   const [connecting, setConnecting] = useState<string | null>(null)   // member id with open form
 
   useEffect(() => { void load() }, [])
   async function load() {
     try {
-      const [users, accts] = await Promise.all([
+      const [users, accts, cals] = await Promise.all([
         fetch('/api/users', { credentials: 'include' }).then((r) => r.json() as Promise<MemberRow[]>),
         listICloudAccounts(),
+        listICloudCalendars().catch(() => []),
       ])
       setMembers(users)
       setAccounts(accts)
+      setCalendars(cals)
     } catch { toast.error('Failed to load iCloud accounts') }
   }
 
@@ -225,7 +269,7 @@ export function AdminICloudTab() {
             {(account || connecting === m.id) && (
               <CardContent>
                 {account
-                  ? <AccountCard account={account} onChanged={load} />
+                  ? <AccountCard account={account} calendars={calendars.filter((c) => c.accountId === account.id)} onChanged={load} />
                   : <ConnectForm member={m} onDone={() => { setConnecting(null); void load() }} />}
               </CardContent>
             )}
