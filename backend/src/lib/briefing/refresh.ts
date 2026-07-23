@@ -22,6 +22,7 @@ import { todaysHolidays } from './sources/holidays'
 import { googleNewsSearch, bingNewsSearch } from './sources/rss'
 import { sportsToday } from './sources/sports'
 import { plexRecentlyAdded } from './sources/plex'
+import { todaysHouseholdEvents } from './sources/calendar'
 
 export const DEFAULT_BRIEFING_KEY = '__default__'
 
@@ -59,6 +60,7 @@ export async function refreshBriefing(
     notableDeaths: [],
     onThisDay: [],
     plex: [],
+    calendar: [],
     degraded,
   }
 
@@ -105,6 +107,10 @@ export async function refreshBriefing(
   }
   if (s.sources.plex) {
     tasks.push(plexRecentlyAdded(4).then((x) => { payload.plex = x }).catch(() => { degraded.push('plex') }))
+  }
+  if (s.sources.calendar) {
+    // Local DB read (already-synced iCloud events); empty when the gate is off.
+    tasks.push(todaysHouseholdEvents(4).then((x) => { payload.calendar = x }).catch(() => { degraded.push('calendar') }))
   }
   if (s.sources.localNews || s.sources.localEvents) {
     const limit = Math.max(s.maxItems.localNews, s.maxItems.localEvents)

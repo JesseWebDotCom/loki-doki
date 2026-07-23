@@ -1,10 +1,11 @@
 import { cn } from '@/lib/cn'
-import { useTodayItems, diffDays, formatMonDay, todayIso } from '../useTodayItems'
+import { useTodayItems, diffDays, formatMonDay, todayIso, formatEventTime, type CalendarEventItem } from '../useTodayItems'
 
-// Calendar page of the island panel: month grid with holiday dots | today's
-// items | upcoming holidays, mirroring SuperIsland's calendar layout.
+// Calendar page of the island panel: month grid with holiday + family-event dots |
+// today's items (incl. synced iCloud events) | upcoming events and holidays merged,
+// mirroring SuperIsland's calendar layout.
 
-function MonthGrid({ holidayDates }: { holidayDates: Set<string> }) {
+function MonthGrid({ holidayDates, eventDates }: { holidayDates: Set<string>; eventDates: Set<string> }) {
   const now = new Date()
   const year = now.getFullYear()
   const month = now.getMonth()
@@ -26,6 +27,8 @@ function MonthGrid({ holidayDates }: { holidayDates: Set<string> }) {
         {Array.from({ length: daysInMonth }, (_, i) => {
           const day = i + 1
           const isToday = day === now.getDate()
+          const hasHoliday = holidayDates.has(iso(day))
+          const hasEvent = eventDates.has(iso(day))
           return (
             <div key={day} className="flex flex-col items-center">
               {/* design-ok(glass-on-plain-bg): today highlight inside the black island surface */}
@@ -35,7 +38,10 @@ function MonthGrid({ holidayDates }: { holidayDates: Set<string> }) {
               )}>
                 {day}
               </span>
-              <span className={cn('size-[3px] rounded-full', holidayDates.has(iso(day)) ? 'bg-brand' : 'bg-transparent')} />
+              <span className="flex gap-[2px]">
+                <span className={cn('size-[3px] rounded-full', hasHoliday ? 'bg-brand' : 'bg-transparent')} />
+                <span className={cn('size-[3px] rounded-full', hasEvent ? 'bg-white/70' : 'bg-transparent')} />
+              </span>
             </div>
           )
         })}
@@ -44,16 +50,39 @@ function MonthGrid({ holidayDates }: { holidayDates: Set<string> }) {
   )
 }
 
+type UpcomingRow =
+  | { kind: 'holiday'; key: string; label: string; dateIso: string }
+  | { kind: 'event'; key: string; label: string; dateIso: string; sublabel: string }
+
+function upcomingDateIso(e: CalendarEventItem): string {
+  const d = new Date(e.startsAt)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function IslandPageCalendar() {
-  const { items, holidays } = useTodayItems()
+  const { items, holidays, eventDates, upcomingEvents } = useTodayItems()
   const holidayDates = new Set(holidays.map((h) => h.date))
-  const upcoming = holidays
-    .filter((h) => h.date > todayIso())
-    .slice(0, 4)
+
+  // The holidays API can return the same holiday under multiple types; dedupe by
+  // (date, label) so the merged column never repeats a row.
+  const seen = new Set<string>()
+  const upcoming: UpcomingRow[] = [
+    ...holidays
+      .filter((h) => h.date > todayIso())
+      .map((h): UpcomingRow => ({ kind: 'holiday', key: `hol-${h.date}-${h.name}`, label: h.name, dateIso: h.date })),
+    ...upcomingEvents
+      .map((e): UpcomingRow => ({
+        kind: 'event', key: `cal-${e.id}`, label: e.summary ?? 'Event',
+        dateIso: upcomingDateIso(e), sublabel: `${formatEventTime(e)} · ${e.member}`,
+      })),
+  ]
+    .filter((u) => { const k = `${u.dateIso}|${u.label}`; if (seen.has(k)) return false; seen.add(k); return true })
+    .sort((a, b) => a.dateIso.localeCompare(b.dateIso))
+    .slice(0, 5)
 
   return (
     <div className="grid h-full grid-cols-[1.2fr_1fr_1fr] gap-3">
-      <MonthGrid holidayDates={holidayDates} />
+      <MonthGrid holidayDates={holidayDates} eventDates={eventDates} />
 
       <div className="min-w-0">
         <div className="mb-1 flex items-baseline justify-between">
@@ -81,15 +110,18 @@ export function IslandPageCalendar() {
       <div className="min-w-0">
         <div className="mb-1 text-sm font-semibold text-white/85">Upcoming</div>
         {upcoming.length === 0 ? (
-          <p className="text-xs text-white/40">No upcoming holidays</p>
+          <p className="text-xs text-white/40">Nothing upcoming</p>
         ) : (
           <div className="space-y-1.5">
-            {upcoming.map((h) => (
-              <div key={`${h.date}-${h.name}`} className="flex items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-xs text-white/80">{h.name}</span>
+            {upcoming.map((u) => (
+              <div key={u.key} className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-xs text-white/80">{u.label}</span>
+                {u.kind === 'event' && (
+                  <span className="shrink-0 text-[10px] text-white/40">{u.sublabel}</span>
+                )}
                 {/* design-ok(glass-on-plain-bg): days pill inside the black island surface */}
                 <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] text-white/60">
-                  {diffDays(h.date) === 0 ? 'Today' : diffDays(h.date) === 1 ? 'Tomorrow' : formatMonDay(h.date)}
+                  {diffDays(u.dateIso) === 0 ? 'Today' : diffDays(u.dateIso) === 1 ? 'Tomorrow' : formatMonDay(u.dateIso)}
                 </span>
               </div>
             ))}

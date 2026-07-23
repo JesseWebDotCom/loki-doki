@@ -29,6 +29,7 @@ export interface BriefingPayload {
   notableDeaths: BriefingItem[]
   onThisDay: BriefingItem[]
   plex: BriefingItem[] // recently added to the user's Plex library
+  calendar: BriefingItem[] // today's household events (local iCloud sync)
   degraded: string[] // source ids that failed/were disabled this cycle
 }
 
@@ -45,6 +46,7 @@ export type BriefingSourceId =
   | 'notableDeaths'
   | 'holidays'
   | 'plex'
+  | 'calendar'
 
 export const BRIEFING_SOURCE_IDS: BriefingSourceId[] = [
   'weather',
@@ -56,6 +58,7 @@ export const BRIEFING_SOURCE_IDS: BriefingSourceId[] = [
   'notableDeaths',
   'holidays',
   'plex',
+  'calendar',
 ]
 
 /** Display names for each briefing source, shown in the setup wizard and privacy audit. */
@@ -69,6 +72,7 @@ export const BRIEFING_SOURCE_LABELS: Record<BriefingSourceId, string> = {
   notableDeaths:'Notable Deaths',
   holidays:     'Holidays',
   plex:         'New on Plex',
+  calendar:     'Family Calendar',
 }
 
 /** External data sources contacted by each briefing source. */
@@ -106,4 +110,5 @@ export const BRIEFING_SOURCE_MANIFEST: Record<BriefingSourceId, DataSource[]> = 
   plex: [
     { name: 'Plex', domain: 'plex.tv', purpose: 'Recently added to your media server', type: 'api' },
   ],
+  calendar: [], // fully local: reads the already-synced iCloud events table
 }

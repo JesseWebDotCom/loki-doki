@@ -149,6 +149,7 @@ export interface Tool {
 }
 
 import { weatherTool } from './weather'
+import { calendarTool } from './calendar'
 import { searchTool } from './search'
 import { calculatorTool } from './calculator'
 import { unitConversionTool } from './unit_conversion'
@@ -207,6 +208,7 @@ import { dockFilesTool } from './dockFiles'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
+  calendarTool,
   searchTool,
   calculatorTool,
   unitConversionTool,

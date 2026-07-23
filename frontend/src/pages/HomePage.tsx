@@ -198,6 +198,7 @@ const FRICTION = 0.92;
 const MIN_MOMENTUM = 0.008;
 
 type TickerItem =
+  | { type: 'calendar'; title: string; time?: string | null; member?: string | null }
   | { type: 'sports'; title: string }
   | { type: 'youtube'; videoId: string; title: string; channelThumb?: string | null; localKind?: 'audio' | 'video' }
   | { type: 'news'; title: string; url?: string | null; imageUrl?: string | null; faviconHost?: string | null }
@@ -209,6 +210,7 @@ type TickerSection = { source: TickerSource; items: TickerItem[] }
 // a 30px strip read as a dashboard ticker, not a media app; the icon alone carries
 // the source, the label the context (see Visual Language: accent discipline).
 const SECTION_STYLES: Record<TickerSource, { Icon: React.ElementType; accent: string; bg: string; label: string }> = {
+  calendar:{ Icon: CalendarDays, accent: 'text-muted-foreground/70', bg: '', label: 'Today'   },
   sports:  { Icon: Trophy,      accent: 'text-muted-foreground/70', bg: '', label: 'Scores'   },
   youtube: { Icon: PlaySquare,  accent: 'text-muted-foreground/70', bg: '', label: 'YouTube'  },
   news:    { Icon: Newspaper,   accent: 'text-muted-foreground/70', bg: '', label: 'News'     },
@@ -226,6 +228,16 @@ function SectionBadge({ source }: { source: TickerSource }) {
 }
 
 function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDown: () => void }) {
+  if (item.type === 'calendar') {
+    return (
+      <span className="inline-flex items-center gap-2 px-4 whitespace-nowrap">
+        {item.time && <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50">{item.time}</span>}
+        <span className="text-[12px] font-medium text-foreground/80 max-w-[240px] truncate">{item.title}</span>
+        {item.member && <span className="text-[10px] text-muted-foreground/55">{item.member}</span>}
+        <span className="text-border/40">·</span>
+      </span>
+    )
+  }
   if (item.type === 'sports') {
     const { league, teams, status, isFinal, isLive } = parseGame(item.title)
     return (
@@ -323,12 +335,22 @@ function HomeTicker({ config }: { config: TickerConfig }) {
   useEffect(() => {
     if (!config.sources.length) { setReady(true); return }
     const has = (s: TickerSource) => config.sources.includes(s)
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = dayStart.getTime() + 86_400_000
     Promise.all([
+      has('calendar') ? fetch(`/api/icloud/calendar/events?from=${dayStart.getTime()}&to=${dayEnd}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('sports')  ? fetch('/api/sports/today',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('youtube') ? fetch('/api/youtube/feed?limit=10', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('news')    ? fetch('/api/news?limit=8',        { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       has('podcast') ? fetch('/api/podcasts/feed',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
-    ]).then(([sports, youtube, news, podcast]) => {
+    ]).then(([calendar, sports, youtube, news, podcast]) => {
+      type CalEvent = { id: string; summary: string | null; startsAt: string; allDay: boolean; member: string }
+      const calItems: TickerItem[] = ((calendar as { events?: CalEvent[] } | null)?.events ?? []).map(e => ({
+        type: 'calendar',
+        title: e.summary ?? 'Event',
+        time: e.allDay ? 'All day' : new Date(e.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+        member: e.member,
+      }))
       const sportItems: TickerItem[] = ((sports as { games?: GameItem[] } | null)?.games ?? []).map(g => ({ type: 'sports', title: g.title }))
       const ytItems: TickerItem[] = ((youtube as { videos?: (VideoItem & { channelThumb?: string | null })[] } | null)?.videos ?? []).map(v => ({ type: 'youtube', videoId: v.videoId, title: v.title, channelThumb: v.channelThumb, localKind: v.localKind }))
       const newsItems: TickerItem[] = ((news as { items?: NewsItem[] } | null)?.items ?? []).map(n => {
@@ -349,7 +371,8 @@ function HomeTicker({ config }: { config: TickerConfig }) {
       // Keep items grouped by source so sections render as contiguous blocks
       const ordered: TickerItem[] = []
       for (const s of config.sources) {
-        if (s === 'sports')  ordered.push(...sportItems)
+        if (s === 'calendar') ordered.push(...calItems)
+        else if (s === 'sports')  ordered.push(...sportItems)
         else if (s === 'youtube') ordered.push(...ytItems)
         else if (s === 'news')    ordered.push(...newsItems)
         else if (s === 'podcast') ordered.push(...podcastItems)

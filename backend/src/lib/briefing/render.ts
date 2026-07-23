@@ -39,6 +39,7 @@ function buildLines(p: BriefingPayload, limits: RenderLimits): string[] {
   lines.push(`[Local context — ${p.location}, ${p.date}]`)
   if (p.weather) lines.push(`Weather: ${p.weather}`)
   if (p.holidays.length) lines.push(`Today: ${joinItems(p.holidays, 2)}`)
+  if (p.calendar.length) lines.push(`Family calendar: ${joinItems(p.calendar, 3)}`)
   if (p.localNews.length) lines.push(`Local news: ${joinItems(p.localNews, limits.localNews)}`)
   if (p.localEvents.length) lines.push(`Local events: ${joinItems(p.localEvents, limits.localEvents)}`)
   if (p.sports.length) lines.push(`Sports: ${joinItems(p.sports, limits.sports)}`)
@@ -69,6 +70,7 @@ export function renderBriefingBlock(p: BriefingPayload, limits: RenderLimits): s
     () => { lim.localNews = Math.min(lim.localNews, 2) },
     () => { work.worldNews = [] },
     () => { work.sports = [] },
+    () => { work.calendar = [] },
     () => { work.localEvents = [] },
     () => { work.localNews = [] },
   ]

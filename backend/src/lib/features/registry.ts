@@ -111,6 +111,7 @@ export const USER_FEATURES: UserFeatureDef[] = [
     description: 'Family iCloud calendars (read-only) in Home, the HUD, briefings, and the companion.',
     gateId: 'icloud-calendar',
     components: [],
+    toolIds: ['calendar'],
     contentNote: 'Connect family Apple Accounts under Integrations → Apple iCloud.',
   },
   {

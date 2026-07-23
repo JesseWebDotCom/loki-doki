@@ -30,6 +30,7 @@ const DEFAULTS: BriefingSettings = {
     notableDeaths: true,
     holidays: true,
     plex: false, // opt-in: only meaningful when a Plex server is configured
+    calendar: true, // local read; empty until iCloud Calendar is enabled and synced
   },
   cadenceMinutes: 150, // 2.5h
   patchSlug: null,

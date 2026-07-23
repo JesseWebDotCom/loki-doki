@@ -42,6 +42,7 @@ import type { ContentDials } from '@/lib/contentPolicy'
 import { activeSkillsBlock } from '@/lib/skills/resolver'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
+import { getCalendarBlock } from '@/lib/icloud/calendarBlock'
 import { retrieveDocChunks, DOC_STUFF_BUDGET } from '@/lib/docChunks'
 import { getModel, getFastModel, autotunedNumCtx } from '@/lib/models'
 import { isAutomatic } from '@/lib/resourceMode'
@@ -955,6 +956,11 @@ export async function runCompanionTurn(
     // could never cover them. Memory/summary/uiContext now go AFTER the stable
     // blocks, in the late volatile zone just before the time line.
     if (briefingBlock) systemParts.push(briefingBlock)
+    // Household calendar (iCloud sync): same warm-cache pattern as the briefing —
+    // synchronous read, background refresh, ~10-min stability keeps the prefix KV-safe.
+    // Local data, so it works offline; empty string until synced or when gated off.
+    const calendarBlock = getCalendarBlock()
+    if (calendarBlock) systemParts.push(calendarBlock)
     // User-authored skills active for this user (prefetched in the parallel batch).
     if (skillsBlock) systemParts.push(skillsBlock)
 

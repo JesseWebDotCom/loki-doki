@@ -22,7 +22,7 @@ export interface HomeRow {
   cols: HomeWidget[]
 }
 
-export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast'
+export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast' | 'calendar'
 
 export interface TickerConfig {
   enabled: boolean
@@ -44,7 +44,7 @@ export interface HomeLayout {
 // A fresh install should never land on a blank home. These widgets all return
 // content with zero configuration (world news + historical events), so a brand
 // new user sees a populated screen they can then customise or rearrange.
-const ALL_TICKER_SOURCES: TickerSource[] = ['sports', 'youtube', 'news']
+const ALL_TICKER_SOURCES: TickerSource[] = ['calendar', 'sports', 'youtube', 'news']
 
 const DEFAULT_LAYOUT: HomeLayout = {
   header: { weather: true, jokes: true, ticker: { enabled: true, sources: ALL_TICKER_SOURCES }, locked: false },

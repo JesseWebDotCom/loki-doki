@@ -12,7 +12,7 @@ export interface HomeRow {
   cols: HomeWidget[]
 }
 
-export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast'
+export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast' | 'calendar'
 
 export interface TickerConfig {
   enabled: boolean
@@ -31,7 +31,7 @@ export interface HomeLayout {
   canvas: HomeRow[]
 }
 
-const ALL_TICKER_SOURCES: TickerSource[] = ['sports', 'youtube', 'news']
+const ALL_TICKER_SOURCES: TickerSource[] = ['calendar', 'sports', 'youtube', 'news']
 
 /** Handles old stored layouts that have `header.sports: boolean` instead of `header.ticker`. */
 export function resolveTickerConfig(header: HomeLayoutHeader): TickerConfig {

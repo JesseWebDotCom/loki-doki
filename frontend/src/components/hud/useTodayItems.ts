@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, PartyPopper, MapPin, Timer } from 'lucide-react'
+import { AlarmClock, CalendarDays, PartyPopper, MapPin, Timer } from 'lucide-react'
 import { useTimeApp } from '@/context/TimeAlarmContext'
 import { useAuth } from '@/context/AuthContext'
 import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
@@ -90,15 +90,59 @@ export function diffDays(iso: string): number {
   return Math.round((parseLocalDate(iso).getTime() - today.getTime()) / 86_400_000)
 }
 
-export function useTodayItems(): { items: TodayItem[]; holidays: HolidayItem[] } {
+// One synced-calendar occurrence (household view; iCloud plan M3). Times are epoch ms.
+export interface CalendarEventItem {
+  id: string
+  summary: string | null
+  startsAt: number
+  endsAt: number
+  allDay: boolean
+  member: string
+  colorHex: string | null
+}
+
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function formatEventTime(e: CalendarEventItem): string {
+  return e.allDay ? 'All day' : new Date(e.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+export function useTodayItems(): {
+  items: TodayItem[]
+  holidays: HolidayItem[]
+  eventDates: Set<string>
+  upcomingEvents: CalendarEventItem[]
+} {
   const { running, alarms } = useTimeApp()
   const { show: showNearby } = useNearbyEventsPref()
   const [holidays, setHolidays] = useState<HolidayItem[]>([])
   const [localEvents, setLocalEvents] = useState<{ title: string; detail?: string }[]>([])
+  const [calEvents, setCalEvents] = useState<CalendarEventItem[]>([])
 
   useEffect(() => {
     let cancelled = false
     void fetchHolidays(new Date().getFullYear()).then((h) => { if (!cancelled) setHolidays(h) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Synced family calendar: whole current month (grid dots) extended a week past
+  // today (Upcoming column). 403 (feature off) or offline quietly yields nothing.
+  useEffect(() => {
+    let cancelled = false
+    const now = new Date()
+    const from = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+    const to = Math.max(new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime(), now.getTime() + 7 * 86_400_000)
+    fetch(`/api/icloud/calendar/events?from=${from}&to=${to}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((d: { events?: (Omit<CalendarEventItem, 'startsAt' | 'endsAt'> & { startsAt: string; endsAt: string })[] }) => {
+        if (cancelled) return
+        setCalEvents((d.events ?? []).map((e) => ({
+          ...e, startsAt: new Date(e.startsAt).getTime(), endsAt: new Date(e.endsAt).getTime(),
+        })))
+      })
+      .catch(() => { /* offline or gated off */ })
     return () => { cancelled = true }
   }, [])
 
@@ -117,10 +161,18 @@ export function useTodayItems(): { items: TodayItem[]; holidays: HolidayItem[] }
 
   const iso = todayIso()
   const weekday = new Date().getDay()
+  const todayEnd = new Date(new Date().setHours(23, 59, 59, 999)).getTime()
+  const todaysEvents = calEvents.filter((e) => localIso(new Date(e.startsAt)) === iso || (e.startsAt < Date.now() && e.endsAt > Date.now()))
 
   const items: TodayItem[] = [
     ...holidays.filter((h) => h.date === iso).map((h) => ({
       key: `hol-${h.date}-${h.name}`, icon: PartyPopper, label: h.name, sublabel: 'Holiday', kind: 'own' as const,
+    })),
+    ...todaysEvents.map((e) => ({
+      key: `cal-${e.id}`, icon: CalendarDays,
+      label: e.summary ?? 'Event',
+      sublabel: `${formatEventTime(e)} · ${e.member}`,
+      kind: 'own' as const,
     })),
     ...running.map((t) => ({
       key: `timer-${t.id}`, icon: Timer,
@@ -141,5 +193,10 @@ export function useTodayItems(): { items: TodayItem[]; holidays: HolidayItem[] }
     })),
   ]
 
-  return { items, holidays }
+  const eventDates = new Set(calEvents.map((e) => localIso(new Date(e.startsAt))))
+  const upcomingEvents = calEvents
+    .filter((e) => e.startsAt > todayEnd)
+    .slice(0, 8)
+
+  return { items, holidays, eventDates, upcomingEvents }
 }

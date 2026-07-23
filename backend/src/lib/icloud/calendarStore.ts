@@ -168,5 +168,11 @@ export async function syncAccount(accountId: string, opts: { force?: boolean } =
     .set({ caldavStatus: 'ok', lastError: null, updatedAt: now })
     .where(and(eq(icloudAccounts.id, accountId), eq(icloudAccounts.caldavStatus, 'error')))
 
+  // Keep the companion's grounding block warm with what just synced.
+  if (result.eventsUpserted || result.eventsDeleted) {
+    const { refreshCalendarBlock } = await import('@/lib/icloud/calendarBlock')
+    void refreshCalendarBlock()
+  }
+
   return result
 }

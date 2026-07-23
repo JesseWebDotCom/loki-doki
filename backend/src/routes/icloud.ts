@@ -4,11 +4,12 @@
 // reconnect, immediately encrypted, and never echoed back in any response.
 
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import { and, asc, eq, gt, lt } from 'drizzle-orm'
 import type { AppEnv } from '@/types'
 import { db } from '@/db'
-import { icloudCalendars } from '@/db/schema'
-import { requireAdmin } from '@/middleware/auth'
+import { icloudAccounts, icloudCalendars, icloudEventOccurrences, users } from '@/db/schema'
+import { requireAdmin, requireAuth } from '@/middleware/auth'
+import { requireFeature } from '@/lib/featureGate'
 import {
   listAccounts, createAccount, updateAccountPassword, deleteAccount, probeAccount,
 } from '@/lib/icloud/accounts'
@@ -81,6 +82,37 @@ icloud.put('/calendars/:id', requireAdmin, async (c) => {
     .set({ enabled: body.enabled, updatedAt: new Date() })
     .where(eq(icloudCalendars.id, row.id))
   return c.json({ ok: true })
+})
+
+// Merged household events view (any signed-in member — the family calendar is
+// household-visible by design, like moments; MAIL is the private surface, not this).
+icloud.get('/calendar/events', requireAuth, requireFeature('icloud-calendar'), async (c) => {
+  const from = new Date(Number(c.req.query('from')) || Date.now())
+  const to = new Date(Number(c.req.query('to')) || from.getTime() + 7 * 86_400_000)
+  if (to.getTime() - from.getTime() > 100 * 86_400_000) return c.json({ error: 'Range too large' }, 400)
+  const rows = await db
+    .select({
+      id: icloudEventOccurrences.id,
+      summary: icloudEventOccurrences.summary,
+      location: icloudEventOccurrences.location,
+      startsAt: icloudEventOccurrences.startsAt,
+      endsAt: icloudEventOccurrences.endsAt,
+      allDay: icloudEventOccurrences.allDay,
+      userId: icloudEventOccurrences.userId,
+      member: users.nickname,
+      colorHex: icloudCalendars.colorHex,
+      calendarName: icloudCalendars.name,
+    })
+    .from(icloudEventOccurrences)
+    .innerJoin(icloudCalendars, and(
+      eq(icloudEventOccurrences.calendarId, icloudCalendars.id),
+      eq(icloudCalendars.enabled, true),
+    ))
+    .innerJoin(users, eq(icloudEventOccurrences.userId, users.id))
+    .where(and(lt(icloudEventOccurrences.startsAt, to), gt(icloudEventOccurrences.endsAt, from)))
+    .orderBy(asc(icloudEventOccurrences.startsAt))
+    .limit(500)
+  return c.json({ events: rows })
 })
 
 // Manual sync: discovers calendars on a fresh connection and gives instant feedback.
