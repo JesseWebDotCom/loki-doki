@@ -69,6 +69,16 @@ export const FEATURES: Record<string, FeatureMeta> = {
     id: 'people_lookup', label: 'People & Property Lookup', risk: 'high', defaultEnabled: true,
     description: 'Scrape public property records and reverse people-lookup by name/address/phone. A doxxing/stalking vector — disable to remove it from every profile and the companion.',
   },
+  // Personal-data integrations (Apple iCloud). These ship default-OFF — true opt-in;
+  // no live deployment relies on them yet, unlike the legacy ON defaults above.
+  'icloud-calendar': {
+    id: 'icloud-calendar', label: 'iCloud Calendar', risk: 'medium', defaultEnabled: false,
+    description: 'Sync family iCloud calendars (read-only) into Home, the HUD, briefings, and the companion.',
+  },
+  'icloud-mail': {
+    id: 'icloud-mail', label: 'iCloud Mail', risk: 'high', defaultEnabled: false, perProfile: true,
+    description: 'Watch family iCloud mailboxes for triage: important-mail alerts, briefing digests, and companion awareness. Mail is private per member; admins additionally see kids\' flagged items.',
+  },
   // Lower-risk local apps — default ON. Kept here so their toggles share one code path.
   bookmarks: {
     id: 'bookmarks', label: 'Bookmarks', risk: 'low', defaultEnabled: true,

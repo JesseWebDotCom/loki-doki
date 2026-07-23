@@ -4044,4 +4044,22 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS podcast_moments_episode_idx ON podcast_moments(episode_id);
   `)
+
+  // Apple iCloud (M1: per-member account connections; calendar/mail tables land in M2/M4)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS icloud_accounts (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      apple_id TEXT NOT NULL,
+      password_enc TEXT NOT NULL,
+      caldav_home_url TEXT,
+      caldav_status TEXT NOT NULL DEFAULT 'unprobed',
+      imap_status TEXT NOT NULL DEFAULT 'unprobed',
+      last_probe_at INTEGER,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, apple_id)
+    );
+  `)
 }

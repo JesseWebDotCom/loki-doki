@@ -219,8 +219,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'integrations', label: 'Integrations', icon: Plug2, group: 'Platform',
-    keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security', 'books', 'opds'],
-    description: 'External service integrations — Frigate NVR, Plex, Home Assistant, and Books',
+    keywords: ['integrations', 'frigate', 'plex', 'home assistant', 'nvr', 'camera', 'media', 'smart home', 'mqtt', 'hass', 'cctv', 'security', 'books', 'opds', 'icloud', 'apple'],
+    description: 'External service integrations — Frigate NVR, Plex, Home Assistant, Books, and Apple iCloud',
     subsections: [
       {
         id: 'overview', label: 'All Integrations', kind: 'view',
@@ -251,6 +251,11 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         id: 'books', label: 'Books', kind: 'view', listed: false,
         keywords: ['books', 'opds', 'ebook', 'calibre', 'kavita', 'indexer', 'catalog', 'discover'],
         description: 'Optional self-hosted OPDS indexers as extra Book Store sources',
+      },
+      {
+        id: 'apple-icloud', label: 'Apple iCloud', kind: 'view', listed: false,
+        keywords: ['icloud', 'apple', 'apple id', 'calendar', 'caldav', 'mail', 'imap', 'app-specific password', 'asp', 'family'],
+        description: 'Connect family Apple Accounts for iCloud calendar and mail features',
       },
       // The four media-download products share one management view (pipeline choice,
       // per-user grants, and the queue span all of them) but each gets its own

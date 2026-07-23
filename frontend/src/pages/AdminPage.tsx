@@ -23,6 +23,7 @@ import { AdminNotificationsTab } from '@/components/admin/AdminNotificationsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
 import { AdminIntegrationsOverview } from '@/components/admin/AdminIntegrationsOverview'
 import { AdminMonitoringTab } from '@/components/admin/AdminMonitoringTab'
+import { AdminICloudTab } from '@/components/admin/AdminICloudTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { RemoteAccessPanel } from '@/components/admin/RemoteAccessPanel'
@@ -253,6 +254,7 @@ export function AdminPage() {
         {section === 'integrations' && sub === 'plex'            && <AdminPlexTab />}
         {section === 'integrations' && sub === 'home-assistant'  && <AdminHomeAssistantTab />}
         {section === 'integrations' && sub === 'books'           && <AdminBooksTab />}
+        {section === 'integrations' && sub === 'apple-icloud'    && <AdminICloudTab />}
         {section === 'integrations' && ['sonarr', 'radarr', 'overseerr', 'sabnzbd'].includes(sub ?? '') && <AdminMediaServiceTab service={sub as MediaService} />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}

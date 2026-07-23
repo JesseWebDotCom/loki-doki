@@ -104,7 +104,10 @@ export async function seedFeatureSwitchesOnce(): Promise<void> {
     const required = def.components.filter(
       (c) => !c.optional && (!c.platforms || c.platforms.includes(process.platform)),
     )
-    const installed = required.every((c) => getInstallComponent(c.componentId)?.isInstalled() ?? false)
+    // Zero-component features have no "installed reality" to mirror — never seed
+    // them ON; the featureGate default (OFF for personal-data gates) stands.
+    const installed = required.length > 0
+      && required.every((c) => getInstallComponent(c.componentId)?.isInstalled() ?? false)
     await setFeatureGate(def.gateId, installed)
     logger.info(`[features] seeded switch '${def.id}' = ${installed ? 'on' : 'off'} (from installed state)`)
   }

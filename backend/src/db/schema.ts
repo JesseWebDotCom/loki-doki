@@ -4083,3 +4083,25 @@ export const podcastMoments = sqliteTable('podcast_moments', {
 }, t => ({
   episodeIdx: index('podcast_moments_episode_idx').on(t.episodeId),
 }))
+
+// ─── Apple iCloud ────────────────────────────────────────────────────────────
+
+// One row per connected Apple Account (per family member). The app-specific password
+// is stored AES-encrypted via lib/secrets (keystore-backed) and is never returned to a
+// client. caldav/imap statuses are updated by probes and by the sync/watcher layers;
+// 'auth_error' is the "ASP was revoked — reconnect" signal surfaced in Admin.
+export const icloudAccounts = sqliteTable('icloud_accounts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  appleId: text('apple_id').notNull(),
+  passwordEnc: text('password_enc').notNull(),
+  caldavHomeUrl: text('caldav_home_url'),     // discovered principal/home URL cache
+  caldavStatus: text('caldav_status', { enum: ['ok', 'auth_error', 'error', 'unprobed'] }).notNull().default('unprobed'),
+  imapStatus: text('imap_status', { enum: ['ok', 'auth_error', 'error', 'unprobed'] }).notNull().default('unprobed'),
+  lastProbeAt: integer('last_probe_at', { mode: 'timestamp' }),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userAppleUnique: unique().on(t.userId, t.appleId),
+}))

@@ -15,6 +15,7 @@ import { getFrigateConfig } from '@/lib/frigate/config'
 import { getMonitoringConfig } from '@/lib/monitoring/config'
 import { fetchMonitorStates } from '@/lib/monitoring/kuma'
 import { listIndexers, testIndexer } from '@/lib/books/indexer'
+import { listAccounts as listICloudAccounts, probeAccount as probeICloudAccount } from '@/lib/icloud/accounts'
 
 export type IntegrationState = 'connected' | 'configured' | 'not_configured' | 'error'
 
@@ -160,6 +161,39 @@ async function computeRows(probe: boolean): Promise<IntegrationStatusRow[]> {
       detail: `${okCount}/${enabledIndexers.length} indexer${enabledIndexers.length === 1 ? '' : 's'} reachable`,
       error: okCount === 0 ? 'No indexer reachable' : null,
     }))
+  }
+
+  // Apple iCloud: one row summarizing every member's connection. Any auth_error wins
+  // the row state — that's the "ASP was revoked, reconnect" signal admins must see.
+  {
+    let accounts = await listICloudAccounts()
+    if (!accounts.length) {
+      rows.push(row('apple-icloud', { state: 'not_configured' }))
+    } else {
+      if (probe) {
+        const probed = await Promise.all(accounts.map((a) => within(probeICloudAccount(a.id), a)))
+        accounts = probed.map((a, i) => a ?? accounts[i]!)
+      }
+      const authErrored = accounts.filter((a) => a.caldavStatus === 'auth_error' || a.imapStatus === 'auth_error')
+      const errored = accounts.filter((a) => a.caldavStatus === 'error' || a.imapStatus === 'error')
+      const allOk = accounts.every((a) => a.caldavStatus === 'ok' && a.imapStatus === 'ok')
+      const memberCount = `${accounts.length} member${accounts.length === 1 ? '' : 's'}`
+      if (authErrored.length) {
+        rows.push(row('apple-icloud', {
+          state: 'error',
+          detail: memberCount,
+          error: `Reconnect needed for ${authErrored.map((a) => a.userNickname).join(', ')}`,
+        }))
+      } else if (probe || accounts.some((a) => a.lastProbeAt)) {
+        rows.push(row('apple-icloud', {
+          state: allOk ? 'connected' : errored.length ? 'error' : 'configured',
+          detail: memberCount,
+          error: errored.length ? (errored[0]!.lastError ?? 'Unreachable') : null,
+        }))
+      } else {
+        rows.push(row('apple-icloud', { state: 'configured', detail: memberCount }))
+      }
+    }
   }
 
   return rows

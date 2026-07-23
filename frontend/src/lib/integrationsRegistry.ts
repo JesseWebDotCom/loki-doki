@@ -5,12 +5,12 @@
 // The Integrations hub (AdminIntegrationsOverview) renders this as a status card grid.
 
 import type { LucideIcon } from 'lucide-react'
-import { Activity, BookOpen, Cctv, Clapperboard, Download, Home, MonitorPlay, Send, Tv } from 'lucide-react'
+import { Activity, BookOpen, Cctv, Clapperboard, Cloud, Download, Home, MonitorPlay, Send, Tv } from 'lucide-react'
 
-export type IntegrationCategory = 'media' | 'smart-home' | 'monitoring' | 'reading'
+export type IntegrationCategory = 'media' | 'smart-home' | 'monitoring' | 'reading' | 'personal'
 
 export interface IntegrationDef {
-  id: 'plex' | 'sonarr' | 'radarr' | 'overseerr' | 'sabnzbd' | 'home-assistant' | 'frigate' | 'uptime-kuma' | 'opds'
+  id: 'plex' | 'sonarr' | 'radarr' | 'overseerr' | 'sabnzbd' | 'home-assistant' | 'frigate' | 'uptime-kuma' | 'opds' | 'apple-icloud'
   label: string
   icon: LucideIcon
   category: IntegrationCategory
@@ -29,6 +29,7 @@ export const INTEGRATION_CATEGORIES: Record<IntegrationCategory, string> = {
   'smart-home': 'Smart Home',
   monitoring: 'Monitoring',
   reading: 'Reading',
+  personal: 'Personal',
 }
 
 export const INTEGRATIONS: IntegrationDef[] = [
@@ -79,6 +80,12 @@ export const INTEGRATIONS: IntegrationDef[] = [
     blurb: 'Service health alerts and companion announcements when something goes down',
     ownerAppLabel: null, appSettingsHref: null, adminSub: 'monitoring',
     keywords: ['uptime', 'kuma', 'monitoring', 'alerts'],
+  },
+  {
+    id: 'apple-icloud', label: 'Apple iCloud', icon: Cloud, category: 'personal',
+    blurb: 'Family calendars and mail from each member\'s Apple Account, synced locally',
+    ownerAppLabel: null, appSettingsHref: null, adminSub: 'apple-icloud',
+    keywords: ['icloud', 'apple', 'calendar', 'caldav', 'mail', 'imap', 'app-specific password'],
   },
   {
     id: 'opds', label: 'Book Indexers', icon: BookOpen, category: 'reading',

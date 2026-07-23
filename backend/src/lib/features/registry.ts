@@ -102,6 +102,25 @@ export const USER_FEATURES: UserFeatureDef[] = [
     toolIds: ['knowledge'],
     contentNote: 'Reference packs (Wikipedia, repair guides, and more) are chosen inside the Reference app.',
   },
+  // Pure-software switches: nothing to install, the toggle just flips the gate.
+  // Zero-component features seed OFF at boot (see seedFeatureSwitchesOnce) so a
+  // personal-data integration is never on before an admin opts in.
+  {
+    id: 'icloud-calendar',
+    label: 'iCloud Calendar',
+    description: 'Family iCloud calendars (read-only) in Home, the HUD, briefings, and the companion.',
+    gateId: 'icloud-calendar',
+    components: [],
+    contentNote: 'Connect family Apple Accounts under Integrations → Apple iCloud.',
+  },
+  {
+    id: 'icloud-mail',
+    label: 'iCloud Mail',
+    description: 'Important-mail alerts and digests from family iCloud mailboxes. Private per member.',
+    gateId: 'icloud-mail',
+    components: [],
+    contentNote: 'Connect family Apple Accounts under Integrations → Apple iCloud.',
+  },
 ]
 
 export function getUserFeature(id: string): UserFeatureDef | undefined {
