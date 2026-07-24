@@ -100,6 +100,20 @@ export async function listICloudEvents(from: number, to: number): Promise<ICloud
   return unwrap(r, 'events')
 }
 
+export interface ICloudBirthday {
+  contactName: string
+  member: string
+  date: string          // YYYY-MM-DD
+  turnsAge: number | null
+}
+
+/** Annual birthdays from synced contacts; [] when the contacts gate is off. */
+export async function listICloudBirthdays(from: number, to: number): Promise<ICloudBirthday[]> {
+  const r = await fetch(`/api/icloud/contacts/birthdays?from=${from}&to=${to}`, opts)
+  if (!r.ok) return []
+  return unwrap(r, 'birthdays')
+}
+
 // ── Mail (M4) ─────────────────────────────────────────────────────────────────
 
 export interface ICloudMailAccountStatus {

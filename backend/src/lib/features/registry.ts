@@ -123,6 +123,14 @@ export const USER_FEATURES: UserFeatureDef[] = [
     contentNote: 'Connect family Apple Accounts under Integrations → Apple iCloud.',
   },
   {
+    id: 'icloud-contacts',
+    label: 'iCloud Contacts',
+    description: 'Birthdays and contact names from family address books, synced locally.',
+    gateId: 'icloud-contacts',
+    components: [],
+    contentNote: 'Uses the same Apple Account connections as iCloud Calendar.',
+  },
+  {
     id: 'photo-frame',
     label: 'Photo Frame',
     description: 'Ambient slideshow of shared iCloud photo albums on household screens.',

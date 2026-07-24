@@ -51,6 +51,12 @@ async function tick(): Promise<void> {
       try {
         const r = await syncAccount(account.id)
         authStrikes.delete(account.id)
+        if (await isFeatureEnabled('icloud-contacts')) {
+          const { syncContacts } = await import('@/lib/icloud/contactsStore')
+          await syncContacts(account.id).catch((e) => {
+            logger.warn(`[icloud] contacts sync failed (${account.id}): ${e instanceof Error ? e.message : e}`)
+          })
+        }
         if (r.eventsUpserted || r.eventsDeleted) {
           logger.info(`[icloud] synced account ${account.id}: +${r.eventsUpserted}/-${r.eventsDeleted} events, ${r.calendarsSynced} calendars`)
         }

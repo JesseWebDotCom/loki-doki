@@ -79,6 +79,10 @@ export const FEATURES: Record<string, FeatureMeta> = {
     id: 'icloud-mail', label: 'iCloud Mail', risk: 'high', defaultEnabled: false, perProfile: true,
     description: 'Watch family iCloud mailboxes for triage: important-mail alerts, briefing digests, and companion awareness. Mail is private per member; admins additionally see kids\' flagged items.',
   },
+  'icloud-contacts': {
+    id: 'icloud-contacts', label: 'iCloud Contacts', risk: 'medium', defaultEnabled: false,
+    description: 'Sync family address books for birthdays in the Calendar app and briefing, and better name understanding.',
+  },
   'photo-frame': {
     id: 'photo-frame', label: 'Photo Frame', risk: 'low', defaultEnabled: false,
     description: 'Ambient slideshow of public iCloud Shared Albums. Uses only the album share link; no Apple account or password.',

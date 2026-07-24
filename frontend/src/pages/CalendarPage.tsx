@@ -9,7 +9,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
-import { listICloudEvents, type ICloudEvent } from '@/lib/icloud/api'
+import { listICloudEvents, listICloudBirthdays, type ICloudBirthday, type ICloudEvent } from '@/lib/icloud/api'
 
 // The household Calendar app: the family's synced iCloud calendars merged into one
 // month/week/day view with per-member color accents. Read-only in Phase 1 (event
@@ -29,6 +29,27 @@ function localKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 function sameDay(a: Date, b: Date): boolean { return localKey(a) === localKey(b) }
+
+// design-ok(hex-in-tsx): member colors on this page come from iCloud calendar data
+// (hex strings); birthdays need one fixed accent from the same species.
+const BIRTHDAY_COLOR = '#f472b6'
+
+/** Birthdays render as all-day pseudo-events so every view handles them for free. */
+function birthdayAsEvent(b: ICloudBirthday): ICloudEvent {
+  const start = new Date(`${b.date}T00:00:00`)
+  return {
+    id: `bday-${b.date}-${b.contactName}`,
+    summary: `${b.contactName}'s birthday${b.turnsAge ? ` (${b.turnsAge})` : ''}`,
+    location: null,
+    startsAt: start.toISOString(),
+    endsAt: new Date(start.getTime() + DAY_MS).toISOString(),
+    allDay: true,
+    userId: '',
+    member: b.member,
+    colorHex: BIRTHDAY_COLOR,
+    calendarName: 'Birthdays',
+  }
+}
 
 interface DayEvents { date: Date; events: ICloudEvent[] }
 
@@ -231,8 +252,15 @@ export function CalendarPage() {
   useEffect(() => {
     let cancelled = false
     setState((s) => (s === 'ready' ? s : 'loading'))
-    listICloudEvents(range.from, range.to)
-      .then((evts) => { if (!cancelled) { setEvents(evts); setState('ready') } })
+    Promise.all([
+      listICloudEvents(range.from, range.to),
+      listICloudBirthdays(range.from, range.to).catch(() => [] as ICloudBirthday[]),
+    ])
+      .then(([evts, birthdays]) => {
+        if (cancelled) return
+        setEvents([...evts, ...birthdays.map(birthdayAsEvent)])
+        setState('ready')
+      })
       .catch((e) => {
         if (cancelled) return
         setState(e instanceof Error && e.message === 'feature_disabled' ? 'disabled' : 'error')

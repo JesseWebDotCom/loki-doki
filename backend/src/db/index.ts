@@ -4158,6 +4158,23 @@ export function runMigrations() {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS icloud_mail_verdicts_msg_idx ON icloud_mail_verdicts(account_id, message_row_id, created_at);
+    CREATE TABLE IF NOT EXISTS icloud_contacts (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      href TEXT NOT NULL,
+      etag TEXT,
+      uid TEXT,
+      full_name TEXT,
+      org TEXT,
+      emails TEXT,
+      phones TEXT,
+      birthday_month INTEGER,
+      birthday_day INTEGER,
+      birthday_year INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(account_id, href)
+    );
     CREATE TABLE IF NOT EXISTS icloud_sender_stats (
       id TEXT NOT NULL PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,

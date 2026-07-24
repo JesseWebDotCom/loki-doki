@@ -122,6 +122,16 @@ icloud.get('/calendar/events', requireAuth, requireFeature('icloud-calendar'), a
   return c.json({ events: rows })
 })
 
+// Annual birthday occurrences from synced contacts ('' items when the gate is off,
+// so the Calendar app can merge without caring whether contacts are enabled).
+icloud.get('/contacts/birthdays', requireAuth, async (c) => {
+  const from = new Date(Number(c.req.query('from')) || Date.now())
+  const to = new Date(Number(c.req.query('to')) || from.getTime() + 30 * 86_400_000)
+  if (to.getTime() - from.getTime() > 400 * 86_400_000) return c.json({ error: 'Range too large' }, 400)
+  const { birthdaysInRange } = await import('@/lib/icloud/contactsStore')
+  return c.json({ birthdays: await birthdaysInRange(from, to) })
+})
+
 // Manual sync: discovers calendars on a fresh connection and gives instant feedback.
 icloud.post('/accounts/:id/sync', requireAdmin, async (c) => {
   const result = await syncAccountNow(c.req.param('id'))

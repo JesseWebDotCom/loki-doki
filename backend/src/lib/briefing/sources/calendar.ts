@@ -2,6 +2,7 @@ import { and, asc, eq, gt, lt } from 'drizzle-orm'
 import { db } from '@/db'
 import { icloudCalendars, icloudEventOccurrences, users } from '@/db/schema'
 import { isFeatureEnabled } from '@/lib/featureGate'
+import { birthdaysInRange } from '@/lib/icloud/contactsStore'
 import type { BriefingItem } from '../types'
 
 // Today's household events from the locally synced iCloud calendars. Purely a DB
@@ -29,7 +30,13 @@ export async function todaysHouseholdEvents(limit: number): Promise<BriefingItem
     .where(and(lt(icloudEventOccurrences.startsAt, end), gt(icloudEventOccurrences.endsAt, start)))
     .orderBy(asc(icloudEventOccurrences.startsAt))
     .limit(limit)
-  return rows.map((r) => ({
+  const items: BriefingItem[] = rows.map((r) => ({
     title: `${r.summary ?? 'Event'} ${r.allDay ? 'all day' : r.startsAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} (${r.member})`,
   }))
+  // Contact birthdays today ride the same section (empty when the gate is off).
+  const birthdays = await birthdaysInRange(start, end).catch(() => [])
+  for (const b of birthdays.slice(0, 2)) {
+    items.push({ title: `${b.contactName}'s birthday${b.turnsAge ? ` (turns ${b.turnsAge})` : ''}` })
+  }
+  return items.slice(0, limit + 2)
 }

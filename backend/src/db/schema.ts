@@ -4234,3 +4234,24 @@ export const icloudMailVerdicts = sqliteTable('icloud_mail_verdicts', {
 }, t => ({
   accountMessageIdx: index('icloud_mail_verdicts_msg_idx').on(t.accountId, t.messageId, t.createdAt),
 }))
+
+// CardDAV contacts (Phase 2 slice: birthdays + name grounding). Synced per account
+// over the same ASP road as calendars; emails/phones stored as JSON arrays.
+export const icloudContacts = sqliteTable('icloud_contacts', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  href: text('href').notNull(),
+  etag: text('etag'),
+  uid: text('uid'),
+  fullName: text('full_name'),
+  org: text('org'),
+  emails: text('emails'),          // JSON string[]
+  phones: text('phones'),          // JSON string[]
+  birthdayMonth: integer('birthday_month'),   // 1-12; birthday split so year-less BDAYs work
+  birthdayDay: integer('birthday_day'),
+  birthdayYear: integer('birthday_year'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  accountHrefUnique: unique().on(t.accountId, t.href),
+}))
