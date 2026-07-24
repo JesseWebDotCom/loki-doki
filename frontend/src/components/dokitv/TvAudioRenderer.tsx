@@ -25,6 +25,7 @@ export function TvAudioRenderer({ channel, block, suspended }: TvAudioRendererPr
   const [trackIndex, setTrackIndex] = useState(0)
   const [needsTap, setNeedsTap] = useState(false)
   const [failed, setFailed] = useState(false)
+  const errorStreak = useRef(0)
   const payload = block.payload
   const getAnalyser = useMediaAnalyser(audioRef, true)
   const palette = useMemo(() => paletteFromColors(channel.color, channel.colorDark), [channel.color, channel.colorDark])
@@ -91,7 +92,18 @@ export function TvAudioRenderer({ channel, block, suspended }: TvAudioRendererPr
     return { src: null, nowLine: block.title, subLine: block.subtitle }
   }, [payload, currentTrack, liveQuery.data, block.title, block.subtitle])
 
-  useEffect(() => { setFailed(false) }, [block.id, src])
+  useEffect(() => { setFailed(false); errorStreak.current = 0; setTrackIndex(0) }, [block.id])
+
+  // A one-track queue wraps onto itself: the src string never changes, so the play
+  // effect will not re-run. Restart the same track explicitly.
+  const advanceTrack = () => {
+    const audio = audioRef.current
+    if (tracks.length <= 1) {
+      if (audio) { audio.currentTime = 0; void audio.play().catch(() => {}) }
+      return
+    }
+    setTrackIndex((i) => i + 1)
+  }
 
   useEffect(() => {
     const audio = audioRef.current
@@ -111,7 +123,7 @@ export function TvAudioRenderer({ channel, block, suspended }: TvAudioRendererPr
   }, [src, suspended, payload.src, block.startAt, block.id])
 
   const waiting = (payload.src === 'station' && stationQuery.isLoading) || (payload.src === 'live-radio' && liveQuery.isLoading)
-  if (!waiting && !src) {
+  if (failed || (!waiting && !src)) {
     return <TvSlate channel={channel} headline={block.title} message={failed ? 'This audio source is not reachable right now.' : 'No audio source is available for this block yet.'} />
   }
 
@@ -157,10 +169,15 @@ export function TvAudioRenderer({ channel, block, suspended }: TvAudioRendererPr
       <audio
         ref={audioRef}
         src={src ?? undefined}
-        onEnded={() => { if (payload.src === 'station') setTrackIndex((i) => i + 1) }}
+        onPlaying={() => { errorStreak.current = 0 }}
+        onEnded={() => { if (payload.src === 'station') advanceTrack() }}
         onError={() => {
-          if (payload.src === 'station') setTrackIndex((i) => i + 1)
-          else setFailed(true)
+          if (payload.src !== 'station') { setFailed(true); return }
+          // Skip broken tracks, but latch the failure slate after a full silent lap
+          // around the queue so a dead stream endpoint cannot spin error->advance.
+          errorStreak.current += 1
+          if (errorStreak.current > Math.max(2, tracks.length)) setFailed(true)
+          else setTimeout(advanceTrack, 1500)
         }}
       />
     </div>

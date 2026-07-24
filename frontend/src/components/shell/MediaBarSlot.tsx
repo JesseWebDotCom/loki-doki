@@ -46,6 +46,8 @@ export function MediaBarSlot() {
     youtube: !!yt.track && !onWatch,
     radio: radio.active && !yt.track && !onRadioTab && !onNowPlayingPage && !onWatch && !radioPlayerUp,
     liveRadio: live.active && !yt.track && !radio.active && !onWatch,
+    // Doki TV never shows a mini bar: the watch page owns its whole surface.
+    tv: false,
   };
 
   const winner: MediaSource | null = pickMediaWinner(present, activeSource);

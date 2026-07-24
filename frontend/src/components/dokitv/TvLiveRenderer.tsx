@@ -84,7 +84,9 @@ export function TvLiveRenderer({ channel, block, suspended }: TvLiveRendererProp
           ref={videoRef}
           src={feed.type === 'video-loop' ? feed.url : undefined}
           className="h-full w-full object-contain"
-          autoPlay
+          // Must follow suspension: a bare autoPlay would restart audio on remount
+          // while the TV is paused for another audio source.
+          autoPlay={!suspended}
           playsInline
           loop={feed.type === 'video-loop'}
           onError={() => setFailed(true)}

@@ -15,10 +15,19 @@ interface TvMediaRendererProps {
   onEnded: () => void
 }
 
+// A media error is often transient (the YouTube proxy returns 202 "preparing" while it
+// resolves or downloads); retry a couple of times before latching the failure slate for
+// the rest of the block.
+const MAX_RETRIES = 2
+const RETRY_DELAY_MS = 6000
+
 export function TvMediaRenderer({ channel, block, suspended, onEnded }: TvMediaRendererProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [needsTap, setNeedsTap] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [ended, setEnded] = useState(false)
+  const [retries, setRetries] = useState(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const payload = block.payload
 
   const src =
@@ -30,7 +39,11 @@ export function TvMediaRenderer({ channel, block, suspended, onEnded }: TvMediaR
   useEffect(() => {
     setFailed(false)
     setNeedsTap(false)
+    setEnded(false)
+    setRetries(0)
   }, [block.id])
+
+  useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current) }, [])
 
   useEffect(() => {
     const video = videoRef.current
@@ -44,10 +57,10 @@ export function TvMediaRenderer({ channel, block, suspended, onEnded }: TvMediaR
         // Autoplay with sound blocked: play muted and surface the unmute affordance.
         video.muted = true
         setNeedsTap(true)
-        void video.play().catch(() => setFailed(true))
+        void video.play().catch(() => { /* handled by onError / retry path */ })
       })
     }
-  }, [block.id, suspended])
+  }, [block.id, suspended, retries])
 
   if (!src || failed) {
     return (
@@ -59,14 +72,22 @@ export function TvMediaRenderer({ channel, block, suspended, onEnded }: TvMediaR
     )
   }
 
+  // The file ran short of its scheduled slot: hold a branded interstitial instead of a
+  // frozen last frame until the block boundary refetch flips to the next program.
+  if (ended) {
+    return <TvSlate channel={channel} headline="We will be right back" message={null} />
+  }
+
   return (
     <div className="relative h-full w-full bg-black">
       <video
-        key={block.id}
+        key={`${block.id}-${retries}`}
         ref={videoRef}
         src={src}
         className="h-full w-full object-contain"
-        autoPlay
+        // autoPlay must follow suspension: a bare attribute would start audio on the
+        // next block remount even while the TV is paused for another audio source.
+        autoPlay={!suspended}
         playsInline
         onLoadedMetadata={(e) => {
           // Land mid-program at the broadcast offset, like TV that was already on.
@@ -74,8 +95,14 @@ export function TvMediaRenderer({ channel, block, suspended, onEnded }: TvMediaR
           const video = e.currentTarget
           if (Number.isFinite(video.duration) && offset < video.duration - 2) video.currentTime = offset
         }}
-        onEnded={onEnded}
-        onError={() => setFailed(true)}
+        onEnded={() => { setEnded(true); onEnded() }}
+        onError={() => {
+          if (retries < MAX_RETRIES) {
+            retryTimer.current = setTimeout(() => setRetries((r) => r + 1), RETRY_DELAY_MS)
+          } else {
+            setFailed(true)
+          }
+        }}
       />
       {needsTap ? (
         <button

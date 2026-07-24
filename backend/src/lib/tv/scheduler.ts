@@ -41,12 +41,13 @@ function inSignoff(hour: number, s: TvSignoff): boolean {
   return s.startHour > s.endHour ? hour >= s.startHour || hour < s.endHour : hour >= s.startHour && hour < s.endHour
 }
 
-/** End of the signoff window strictly after `t`. */
+/** End of the signoff window strictly after `t`. Bounded: a degenerate window that
+ *  covers every hour (bad config) must not spin the event loop forever. */
 function signoffEnd(t: number, s: TvSignoff): number {
   const d = new Date(t)
   d.setMinutes(0, 0, 0)
-  while (inSignoff(d.getHours(), s)) d.setTime(d.getTime() + 60 * 60 * 1000)
-  return d.getTime()
+  for (let i = 0; i < 26 && inSignoff(d.getHours(), s); i++) d.setTime(d.getTime() + 60 * 60 * 1000)
+  return Math.max(d.getTime(), t + 60 * 60 * 1000)
 }
 
 function programFor(hour: number, programs: TvDaypartProgram[] | undefined, fallback: string): { title: string; subtitle?: string } {
@@ -102,8 +103,12 @@ async function buildMediaBlocks(
     const episodes = await plexEpisodePool()
     const shows = [...new Set(episodes.map((e) => e.showKey))].sort()
     if (shows.length > 0) {
-      // Show of the week: stable across the whole ISO week, rotates weekly.
-      const week = `${new Date(from).getFullYear()}-w${Math.floor(new Date(from).getTime() / (7 * 24 * 60 * 60 * 1000))}`
+      // Show of the week: keyed by the local Monday of `from`'s week so the rotation
+      // flips at local midnight into Monday, not at a UTC epoch-week boundary.
+      const monday = new Date(from)
+      monday.setHours(0, 0, 0, 0)
+      while (monday.getDay() !== 1) monday.setDate(monday.getDate() - 1)
+      const week = dayKey(monday)
       const showKey = shows[hashSeed('tv-marathon', week) % shows.length]
       pool = (episodes as TvEpisodeItem[])
         .filter((e) => e.showKey === showKey)
@@ -168,7 +173,7 @@ function buildPageBlocks(
   from: number, until: number,
 ): PendingBlock[] {
   const blocks: PendingBlock[] = []
-  const len = (config.programMin ?? 30) * 60 * 1000
+  const len = Math.max(5, config.programMin ?? 30) * 60 * 1000
   let cursor = from
   while (cursor < until && blocks.length < MAX_BLOCKS_PER_BUILD) {
     if (config.signoff && inSignoff(new Date(cursor).getHours(), config.signoff)) {
@@ -272,7 +277,7 @@ function buildLiveBlocks(
   from: number, until: number,
 ): PendingBlock[] {
   const blocks: PendingBlock[] = []
-  const rotate = (config.rotateMin ?? 30) * 60 * 1000
+  const rotate = Math.max(1, config.rotateMin ?? 30) * 60 * 1000
   let cursor = from
   while (cursor < until && blocks.length < MAX_BLOCKS_PER_BUILD) {
     const end = Math.min(cursor + rotate, until)
@@ -302,7 +307,8 @@ async function buildSegmentBlocks(
     .limit(50)
   const blocks: PendingBlock[] = []
   let cursor = from
-  let i = 0
+  // Continue the rotation where the day's earlier extensions left off, like media blocks.
+  let i = await countBlocksOnDay(channel.id, ['segment'], from)
   while (cursor < until && blocks.length < MAX_BLOCKS_PER_BUILD) {
     if (config.signoff && inSignoff(new Date(cursor).getHours(), config.signoff)) {
       const end = Math.min(signoffEnd(cursor, config.signoff), until)
@@ -357,6 +363,8 @@ export async function seedTvChannels(): Promise<void> {
 
   for (const entry of TV_CATALOG) {
     if (slugs.has(entry.slug) || numbers.has(entry.number)) continue
+    // onConflictDoNothing: boot seeding and an admin rebuild can race; the unique
+    // constraints stay authoritative and a lost race must not abort the seed loop.
     await db.insert(tvChannels).values({
       id: crypto.randomUUID(),
       number: entry.number, slug: entry.slug, name: entry.name, tagline: entry.tagline,
@@ -364,7 +372,7 @@ export async function seedTvChannels(): Promise<void> {
       audience: entry.audience ?? 'everyone',
       config: JSON.stringify(entry.config), enabled: true, builtin: true,
       createdAt: now, updatedAt: now,
-    })
+    }).onConflictDoNothing()
     slugs.add(entry.slug)
     numbers.add(entry.number)
   }
@@ -385,14 +393,34 @@ export async function seedTvChannels(): Promise<void> {
       audience: 'everyone',
       config: JSON.stringify({ kind: 'live', feeds: [{ key: cam, label: humanize(cam), type: 'frigate', camera: cam }], rotateMin: 30 } satisfies TvChannelConfig),
       enabled: true, builtin: true, createdAt: now, updatedAt: now,
-    })
+    }).onConflictDoNothing()
     slugs.add(slug)
     numbers.add(number)
   }
 }
 
+// Serialize all schedule writes per channel: boot init, the hourly timer, on-demand
+// extension from /now, and admin rebuilds can otherwise interleave (each read of
+// last.endAt races the others' row-by-row inserts) and double-materialize every block.
+const channelLocks = new Map<string, Promise<unknown>>()
+
+async function withChannelLock<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = channelLocks.get(channelId) ?? Promise.resolve()
+  const run = prev.then(fn, fn)
+  const tail = run.catch(() => {})
+  channelLocks.set(channelId, tail)
+  void tail.then(() => {
+    if (channelLocks.get(channelId) === tail) channelLocks.delete(channelId)
+  })
+  return run
+}
+
 /** Extend one channel's schedule to now + horizon. Returns blocks added. */
-export async function extendChannelSchedule(channelId: string): Promise<number> {
+export function extendChannelSchedule(channelId: string): Promise<number> {
+  return withChannelLock(channelId, () => extendChannelScheduleLocked(channelId))
+}
+
+async function extendChannelScheduleLocked(channelId: string): Promise<number> {
   const rows = await db.select().from(tvChannels).where(eq(tvChannels.id, channelId)).limit(1)
   const channel = rows[0]
   if (!channel || !channel.enabled) return 0
@@ -436,9 +464,11 @@ export async function extendChannelSchedule(channelId: string): Promise<number> 
 }
 
 /** Drop a channel's future blocks and rebuild (admin config change). */
-export async function rebuildChannelSchedule(channelId: string): Promise<number> {
-  await db.delete(tvSchedule).where(and(eq(tvSchedule.channelId, channelId), gt(tvSchedule.startAt, new Date())))
-  return extendChannelSchedule(channelId)
+export function rebuildChannelSchedule(channelId: string): Promise<number> {
+  return withChannelLock(channelId, async () => {
+    await db.delete(tvSchedule).where(and(eq(tvSchedule.channelId, channelId), gt(tvSchedule.startAt, new Date())))
+    return extendChannelScheduleLocked(channelId)
+  })
 }
 
 export async function ensureTvSchedules(): Promise<void> {

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronUp, LayoutList, Pause, X } from 'lucide-react'
-import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
+import { acquireAudio, registerMediaStop, registerTransport } from '@/lib/mediaCoordinator'
 import { fetchTvChannels, fetchTvNow, type TvNow } from '@/lib/dokitv/api'
 import { TvMediaRenderer } from '@/components/dokitv/TvMediaRenderer'
 import { TvLiveRenderer } from '@/components/dokitv/TvLiveRenderer'
@@ -74,17 +74,32 @@ export function TvWatchPage() {
   useEffect(() => {
     if (!now?.block) return
     const ms = now.block.endAt - Date.now() + 750
-    const t = setTimeout(() => { void refetch() }, Math.max(1500, ms))
+    // Clock skew guard: if the client clock runs ahead of the server, endAt can already
+    // be in the past while the server still returns the same block. Back off instead of
+    // polling at the floor every 1.5s until the server-side boundary passes.
+    const t = setTimeout(() => { void refetch() }, ms <= 0 ? 15_000 : Math.max(1500, ms))
     return () => clearTimeout(t)
   }, [now, refetch])
 
   // TV owns the audio focus while mounted; if another app grabs it, pause instead of
-  // fighting (mediaCoordinator contract).
+  // fighting (mediaCoordinator contract). Registering a transport keeps device remotes
+  // (Listening Together, controller buttons) functional while the TV holds the slot.
   useEffect(() => {
     acquireAudio('tv')
-    const unregister = registerMediaStop('tv', () => setSuspended(true))
-    return unregister
+    const unregisterStop = registerMediaStop('tv', () => setSuspended(true))
+    const unregisterTransport = registerTransport('tv', {
+      toggle: () => setSuspended((s) => { if (s) acquireAudio('tv'); return !s }),
+      next: () => tuneByRef.current(1),
+      prev: () => tuneByRef.current(-1),
+      seek: () => { /* linear TV has no seek */ },
+      stop: () => setSuspended(true),
+    })
+    return () => { unregisterStop(); unregisterTransport() }
   }, [])
+
+  // The digit-entry timer must not survive unmount: it navigates, and an orphaned
+  // timer would turn the TV back on from whatever page the user went to.
+  useEffect(() => () => { if (digitTimer.current) clearTimeout(digitTimer.current) }, [])
 
   const tuneBy = useCallback((delta: number) => {
     if (!channels?.length) return
@@ -93,15 +108,23 @@ export function TvWatchPage() {
     const next = sorted[(idx + delta + sorted.length) % sorted.length]
     if (next) navigate(`/channels/watch/${next.slug}`)
   }, [channels, slug, navigate])
+  // Stable handle for the transport registration (registered once on mount).
+  const tuneByRef = useRef(tuneBy)
+  useEffect(() => { tuneByRef.current = tuneBy }, [tuneBy])
 
   const tuneToNumber = useCallback((num: number) => {
     const target = channels?.find((c) => c.number === num)
     if (target) navigate(`/channels/watch/${target.slug}`)
   }, [channels, navigate])
 
-  // Show the banner briefly on every channel change.
+  // Show the banner briefly on every channel change, and treat zapping as intent to
+  // resume watching if the TV was paused for another audio source.
   useEffect(() => {
     setBannerVisible(true)
+    setSuspended((wasSuspended) => {
+      if (wasSuspended) acquireAudio('tv')
+      return false
+    })
     const t = setTimeout(() => setBannerVisible(false), 5000)
     return () => clearTimeout(t)
   }, [slug])

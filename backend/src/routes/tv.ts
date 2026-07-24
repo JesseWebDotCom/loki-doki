@@ -8,10 +8,12 @@ import { and, asc, eq, gt, gte, lt, lte } from 'drizzle-orm'
 import { db } from '@/db'
 import { tvChannels, tvSchedule, tvSegments } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
+import { timingSafeEqual, createHash } from 'node:crypto'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { channelLogoSvg, channelLogoPng, type TvLogoSpec } from '@/lib/tv/logos'
+import { sanitizeTvChannelConfig, sanitizeTvChannelName } from '@/lib/tv/validate'
 import { rebuildChannelSchedule, extendChannelSchedule, ensureTvSchedules, seedTvChannels } from '@/lib/tv/scheduler'
-import { openChannelTsStream, tvStreamCapacityLeft } from '@/lib/tv/streamSession'
+import { openChannelTsStream } from '@/lib/tv/streamSession'
 import type { TvBlockPayload, TvChannelConfig, TvChannelInfo } from '@/lib/tv/types'
 import type { AppEnv } from '@/types'
 
@@ -58,7 +60,11 @@ async function iptvToken(): Promise<string> {
 async function checkIptvToken(given: string | undefined): Promise<boolean> {
   if (!given) return false
   const token = await getAppSetting('tv.iptvToken')
-  return typeof token === 'string' && token.length >= 32 && given === token
+  if (typeof token !== 'string' || token.length < 32) return false
+  // Compare digests so length differences and early mismatches leak no timing signal.
+  const a = createHash('sha256').update(given).digest()
+  const b = createHash('sha256').update(token).digest()
+  return timingSafeEqual(a, b)
 }
 
 // ── In-app API ───────────────────────────────────────────────────────────────────
@@ -104,7 +110,8 @@ tvRoute.get('/channels/:slug/now', requireAuth, async (c) => {
 
 /** EPG grid: every enabled channel's blocks in a window (default now-30min to now+4h). */
 tvRoute.get('/guide', requireAuth, async (c) => {
-  const hours = Math.min(24, Math.max(1, Number(c.req.query('hours') ?? 4)))
+  const rawHours = Number(c.req.query('hours') ?? 4)
+  const hours = Number.isFinite(rawHours) ? Math.min(24, Math.max(1, rawHours)) : 4
   const from = new Date(Date.now() - 30 * 60 * 1000)
   const to = new Date(Date.now() + hours * 60 * 60 * 1000)
   const channels = await enabledChannels()
@@ -145,17 +152,32 @@ tvRoute.get('/segments/:id/video', requireAuth, async (c) => {
   if (!existsSync(filePath)) return c.json({ error: 'Segment file missing' }, 404)
   const info = await stat(filePath)
   const range = c.req.header('range')
-  const m = range?.match(/bytes=(\d+)-(\d*)/)
-  const start = m ? Number(m[1]) : 0
-  const end = m?.[2] ? Number(m[2]) : info.size - 1
+  // Both range forms: bytes=start-[end] and the suffix form bytes=-N.
+  const m = range?.match(/^bytes=(\d*)-(\d*)$/)
+  let start = 0
+  let end = info.size - 1
+  let partial = false
+  if (m && (m[1] !== '' || m[2] !== '')) {
+    partial = true
+    if (m[1] === '') {
+      const suffix = Math.min(Number(m[2]), info.size)
+      start = info.size - suffix
+    } else {
+      start = Number(m[1])
+      if (m[2] !== '') end = Math.min(Number(m[2]), info.size - 1)
+    }
+    if (start >= info.size || start > end) {
+      return c.body(null, 416, { 'Content-Range': `bytes */${info.size}` })
+    }
+  }
   const { Readable } = await import('node:stream')
   const nodeStream = createReadStream(filePath, { start, end })
   const body = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>
-  return c.body(body, m ? 206 : 200, {
+  return c.body(body, partial ? 206 : 200, {
     'Content-Type': 'video/mp4',
     'Accept-Ranges': 'bytes',
     'Content-Length': String(end - start + 1),
-    ...(m ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}),
+    ...(partial ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}),
   })
 })
 
@@ -171,11 +193,15 @@ tvRoute.put('/admin/channels/:id', requireAdmin, async (c) => {
   const body = await c.req.json<{ enabled?: boolean; name?: string; tagline?: string; config?: TvChannelConfig }>()
   const rows = await db.select().from(tvChannels).where(eq(tvChannels.id, id)).limit(1)
   if (!rows[0]) return c.json({ error: 'Channel not found' }, 404)
+  // A config edit must not change the channel's kind: builders trust config.kind.
+  if (body.config && body.config.kind !== rows[0].kind) {
+    return c.json({ error: 'Channel kind cannot change' }, 400)
+  }
   await db.update(tvChannels).set({
     ...(body.enabled != null ? { enabled: body.enabled } : {}),
-    ...(body.name ? { name: body.name } : {}),
-    ...(body.tagline != null ? { tagline: body.tagline } : {}),
-    ...(body.config ? { config: JSON.stringify(body.config) } : {}),
+    ...(body.name ? { name: sanitizeTvChannelName(body.name) } : {}),
+    ...(body.tagline != null ? { tagline: sanitizeTvChannelName(body.tagline) } : {}),
+    ...(body.config ? { config: JSON.stringify(sanitizeTvChannelConfig(body.config)) } : {}),
     updatedAt: new Date(),
   }).where(eq(tvChannels.id, id))
   await rebuildChannelSchedule(id)
@@ -209,9 +235,12 @@ tvRoute.get('/iptv/playlist.m3u', async (c) => {
   const channels = await enabledChannels()
   const lines = ['#EXTM3U']
   for (const ch of channels) {
+    // Names are sanitized on write, but strip line breaks here too: a newline in a
+    // name would inject playlist lines for rows predating validation.
+    const name = ch.name.replace(/[\r\n"]+/g, ' ').trim()
     lines.push(
-      `#EXTINF:-1 tvg-id="${ch.slug}" tvg-chno="${ch.number}" tvg-name="${ch.name.replace(/"/g, '')}" ` +
-      `tvg-logo="${origin}/api/tv/iptv/logo/${ch.slug}.png?token=${token}" group-title="Doki TV",${ch.number} ${ch.name}`,
+      `#EXTINF:-1 tvg-id="${ch.slug}" tvg-chno="${ch.number}" tvg-name="${name}" ` +
+      `tvg-logo="${origin}/api/tv/iptv/logo/${ch.slug}.png?token=${token}" group-title="Doki TV",${ch.number} ${name}`,
       `${origin}/api/tv/iptv/stream/${ch.slug}.ts?token=${token}`,
     )
   }
@@ -279,9 +308,11 @@ tvRoute.get('/iptv/logo/:slug', async (c) => {
 
 tvRoute.get('/iptv/stream/:slug', async (c) => {
   if (!(await checkIptvToken(c.req.query('token')))) return c.text('Forbidden', 403)
-  if (!tvStreamCapacityLeft()) return c.text('Too many active TV streams', 503)
   const slug = c.req.param('slug').replace(/\.ts$/, '')
+  // The session cap is claimed inside openChannelTsStream (synchronously, so parallel
+  // requests cannot overshoot it); no separate check here that could race.
   const stream = await openChannelTsStream(slug)
+  if (stream === 'capacity') return c.text('Too many active TV streams', 503)
   if (!stream) return c.text('Channel not found', 404)
   return c.body(stream, 200, { 'Content-Type': 'video/mp2t', 'Cache-Control': 'no-store' })
 })

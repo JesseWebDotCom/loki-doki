@@ -59,15 +59,31 @@ async function plexSectionsOfType(conn: PlexConnection, type: 'movie' | 'show'):
     .map((d) => String(d.key))
 }
 
+const PLEX_PAGE_SIZE = 1000
+const PLEX_MAX_ITEMS = 10000
+
+/** Page through a section listing: a single capped fetch silently drops the back half
+ *  of a large library (everything after the cap would simply never air). */
+async function plexSectionPaged(conn: PlexConnection, path: string): Promise<PlexListMeta[]> {
+  const out: PlexListMeta[] = []
+  for (let start = 0; start < PLEX_MAX_ITEMS; start += PLEX_PAGE_SIZE) {
+    const sep = path.includes('?') ? '&' : '?'
+    const data = await plexGet<{ MediaContainer?: { Metadata?: PlexListMeta[] } }>(
+      conn, `${path}${sep}X-Plex-Container-Size=${PLEX_PAGE_SIZE}&X-Plex-Container-Start=${start}`)
+    const page = data?.MediaContainer?.Metadata ?? []
+    out.push(...page)
+    if (page.length < PLEX_PAGE_SIZE) break
+  }
+  return out
+}
+
 export async function plexMoviePool(): Promise<TvMediaItem[]> {
   return cachedPool('plex-movies', async () => {
     const conn = await getPlexConnection()
     if (!conn) return []
     const items: TvMediaItem[] = []
     for (const key of await plexSectionsOfType(conn, 'movie')) {
-      const data = await plexGet<{ MediaContainer?: { Metadata?: PlexListMeta[] } }>(
-        conn, `/library/sections/${encodeURIComponent(key)}/all?X-Plex-Container-Size=1000&X-Plex-Container-Start=0`)
-      for (const m of data?.MediaContainer?.Metadata ?? []) {
+      for (const m of await plexSectionPaged(conn, `/library/sections/${encodeURIComponent(key)}/all`)) {
         if (!m.ratingKey || !m.duration) continue
         items.push({
           payload: { src: 'plex', ratingKey: String(m.ratingKey), durationMs: m.duration, thumb: m.thumb ?? null },
@@ -96,9 +112,7 @@ export async function plexEpisodePool(): Promise<TvEpisodeItem[]> {
     const out: TvEpisodeItem[] = []
     for (const key of await plexSectionsOfType(conn, 'show')) {
       // type=4 = episodes; durations and show rollup fields come back in the listing.
-      const data = await plexGet<{ MediaContainer?: { Metadata?: PlexListMeta[] } }>(
-        conn, `/library/sections/${encodeURIComponent(key)}/all?type=4&X-Plex-Container-Size=3000&X-Plex-Container-Start=0`)
-      for (const m of data?.MediaContainer?.Metadata ?? []) {
+      for (const m of await plexSectionPaged(conn, `/library/sections/${encodeURIComponent(key)}/all?type=4`)) {
         if (!m.ratingKey || !m.duration || !m.grandparentRatingKey) continue
         const season = Number(m.parentIndex ?? 0)
         const episode = Number(m.index ?? 0)
@@ -146,16 +160,21 @@ export async function youtubeFeedPool(minSec = 240, maxSec = 0): Promise<TvMedia
 }
 
 export async function youtubeSearchPool(queries: string[], minSec: number, maxSec: number): Promise<TvMediaItem[]> {
-  return cachedPool(`yt-search-${queries.join('~')}`, async () => {
+  // Cache key includes the duration filters: channels sharing queries but not filters
+  // must not share one filtered result set.
+  return cachedPool(`yt-search-${minSec}-${maxSec}-${queries.join('~')}`, async () => {
     const out: TvMediaItem[] = []
+    const seen = new Set<string>()
     for (const q of queries) {
       const page = await tryInnertube('tvSearch',
         () => innertubeSearch(q, 36, 0, 8000, 0, SEARCH_FILTERS.videos, true),
         { videos: [] as ItVideo[], channels: [], playlists: [], continuation: null })
       for (const v of page.videos) {
+        if (seen.has(v.videoId)) continue
         const dur = v.durationSec ?? 0
         if (dur < Math.max(minSec, 91)) continue
         if (maxSec > 0 && dur > maxSec) continue
+        seen.add(v.videoId)
         out.push(ytItemToMedia({ videoId: v.videoId, title: v.title, author: v.author, durationSec: dur, thumbnailUrl: v.thumbnailUrl }))
       }
     }
