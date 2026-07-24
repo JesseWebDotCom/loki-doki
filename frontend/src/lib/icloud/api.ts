@@ -77,6 +77,29 @@ export async function syncICloudAccount(id: string): Promise<void> {
   }
 }
 
+// ── Calendar events (household view) ─────────────────────────────────────────
+
+export interface ICloudEvent {
+  id: string
+  summary: string | null
+  location: string | null
+  startsAt: string
+  endsAt: string
+  allDay: boolean
+  userId: string
+  member: string
+  colorHex: string | null
+  calendarName: string
+}
+
+/** Merged household events in [from, to). Throws on 403 with a marker message so
+ *  the Calendar app can render its "feature is off" state. */
+export async function listICloudEvents(from: number, to: number): Promise<ICloudEvent[]> {
+  const r = await fetch(`/api/icloud/calendar/events?from=${from}&to=${to}`, opts)
+  if (r.status === 403) throw new Error('feature_disabled')
+  return unwrap(r, 'events')
+}
+
 // ── Mail (M4) ─────────────────────────────────────────────────────────────────
 
 export interface ICloudMailAccountStatus {

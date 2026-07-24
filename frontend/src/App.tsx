@@ -156,6 +156,7 @@ const WhereToWatchPage = lazy(() => import('@/pages/WhereToWatchPage').then((m) 
 const ReferencePage = lazy(() => import('@/pages/reference/ReferencePage').then((m) => ({ default: m.ReferencePage })))
 const SportsPage = lazy(() => import('@/pages/SportsPage').then((m) => ({ default: m.SportsPage })))
 const HolidaysPage = lazy(() => import('@/pages/HolidaysPage').then((m) => ({ default: m.HolidaysPage })))
+const CalendarPage = lazy(() => import('@/pages/CalendarPage').then((m) => ({ default: m.CalendarPage })))
 const MoonPhasePage = lazy(() => import('@/pages/MoonPhasePage').then((m) => ({ default: m.MoonPhasePage })))
 const HomeAssistantPage = lazy(() => import('@/pages/HomeAssistantPage').then((m) => ({ default: m.HomeAssistantPage })))
 const HomeAssistantSettingsPage = lazy(() => import('@/pages/HomeAssistantSettingsPage').then((m) => ({ default: m.HomeAssistantSettingsPage })))
@@ -621,6 +622,7 @@ export default function App() {
                 <Route path="/reference/dictionary" element={<DictionaryPage />} />
                 <Route path="/sports" element={<SportsPage />} />
                 <Route path="/holidays" element={<HolidaysPage />} />
+                <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/home-assistant" element={<HomeAssistantPage />} />
                 <Route path="/home-assistant/settings" element={<HomeAssistantSettingsPage />} />
                 <Route path="/local-events" element={<LocalEventsPage />} />
