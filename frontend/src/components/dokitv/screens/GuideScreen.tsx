@@ -4,7 +4,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { LayoutList } from 'lucide-react'
 import { fetchTvGuide, tvClock, tvGlyph, type TvBlock, type TvGuideChannel } from '@/lib/dokitv/api'
-import { cn } from '@/lib/cn'
 import type { TvScreenProps } from './index'
 import { ScreenFrame, StatusPanel, channelPanelStyle, useCycle, useTick } from './shared'
 
@@ -98,10 +97,7 @@ export function GuideScreen({ channel, title, subtitle }: TvScreenProps) {
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-sheet border border-border/50 bg-card/40">
-          <div
-            className={cn(scrolling && 'dokitv-guide-roll')}
-            style={scrolling ? { animation: `dokitv-guide-scroll ${channels.length * 4}s linear infinite` } : undefined}
-          >
+          <div style={scrolling ? { animation: `dokitv-guide-scroll ${channels.length * 4}s linear infinite` } : undefined}>
             {rows.map((ch, i) => <GuideRow key={`${ch.id}-${i}`} ch={ch} now={now} />)}
           </div>
           <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/50 to-transparent" />

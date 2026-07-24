@@ -104,7 +104,7 @@ const RULES = [
     scope: 'pages/',
   },
   // Glass belongs on chrome; in-page glass tiles need a waiver ("over imagery").
-  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx', 'pages/music/KaraokePage.tsx', 'pages/books/AudiobookPlayerPage.tsx'] },
+  { name: 'glass-on-plain-bg', pattern: /\bbg-white\/(?:5|10|\[0\.0\d+\])\b/, allow: ['components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx', 'pages/music/KaraokePage.tsx', 'pages/books/AudiobookPlayerPage.tsx', 'components/dokitv/'] },
   { name: 'font-black', pattern: /\bfont-black\b/, allow: ['components/shared/BrandMark.tsx', 'components/music/KaraokeLyrics.tsx'] },
   {
     name: 'brand-gradient-outside-hero',
@@ -156,6 +156,10 @@ const RULES = [
       'components/youtube/YoutubeMiniBar.tsx',
       'components/podcast/PodcastPlayerBar.tsx',
       'components/music/ImmersivePlayer.tsx',
+      // Doki TV player chrome: floating controls/banner/guide over the live TV picture,
+      // same category as the immersive music players.
+      'components/dokitv/',
+      'pages/dokitv/TvWatchPage.tsx',
     ],
   },
 ]
@@ -165,7 +169,9 @@ const BUTTON_RULE = {
   name: 'hand-styled-button',
   allow: ['components/ui/', 'components/shared/RippleButton.tsx', 'components/music/NowPlayingOverlay.tsx', 'components/music/ImmersivePlayer.tsx', 'pages/music/KaraokePage.tsx',
     // Books' immersive audiobook player: white-on-album-art transport, same category as the music players.
-    'pages/books/AudiobookPlayerPage.tsx'],
+    'pages/books/AudiobookPlayerPage.tsx',
+    // Doki TV player: remote-rail buttons over the live picture, same category as above.
+    'components/dokitv/', 'pages/dokitv/TvWatchPage.tsx'],
 }
 
 const EXTS = new Set(['.ts', '.tsx', '.css'])

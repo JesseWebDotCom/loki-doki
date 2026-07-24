@@ -24,7 +24,7 @@ export function TvSlate({ channel, headline, message, nextTitle, variant = 'defa
   return (
     <div
       className="flex h-full w-full flex-col items-center justify-center gap-6 px-8 text-center"
-      style={{ background: `radial-gradient(ellipse at center, ${channel.colorDark} 0%, #030303 75%)` }}
+      style={{ background: `radial-gradient(ellipse at center, ${channel.colorDark} 0%, black 75%)` }}
     >
       <div
         className="flex size-24 items-center justify-center rounded-sheet shadow-2xl"

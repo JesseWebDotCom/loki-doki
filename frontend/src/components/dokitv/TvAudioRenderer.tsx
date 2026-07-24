@@ -118,7 +118,7 @@ export function TvAudioRenderer({ channel, block, suspended }: TvAudioRendererPr
   return (
     <div
       className="relative h-full w-full overflow-hidden"
-      style={{ background: `radial-gradient(ellipse at bottom, ${channel.colorDark} 0%, #030303 80%)` }}
+      style={{ background: `radial-gradient(ellipse at bottom, ${channel.colorDark} 0%, black 80%)` }}
     >
       <div className="absolute inset-0 opacity-90">
         <AudioVisualizer variant="aurora" mode="full" getAnalyser={getAnalyser} palette={palette} active={!suspended} />
