@@ -4255,3 +4255,23 @@ export const icloudContacts = sqliteTable('icloud_contacts', {
 }, t => ({
   accountHrefUnique: unique().on(t.accountId, t.href),
 }))
+
+// Structured facts extracted from indexed mail (Ledger app): package deliveries and
+// purchase/subscription receipts. One extract per (message, kind); re-extraction is
+// idempotent. Deliveries are household-visible; receipts are owner+admin (finances).
+export const icloudMailExtracts = sqliteTable('icloud_mail_extracts', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => icloudAccounts.id, { onDelete: 'cascade' }),
+  messageRowId: text('message_row_id').notNull().references(() => icloudMailMessages.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['delivery', 'receipt'] }).notNull(),
+  vendor: text('vendor').notNull(),           // carrier or merchant ("USPS", "Amazon", "Apple")
+  title: text('title'),                       // item/subject-derived human line
+  trackingNumber: text('tracking_number'),
+  status: text('status'),                     // delivery: shipped|out_for_delivery|delivered
+  amount: text('amount'),                     // receipt: "$12.99" as seen in the mail
+  eventDate: integer('event_date', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  messageKindUnique: unique().on(t.messageRowId, t.kind),
+  kindDateIdx: index('icloud_mail_extracts_kind_date_idx').on(t.kind, t.eventDate),
+}))

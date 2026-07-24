@@ -110,6 +110,7 @@ export const APP_GROUPS: AppGroup[] = [
     color: "#ea580c",
     icon: Gift,
     apps: [
+      { id: "ledger",       to: "/ledger",       label: "Ledger",       description: "Deliveries & purchases from family mail", gradient: "linear-gradient(135deg,#14532d,#16a34a)", color: "#16a34a", icon: Package,        feature: "icloud-mail" },
       { id: "calendar",     to: "/calendar",     label: "Calendar",     description: "The family's iCloud calendars, together", gradient: "linear-gradient(135deg,#7f1d1d,#ef4444)", color: "#ef4444", icon: CalendarDays,   feature: "icloud-calendar" },
       { id: "recipes",      to: "/recipes",      label: "Recipes",      description: "Discover meals to cook tonight",   gradient: "linear-gradient(135deg,#7c2d12,#ea580c)", color: "#ea580c", icon: UtensilsCrossed, toolId: "recipes" },
       { id: "shopping",     to: "/shopping",     label: "Shop",         description: "Compare prices & catch drops",     gradient: "linear-gradient(135deg,#14532d,#0d9488)", color: "#10b981", icon: Tag,             toolId: "shopping" },

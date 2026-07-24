@@ -8,7 +8,7 @@ import { and, asc, count, desc, eq, gt, lt } from 'drizzle-orm'
 import type { AppEnv } from '@/types'
 import { db } from '@/db'
 import {
-  icloudAccounts, icloudCalendars, icloudEventOccurrences, icloudMailMessages, users,
+  icloudAccounts, icloudCalendars, icloudEventOccurrences, icloudMailExtracts, icloudMailMessages, users,
 } from '@/db/schema'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { requireFeature, userMayUseCapability } from '@/lib/featureGate'
@@ -289,6 +289,51 @@ icloud.get('/shared-albums/photos', requireAuth, requireFeature('photo-frame'), 
     .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
   const failed = results.filter((r) => r.status === 'rejected').length
   return c.json({ photos: photos.slice(0, 400), failedAlbums: failed })
+})
+
+// ── Ledger (deliveries household-visible; receipts owner+admin) ───────────────
+
+icloud.get('/ledger/deliveries', requireAuth, requireFeature('icloud-mail'), async (c) => {
+  const rows = await db
+    .select({
+      id: icloudMailExtracts.id,
+      vendor: icloudMailExtracts.vendor,
+      title: icloudMailExtracts.title,
+      trackingNumber: icloudMailExtracts.trackingNumber,
+      status: icloudMailExtracts.status,
+      eventDate: icloudMailExtracts.eventDate,
+      member: users.nickname,
+    })
+    .from(icloudMailExtracts)
+    .innerJoin(icloudAccounts, eq(icloudMailExtracts.accountId, icloudAccounts.id))
+    .innerJoin(users, eq(icloudAccounts.userId, users.id))
+    .where(eq(icloudMailExtracts.kind, 'delivery'))
+    .orderBy(desc(icloudMailExtracts.eventDate))
+    .limit(100)
+  return c.json({ deliveries: rows })
+})
+
+icloud.get('/ledger/receipts', requireAuth, requireFeature('icloud-mail'), async (c) => {
+  const user = c.get('user')
+  const rows = await db
+    .select({
+      id: icloudMailExtracts.id,
+      vendor: icloudMailExtracts.vendor,
+      title: icloudMailExtracts.title,
+      amount: icloudMailExtracts.amount,
+      eventDate: icloudMailExtracts.eventDate,
+      member: users.nickname,
+      ownerUserId: icloudAccounts.userId,
+    })
+    .from(icloudMailExtracts)
+    .innerJoin(icloudAccounts, eq(icloudMailExtracts.accountId, icloudAccounts.id))
+    .innerJoin(users, eq(icloudAccounts.userId, users.id))
+    .where(eq(icloudMailExtracts.kind, 'receipt'))
+    .orderBy(desc(icloudMailExtracts.eventDate))
+    .limit(200)
+  // Finances stay between the account owner and admins.
+  const visible = rows.filter((r) => r.ownerUserId === user.id || user.role === 'admin')
+  return c.json({ receipts: visible.map(({ ownerUserId: _o, ...r }) => r) })
 })
 
 export { icloud }

@@ -4175,6 +4175,21 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL,
       UNIQUE(account_id, href)
     );
+    CREATE TABLE IF NOT EXISTS icloud_mail_extracts (
+      id TEXT NOT NULL PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,
+      message_row_id TEXT NOT NULL REFERENCES icloud_mail_messages(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      vendor TEXT NOT NULL,
+      title TEXT,
+      tracking_number TEXT,
+      status TEXT,
+      amount TEXT,
+      event_date INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(message_row_id, kind)
+    );
+    CREATE INDEX IF NOT EXISTS icloud_mail_extracts_kind_date_idx ON icloud_mail_extracts(kind, event_date);
     CREATE TABLE IF NOT EXISTS icloud_sender_stats (
       id TEXT NOT NULL PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES icloud_accounts(id) ON DELETE CASCADE,

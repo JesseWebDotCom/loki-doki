@@ -73,6 +73,9 @@ export async function triagePending(): Promise<{ decided: number; queued: number
     }
   }
   if (decided || queued) logger.info(`[icloud-mail] triage: ${decided} by heuristics, ${queued} queued for judge`)
+  // Ledger extraction rides the same trigger points (ingest + idle drain).
+  const { runExtractors } = await import('@/lib/icloud/mail/extract')
+  await runExtractors().catch(() => {})
   return { decided, queued }
 }
 
