@@ -4275,3 +4275,65 @@ export const icloudMailExtracts = sqliteTable('icloud_mail_extracts', {
   messageKindUnique: unique().on(t.messageRowId, t.kind),
   kindDateIdx: index('icloud_mail_extracts_kind_date_idx').on(t.kind, t.eventDate),
 }))
+
+// ── Doki TV: linear family channels ──────────────────────────────────────────────
+// A channel is config plus a materialized schedule (plans/doki-tv.md). The scheduler
+// writes concrete blocks into tv_schedule 24h ahead; tune-in resolves the row covering
+// now(). tv_segments holds pre-rendered AI assets and the shared ad/bumper pools.
+export const tvChannels = sqliteTable('tv_channels', {
+  id: text('id').primaryKey(),
+  number: integer('number').notNull(),
+  slug: text('slug').notNull(),
+  name: text('name').notNull(),
+  tagline: text('tagline'),
+  // What family of renderer the channel's programming is built from. Individual blocks
+  // can still differ (filler, offair), but the channel kind drives its config shape.
+  kind: text('kind', { enum: ['media', 'live', 'page', 'audio', 'segment'] }).notNull(),
+  // lucide icon slug rendered by the frontend (registry-style identity, not emoji).
+  glyph: text('glyph').notNull(),
+  color: text('color').notNull(),
+  colorDark: text('color_dark').notNull(),
+  audience: text('audience', { enum: ['everyone', 'kids', 'grownups'] }).notNull().default('everyone'),
+  config: text('config').notNull(),   // JSON TvChannelConfig
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  // Seeded from the builtin catalog (lib/tv/catalog.ts). Builtin rows are re-synced on
+  // boot without clobbering admin edits to enabled/name/config.
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  numberUnique: unique().on(t.number),
+  slugUnique: unique().on(t.slug),
+}))
+
+export const tvSchedule = sqliteTable('tv_schedule', {
+  id: text('id').primaryKey(),
+  channelId: text('channel_id').notNull().references(() => tvChannels.id, { onDelete: 'cascade' }),
+  startAt: integer('start_at', { mode: 'timestamp' }).notNull(),
+  endAt: integer('end_at', { mode: 'timestamp' }).notNull(),
+  blockKind: text('block_kind', { enum: ['media', 'live', 'page', 'audio', 'segment', 'filler', 'offair'] }).notNull(),
+  title: text('title').notNull(),
+  subtitle: text('subtitle'),
+  art: text('art'),
+  payload: text('payload').notNull(), // JSON TvBlockPayload
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  channelTimeIdx: index('tv_schedule_channel_time_idx').on(t.channelId, t.startAt),
+}))
+
+export const tvSegments = sqliteTable('tv_segments', {
+  id: text('id').primaryKey(),
+  // null = shared pools (ads, bumpers) usable by any channel.
+  channelId: text('channel_id').references(() => tvChannels.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['program', 'ad', 'bumper', 'ident', 'signoff'] }).notNull(),
+  status: text('status', { enum: ['pending', 'rendering', 'ready', 'failed'] }).notNull().default('pending'),
+  title: text('title').notNull(),
+  path: text('path'),
+  durationSec: integer('duration_sec'),
+  airDate: integer('air_date', { mode: 'timestamp' }),
+  meta: text('meta'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  channelStatusIdx: index('tv_segments_channel_status_idx').on(t.channelId, t.status),
+}))

@@ -18,7 +18,7 @@ export interface Transport {
   toggleMute?: () => void
 }
 
-export type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio'
+export type MediaSource = 'radio' | 'youtube' | 'podcast' | 'liveRadio' | 'studio' | 'tv'
 
 const stops: Partial<Record<MediaSource, StopFn>> = {}
 const transports: Partial<Record<MediaSource, Transport>> = {}

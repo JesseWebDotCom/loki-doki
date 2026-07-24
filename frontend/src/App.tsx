@@ -172,6 +172,9 @@ const StoreAppDetailPage = lazy(() => import('@/pages/store/StoreAppDetailPage')
 const StoreInstalledPage = lazy(() => import('@/pages/store/StoreInstalledPage').then((m) => ({ default: m.StoreInstalledPage })))
 
 const MusicLayout = lazy(() => import('@/components/music/MusicLayout').then((m) => ({ default: m.MusicLayout })))
+const DokiTvLayout = lazy(() => import('@/components/dokitv/DokiTvLayout').then((m) => ({ default: m.DokiTvLayout })))
+const DokiTvHomePage = lazy(() => import('@/pages/dokitv/DokiTvHomePage').then((m) => ({ default: m.DokiTvHomePage })))
+const TvWatchPage = lazy(() => import('@/pages/dokitv/TvWatchPage').then((m) => ({ default: m.TvWatchPage })))
 const MusicHomePage = lazy(() => import('@/pages/music/MusicHomePage').then((m) => ({ default: m.MusicHomePage })))
 const MusicStationsPage = lazy(() => import('@/pages/music/MusicStationsPage').then((m) => ({ default: m.MusicStationsPage })))
 const MusicStationPage = lazy(() => import('@/pages/music/MusicStationPage').then((m) => ({ default: m.MusicStationPage })))
@@ -428,6 +431,10 @@ export default function App() {
                 <Route path="/weather/settings" element={<WeatherSettingsPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/imaging" element={<ImagingPage />} />
+                <Route path="/channels" element={<DokiTvLayout />}>
+                  <Route index element={<DokiTvHomePage />} />
+                  <Route path="watch/:slug" element={<TvWatchPage />} />
+                </Route>
                 <Route path="/music" element={<MusicLayout />}>
                   <Route index element={<MusicHomePage />} />
                   <Route path="stations" element={<MusicStationsPage />} />

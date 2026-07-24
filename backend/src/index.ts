@@ -165,6 +165,7 @@ import adminNetworkProtection from '@/routes/adminNetworkProtection'
 import mcpAdmin, { mcpPublic } from '@/routes/mcp'
 import { adminMcpClient } from '@/routes/adminMcpClient'
 import { cast, castMedia } from '@/routes/cast'
+import { tvRoute } from '@/routes/tv'
 import { shutdownCast } from '@/lib/cast'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
@@ -376,6 +377,8 @@ if (firstBoot) {
   // background so first use never stalls on a download — see lib/prewarm.ts.
   import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
   startYoutubeFeedPoller()
+  // Doki TV: seed the channel dial and keep 24h of schedule materialized (lib/tv/).
+  import('@/lib/tv/scheduler').then((m) => m.initTvScheduler()).catch(() => {})
   // Videos hub: refresh non-YouTube follows + cross-source auto-save (lib/videos/feed.ts).
   import('@/lib/videos/feed').then((m) => m.startVideosFeedPoller()).catch(() => {})
   // Media requests: advance requested→downloading→ready-in-Plex + ready notifications
@@ -842,6 +845,7 @@ app.route('/api/admin/mcp-client', adminMcpClient)
 app.route('/api/mcp', mcpPublic)
 app.route('/api/cast', cast)
 app.route('/api/cast-media', castMedia)
+app.route('/api/tv', tvRoute)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)
 app.use('/docs/*', serveStatic({ root: '../docs/dist', rewriteRequestPath: (p) => p.replace(/^\/docs/, '') || '/' }))

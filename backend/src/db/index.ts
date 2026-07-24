@@ -4201,4 +4201,54 @@ export function runMigrations() {
       UNIQUE(account_id, sender_address)
     );
   `)
+
+  // ── Doki TV: linear channels (plans/doki-tv.md) ─────────────────────────────
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS tv_channels (
+      id TEXT NOT NULL PRIMARY KEY,
+      number INTEGER NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      tagline TEXT,
+      kind TEXT NOT NULL,
+      glyph TEXT NOT NULL,
+      color TEXT NOT NULL,
+      color_dark TEXT NOT NULL,
+      audience TEXT NOT NULL DEFAULT 'everyone',
+      config TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      builtin INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(number),
+      UNIQUE(slug)
+    );
+    CREATE TABLE IF NOT EXISTS tv_schedule (
+      id TEXT NOT NULL PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES tv_channels(id) ON DELETE CASCADE,
+      start_at INTEGER NOT NULL,
+      end_at INTEGER NOT NULL,
+      block_kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      art TEXT,
+      payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS tv_schedule_channel_time_idx ON tv_schedule(channel_id, start_at);
+    CREATE TABLE IF NOT EXISTS tv_segments (
+      id TEXT NOT NULL PRIMARY KEY,
+      channel_id TEXT REFERENCES tv_channels(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      title TEXT NOT NULL,
+      path TEXT,
+      duration_sec INTEGER,
+      air_date INTEGER,
+      meta TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS tv_segments_channel_status_idx ON tv_segments(channel_id, status);
+  `)
 }

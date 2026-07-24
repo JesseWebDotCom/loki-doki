@@ -1,7 +1,7 @@
 import {
   ArrowLeftRight, BookAudio, BookMarked, BookOpen, CalendarDays, Camera, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Film, Gauge, Gift, Globe, Home, Image as ImageIcon, Lightbulb,
-  Languages, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package,
+  Languages, Map as MapIcon, MapPin, MessageSquare, Mic, MonitorPlay, Moon, Music, Newspaper, Package,
   Search, Settings2, Share2, Smile, Sparkles, StickyNote, Tag, TerminalSquare, Trophy, Tv, UtensilsCrossed, Users, Zap, type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +48,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard, toolId: "showtimes" },
       { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & create videos", gradient: "linear-gradient(135deg,#164e63,#06b6d4)", color: "#06b6d4", icon: Film,           toolId: "youtube" },
       { id: "music",          to: "/music",          label: "Music",           description: "Listen, discover & create",     gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
+      { id: "dokitv",         to: "/channels",       label: "Doki TV",         description: "Live family TV channels, made from this house", gradient: "linear-gradient(135deg,#4c0519,#e11d48)", color: "#e11d48", icon: MonitorPlay },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },
       { id: "bored",          to: "/bored",          label: "I'm Bored",       description: "Find something to do",                gradient: "linear-gradient(135deg,#3b0d8a,#7c3aed)", color: "#8b5cf6", icon: Lightbulb },
