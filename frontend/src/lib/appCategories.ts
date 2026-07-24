@@ -74,6 +74,7 @@ export const APP_GROUPS: AppGroup[] = [
     icon: ImageIcon,
     apps: [
       { id: "imaging", to: "/imaging", label: "Images", description: "Generate & edit with AI",                          gradient: "linear-gradient(135deg,#6d28d9,#db2777)", color: "#db2777", icon: ImageIcon },
+      { id: "frame",        to: "/frame",        label: "Photo Frame",  description: "Shared iCloud albums as an ambient frame", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#14b8a6", icon: ImageIcon,     feature: "photo-frame" },
       { id: "canvas",  to: "/canvas",  label: "Canvas", description: "Editable docs & code the companion writes for you", gradient: "linear-gradient(135deg,#3b1a5c,#7c3aed)", color: "#8b5cf6", icon: Sparkles },
     ],
   },

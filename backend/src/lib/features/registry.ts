@@ -122,6 +122,14 @@ export const USER_FEATURES: UserFeatureDef[] = [
     components: [],
     contentNote: 'Connect family Apple Accounts under Integrations → Apple iCloud.',
   },
+  {
+    id: 'photo-frame',
+    label: 'Photo Frame',
+    description: 'Ambient slideshow of shared iCloud photo albums on household screens.',
+    gateId: 'photo-frame',
+    components: [],
+    contentNote: 'Add album share links inside the Photo Frame app (admins only).',
+  },
 ]
 
 export function getUserFeature(id: string): UserFeatureDef | undefined {

@@ -19,6 +19,8 @@ import { syncAccountNow } from '@/lib/icloud/calendarPoller'
 import { mailWatcherStatus } from '@/lib/icloud/mail/watcher'
 import { notifyItemsFor } from '@/lib/icloud/mail/notify'
 import { icloudMailVerdicts } from '@/db/schema'
+import { fetchSharedAlbum, parseShareToken } from '@/lib/icloud/sharedAlbum'
+import { getAppSetting, setAppSetting } from '@/lib/settings'
 
 const icloud = new Hono<AppEnv>()
 
@@ -221,6 +223,62 @@ icloud.get('/mail/verdicts', requireAdmin, requireFeature('icloud-mail'), async 
     .from(icloudMailVerdicts)
     .groupBy(icloudMailVerdicts.accountId, icloudMailVerdicts.bucket, icloudMailVerdicts.method)
   return c.json({ own, aggregates })
+})
+
+// ── Photo Frame: public Shared Albums (zero-auth road) ────────────────────────
+// Album tokens live in app_settings; the photos endpoint fans out to Apple's
+// sharedstreams API (cached ~5 min per album in lib/icloud/sharedAlbum.ts).
+
+const ALBUMS_KEY = 'icloud.shared_albums'
+
+interface StoredAlbum { token: string; name: string }
+
+async function storedAlbums(): Promise<StoredAlbum[]> {
+  const raw = await getAppSetting(ALBUMS_KEY)
+  return Array.isArray(raw) ? raw as StoredAlbum[] : []
+}
+
+icloud.get('/shared-albums', requireAuth, requireFeature('photo-frame'), async (c) => {
+  return c.json({ albums: await storedAlbums() })
+})
+
+icloud.post('/shared-albums', requireAdmin, requireFeature('photo-frame'), async (c) => {
+  const body = await c.req.json<{ link?: string }>().catch(() => null)
+  const token = body?.link ? parseShareToken(body.link) : null
+  if (!token) return c.json({ error: 'Paste an iCloud shared-album link (icloud.com/sharedalbum/#…)' }, 400)
+  const albums = await storedAlbums()
+  if (albums.some((a) => a.token === token)) return c.json({ error: 'That album is already added' }, 409)
+  let album
+  try {
+    album = await fetchSharedAlbum(token)
+  } catch {
+    return c.json({ error: 'Apple did not recognize that share link. Is the album shared with a public link?' }, 502)
+  }
+  const entry: StoredAlbum = { token, name: album.name ?? 'Shared album' }
+  await setAppSetting(ALBUMS_KEY, [...albums, entry])
+  return c.json({ album: entry, photoCount: album.photos.length })
+})
+
+icloud.delete('/shared-albums/:token', requireAdmin, requireFeature('photo-frame'), async (c) => {
+  const albums = await storedAlbums()
+  await setAppSetting(ALBUMS_KEY, albums.filter((a) => a.token !== c.req.param('token')))
+  return c.json({ ok: true })
+})
+
+// Merged photo list across all configured albums, newest first. CDN URLs are
+// short-lived, so clients should re-request rather than persist them.
+icloud.get('/shared-albums/photos', requireAuth, requireFeature('photo-frame'), async (c) => {
+  const albums = await storedAlbums()
+  const results = await Promise.allSettled(albums.map(async (a) => ({
+    album: a.name,
+    photos: (await fetchSharedAlbum(a.token)).photos,
+  })))
+  const photos = results
+    .filter((r): r is PromiseFulfilledResult<{ album: string; photos: import('@/lib/icloud/sharedAlbum').SharedAlbumPhoto[] }> => r.status === 'fulfilled')
+    .flatMap((r) => r.value.photos.map((p) => ({ ...p, album: r.value.album })))
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+  const failed = results.filter((r) => r.status === 'rejected').length
+  return c.json({ photos: photos.slice(0, 400), failedAlbums: failed })
 })
 
 export { icloud }

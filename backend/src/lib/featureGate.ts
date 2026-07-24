@@ -79,6 +79,10 @@ export const FEATURES: Record<string, FeatureMeta> = {
     id: 'icloud-mail', label: 'iCloud Mail', risk: 'high', defaultEnabled: false, perProfile: true,
     description: 'Watch family iCloud mailboxes for triage: important-mail alerts, briefing digests, and companion awareness. Mail is private per member; admins additionally see kids\' flagged items.',
   },
+  'photo-frame': {
+    id: 'photo-frame', label: 'Photo Frame', risk: 'low', defaultEnabled: false,
+    description: 'Ambient slideshow of public iCloud Shared Albums. Uses only the album share link; no Apple account or password.',
+  },
   // Lower-risk local apps — default ON. Kept here so their toggles share one code path.
   bookmarks: {
     id: 'bookmarks', label: 'Bookmarks', risk: 'low', defaultEnabled: true,
