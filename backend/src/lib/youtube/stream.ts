@@ -212,9 +212,12 @@ export function invalidateStreamUrl(videoId: string, kind: StreamKind, quality: 
 // ── Split (video-only + audio-only) resolution for the 1080p remux tier ─────────
 
 export interface SplitStreamUrls { video: string; audio: string }
+/** Pin the video track to one codec family. Only the HLS tier uses this: AVPlayer decodes
+ *  h264 but not VP9/AV1, so "best track" is the wrong answer there. */
+export type SplitVideoCodec = 'avc1'
 const splitCache = new Map<string, { urls: SplitStreamUrls; expires: number }>()
 const splitInflight = new Map<string, Promise<SplitStreamUrls | null>>()
-const splitKey = (videoId: string, maxHeight: number) => `${videoId}:split:${maxHeight}`
+const splitKey = (videoId: string, maxHeight: number, codec?: SplitVideoCodec) => `${videoId}:split:${maxHeight}:${codec ?? 'any'}`
 
 // Best video-only track at or under the height cap. h264 (avc1) exists only up to
 // 1080p; above that YouTube publishes VP9/AV1, which also copy cleanly into fragmented
@@ -226,13 +229,14 @@ function codecRank(mime: string): number {
   if (/av01/i.test(mime)) return 2
   return 3
 }
-function pickSplitVideo(streams: ItStreams, maxHeight: number): string | null {
+function pickSplitVideo(streams: ItStreams, maxHeight: number, codec?: SplitVideoCodec): string | null {
   // Require a track that actually BEATS the 720p progressive ceiling: InnerTube often
   // exposes only low unciphered adaptive tracks (the high tiers are ciphered), and
   // remuxing a 360p track would silently undercut the plain progressive stream. Passing
   // on those lets the yt-dlp fallback resolve the real high tiers instead.
   const pool = streams.video
-    .filter(f => f.url && codecRank(f.mime) < 3 && (f.height ?? 0) > 720 && (f.height ?? 0) <= maxHeight)
+    .filter(f => f.url && codecRank(f.mime) < 3 && (f.height ?? 0) > 720 && (f.height ?? 0) <= maxHeight
+      && (codec !== 'avc1' || /avc1/i.test(f.mime)))
     .sort((a, b) => ((b.height ?? 0) - (a.height ?? 0))
       || (codecRank(a.mime) - codecRank(b.mime))
       || ((b.bitrate ?? 0) - (a.bitrate ?? 0)))
@@ -243,16 +247,16 @@ function pickSplitVideo(streams: ItStreams, maxHeight: number): string | null {
  *  remux tier. Fast InnerTube path first, yt-dlp `-g` (two output lines) as fallback.
  *  Returns null when no suitable avc1 track exists — the route then falls back to the
  *  best progressive stream instead of failing. */
-export async function resolveSplitStreamUrls(videoId: string, maxHeight = 1080): Promise<SplitStreamUrls | null> {
+export async function resolveSplitStreamUrls(videoId: string, maxHeight = 1080, codec?: SplitVideoCodec): Promise<SplitStreamUrls | null> {
   if (!isValidVideoId(videoId)) return null
   const now = Date.now()
-  const key = splitKey(videoId, maxHeight)
+  const key = splitKey(videoId, maxHeight, codec)
   const hit = splitCache.get(key)
   if (hit && hit.expires > now) return hit.urls
   if (hit) splitCache.delete(key)
   const pending = splitInflight.get(key)
   if (pending) return pending
-  const p = doResolveSplit(videoId, maxHeight, key, now)
+  const p = doResolveSplit(videoId, maxHeight, codec, key, now)
   splitInflight.set(key, p)
   void p.finally(() => { if (splitInflight.get(key) === p) splitInflight.delete(key) })
   return p
@@ -263,12 +267,12 @@ function cacheSplit(key: string, urls: SplitStreamUrls, now: number): void {
   splitCache.set(key, { urls, expires: now + TTL_MS })
 }
 
-async function doResolveSplit(videoId: string, maxHeight: number, key: string, now: number): Promise<SplitStreamUrls | null> {
+async function doResolveSplit(videoId: string, maxHeight: number, codec: SplitVideoCodec | undefined, key: string, now: number): Promise<SplitStreamUrls | null> {
   // Fast path: one InnerTube call yields pre-signed video-only + audio-only URLs.
   try {
     const streams = await innertubePlayerStreams(videoId)
     if (streams) {
-      const video = pickSplitVideo(streams, maxHeight)
+      const video = pickSplitVideo(streams, maxHeight, codec)
       const audio = pickAudio(streams)
       if (video && audio && isAllowedUpstream(video) && isAllowedUpstream(audio)) {
         const urls = { video, audio }
@@ -283,10 +287,14 @@ async function doResolveSplit(videoId: string, maxHeight: number, key: string, n
   // Codec preference mirrors pickSplitVideo: avc1 first (tops out at 1080p), then
   // vp9/av01 for the tiers above it. The >720 floor mirrors pickSplitVideo too - if no
   // track beats the progressive ceiling, failing here lets the route serve progressive.
-  const v = (codec: string) => `bestvideo[vcodec^=${codec}][height<=${maxHeight}][height>720][protocol^=https]`
-  const videoSpec = maxHeight > 1080
-    ? `${v('vp09')}/${v('vp9')}/${v('av01')}/${v('avc1')}`
-    : `${v('avc1')}/bestvideo[ext=mp4][height<=${maxHeight}][height>720][protocol^=https]`
+  // An avc1 pin (HLS tier) never widens to another codec: a VP9/AV1 track there is worse
+  // than no answer at all, since the caller can still fall back to progressive.
+  const v = (vcodec: string) => `bestvideo[vcodec^=${vcodec}][height<=${maxHeight}][height>720][protocol^=https]`
+  const videoSpec = codec === 'avc1'
+    ? v('avc1')
+    : maxHeight > 1080
+      ? `${v('vp09')}/${v('vp9')}/${v('av01')}/${v('avc1')}`
+      : `${v('avc1')}/bestvideo[ext=mp4][height<=${maxHeight}][height>720][protocol^=https]`
   try {
     const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
       '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]`,
@@ -307,8 +315,8 @@ async function doResolveSplit(videoId: string, maxHeight: number, key: string, n
 }
 
 /** Drop a cached split pair (e.g. after ffmpeg dies on a rotated/expired URL). */
-export function invalidateSplitStreamUrls(videoId: string, maxHeight = 1080): void {
-  splitCache.delete(splitKey(videoId, maxHeight))
+export function invalidateSplitStreamUrls(videoId: string, maxHeight = 1080, codec?: SplitVideoCodec): void {
+  splitCache.delete(splitKey(videoId, maxHeight, codec))
 }
 
 /** The video keyframe at-or-before `t` seconds. Remux seeks MUST start both tracks on
