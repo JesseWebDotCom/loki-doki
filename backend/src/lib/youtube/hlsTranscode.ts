@@ -29,7 +29,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, rm, readdir, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { dataDir } from '@/lib/download'
 import { ensureFfmpeg, ensureNvencFfmpeg, ffprobeBin, deprioritizeEncode } from '@/lib/ffmpeg'
 import { resolveVideoEncoder } from '@/lib/media/encoder'
@@ -292,6 +292,23 @@ async function waitForFile(file: string, key: string, stable = false): Promise<b
   return false
 }
 
+/**
+ * A path in the shape ffmpeg's HLS muxer needs for its output arguments.
+ *
+ * `-hls_fmp4_init_filename` is a bare filename, and hlsenc.c resolves it against the
+ * playlist's directory by doing `strrchr(m3u8_name, '/')` — forward slash only, on every
+ * platform. A Windows path is all backslashes, so that search finds nothing and the muxer
+ * falls back to writing the init segment to the process CWD. Segments are unaffected
+ * (`-hls_segment_filename` is passed through whole), which is exactly what production
+ * showed: 4K segments served fine while `#EXT-X-MAP` 404'd forever.
+ *
+ * Handing ffmpeg '/'-separated paths makes that search succeed everywhere. Splitting on
+ * `sep` is a literal no-op on POSIX (where a backslash is a legal filename character and
+ * must be left alone) and rewrites `C:\…\ff.m3u8` to `C:/…/ff.m3u8` on Windows, which
+ * ffmpeg accepts anywhere it accepts a path.
+ */
+const ffPath = (p: string) => p.split(sep).join('/')
+
 async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 'capacity'> {
   const key = planKey(plan.videoId, plan.height)
   const existing = sessions.get(key)
@@ -305,7 +322,7 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
   // Sessions never outlive the process, so anything already in the root is from a crash.
   // Shared promise, not a boolean: two requests racing at boot must not have one of them
   // create its session directory while the other is still deleting the tree.
-  rootSweep ??= rm(ROOT, { recursive: true, force: true }).catch(() => {})
+  rootSweep ??= rm(ROOT, { recursive: true, force: true, maxRetries: 5 }).catch(() => {})
   await rootSweep
   const dir = sessionDir(plan)
   await mkdir(dir, { recursive: true })
@@ -341,19 +358,25 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
     '-f', 'hls',
     '-hls_time', String(SEGMENT_SEC),
     '-hls_segment_type', 'fmp4',
+    // Bare filename by necessity: the muxer concatenates this onto the playlist's own
+    // directory, so an absolute path here would come out doubled. ffPath + cwd below are
+    // what make "the playlist's directory" resolve to `dir` on every platform.
     '-hls_fmp4_init_filename', 'init.mp4',
-    '-hls_segment_filename', join(dir, 'seg%d.m4s'),
+    '-hls_segment_filename', ffPath(join(dir, 'seg%d.m4s')),
     // temp_file is load-bearing: without it a segment file exists while still being
     // written, and the player would happily fetch a truncated one.
     '-hls_flags', 'temp_file+independent_segments',
     '-start_number', String(index),
     '-hls_list_size', '0',
-    join(dir, 'ff.m3u8'),
+    ffPath(join(dir, 'ff.m3u8')),
   ]
 
   const session: Session = { key, dir, plan, proc: null, startIndex: index, lastAccess: Date.now(), stopped: false }
   sessions.set(key, session)
-  const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+  // cwd is the second half of pinning the init segment: any path the muxer still treats as
+  // relative (init.mp4 above, and its own temp files) then lands in the session directory
+  // instead of wherever the backend happens to have been started from.
+  const proc = spawn(bin, args, { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
   session.proc = proc
   deprioritizeEncode(proc.pid)
   let err = ''
@@ -397,7 +420,9 @@ function startReaper(): void {
       if (now - s.lastAccess < IDLE_MS) continue
       sessions.delete(key)
       stopProcess(s)
-      void rm(s.dir, { recursive: true, force: true }).catch(() => {})
+      // maxRetries: the encoder's cwd is this directory, and Windows keeps it locked for a
+      // moment after the kill.
+      void rm(s.dir, { recursive: true, force: true, maxRetries: 5 }).catch(() => {})
       logger.info(`[youtube/hls] reaped idle transcode session ${key}`)
     }
     if (!sessions.size && reaper) { clearInterval(reaper); reaper = null }
