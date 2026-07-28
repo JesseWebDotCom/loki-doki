@@ -209,11 +209,14 @@ interface Session {
   proc: ChildProcess | null
   /** Segment index the current ffmpeg run started at. */
   startIndex: number
+  /** When the current ffmpeg run was spawned, for the anti-stampede check in startSession. */
+  spawnedAt: number
   lastAccess: number
   stopped: boolean
 }
 
 const sessions = new Map<string, Session>()
+const startInflight = new Map<string, Promise<'ok' | 'capacity'>>()
 let reaper: ReturnType<typeof setInterval> | null = null
 let rootSweep: Promise<unknown> | null = null
 
@@ -259,8 +262,18 @@ export async function getTranscodeInit(videoId: string, height: number): Promise
   const dir = sessionDir(plan)
   const file = join(dir, 'init.mp4')
   if (fileSize(file) > 0) return file
-  const started = await startSession(plan, 0)
-  if (started !== 'ok') return started
+  // Every run writes an identical init.mp4 no matter which segment it started at, so a
+  // live session is always about to produce this file — restarting it here would throw
+  // away encoder startup for nothing. (Players fetch init.mp4 several times in parallel;
+  // each of those restarts used to abort NVENC mid-init, and rapid-fire aborts are what
+  // faulted the eGPU driver on 7/28.)
+  const existing = sessions.get(planKey(videoId, height))
+  if (existing && !existing.stopped) {
+    existing.lastAccess = Date.now()
+  } else {
+    const started = await startSession(plan, 0)
+    if (started !== 'ok') return started
+  }
   return (await waitForFile(file, planKey(videoId, height), true)) ? file : 'unavailable'
 }
 
@@ -343,9 +356,26 @@ function tierQualityArgs(codec: string, height: number): string[] | null {
   }
 }
 
-async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 'capacity'> {
+/** Serialized per key: concurrent requests that each decide the encoder needs (re)starting
+ *  share one spawn instead of killing each other's. */
+function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 'capacity'> {
   const key = planKey(plan.videoId, plan.height)
+  const inflight = startInflight.get(key)
+  if (inflight) return inflight
+  const p = doStartSession(plan, index, key)
+  startInflight.set(key, p)
+  void p.finally(() => { if (startInflight.get(key) === p) startInflight.delete(key) })
+  return p
+}
+
+async function doStartSession(plan: TranscodePlan, index: number, key: string): Promise<'ok' | 'capacity'> {
   const existing = sessions.get(key)
+  // A run already encoding from this same index is left alone while it's still within its
+  // startup budget: killing it to start an identical one gains nothing, and each abort
+  // lands mid-NVENC-init — rapid-fire aborts are what faulted the eGPU driver (nvlddmkm
+  // 153) during the 7/28 respawn stampede.
+  if (existing && !existing.stopped && existing.startIndex === index
+      && Date.now() - existing.spawnedAt < SEGMENT_WAIT_MS) return 'ok'
   // A restart of a session we already own never counts against the cap; a brand-new one does.
   if (!existing && sessions.size >= MAX_SESSIONS) {
     logger.warn(`[youtube/hls] transcode capacity reached (${sessions.size}/${MAX_SESSIONS}), refusing ${plan.videoId}@${plan.height}p`)
@@ -406,7 +436,7 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
     ffPath(join(dir, 'ff.m3u8')),
   ]
 
-  const session: Session = { key, dir, plan, proc: null, startIndex: index, lastAccess: Date.now(), stopped: false }
+  const session: Session = { key, dir, plan, proc: null, startIndex: index, spawnedAt: Date.now(), lastAccess: Date.now(), stopped: false }
   sessions.set(key, session)
   // cwd is the second half of pinning the init segment: any path the muxer still treats as
   // relative (init.mp4 above, and its own temp files) then lands in the session directory
@@ -433,7 +463,15 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
 
 function stopProcess(s: Session): void {
   s.stopped = true
+  const pid = s.proc?.pid
   try { s.proc?.kill('SIGKILL') } catch { /* already gone */ }
+  // Belt and braces on Windows: no killed run has ever logged a close event here, so the
+  // signal emulation can't be trusted to have worked. An encoder that survives its session
+  // keeps a 4K decode + googlevideo download running until reboot — taskkill the tree so
+  // it can't.
+  if (process.platform === 'win32' && pid) {
+    void execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 5_000, windowsHide: true }).catch(() => {})
+  }
   s.proc = null
 }
 
