@@ -27,6 +27,8 @@ import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
+import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist } from '@/lib/youtube/hls'
+import { getTranscodePlan, getTranscodeSegment, getTranscodeInit, hevcMasterPlaylist, hevcMediaPlaylist, TRANSCODE_HEIGHTS, type SegmentResult } from '@/lib/youtube/hlsTranscode'
 import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot, getCookiesStatus, saveCookiesFile, clearCookiesFile } from '@/lib/ytdlp'
 import {
@@ -1885,6 +1887,158 @@ youtubeRoute.get('/stream/:videoId/align', async (c) => {
   if (!urls) return c.json({ start: t })
   const kf = await probeKeyframeBefore(urls.video, t)
   return c.json({ start: kf ?? t })
+})
+
+// ── HLS presentation (Apple TV / AVPlayer) ──────────────────────────────────────
+// A seekable VOD alternative to the ffmpeg remux pipe above, for native players that need
+// a real timeline instead of an endless fragmented-MP4 stream. Nothing here transcodes or
+// spawns anything: YouTube's DASH tracks are already fragmented MP4 with a `sidx` index,
+// so lib/youtube/hls.ts turns that index into byte-range HLS segments and the segment
+// route below is plain Range passthrough. Falls back with 404 + the progressive URL when a
+// video has no indexable avc1 track. That stream is Range-seekable already, just capped
+// at 720p.
+//
+// Two tiers, picked by `q` on the master playlist:
+//   q=auto/360/720/1080 → passthrough (lib/youtube/hls.ts). Zero CPU, instant seeks.
+//   q=1440/2160         → HEVC transcode (lib/youtube/hlsTranscode.ts), because YouTube
+//                         publishes nothing above 1080p that isn't VP9 or AV1, and the
+//                         Apple TV 4K (A10X) decodes neither. Falls back to the
+//                         passthrough tier when the box has no hardware HEVC encoder or
+//                         the video has no track above 1080p.
+
+/** The tier query the transcode master playlist propagates down to its media playlist and
+ *  segments (the passthrough tier has a single quality, so its URIs carry no query). */
+function hlsQuery(c: Context<AppEnv>): string {
+  const q = parseQuality(c.req.query('q'))
+  return q === 'auto' ? '' : `?q=${q}`
+}
+
+const hlsPlaylistResponse = (c: Context<AppEnv>, body: string) =>
+  c.body(body, 200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'private, max-age=0' })
+
+const hlsUnavailable = (c: Context<AppEnv>, videoId: string) =>
+  c.json({ error: 'No HLS presentation for this video', fallback: `/api/youtube/stream/${videoId}?kind=video` }, 404)
+
+/** One track's media playlist. Segment URIs are relative to this playlist's own directory
+ *  (`…/hls/`), so the player stays on our origin and keeps sending the session cookie. */
+async function serveHlsMediaPlaylist(c: Context<AppEnv>, kind: StreamKind) {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const pres = await getHlsPresentation(videoId)
+  if (!pres) return hlsUnavailable(c, videoId)
+  const track = kind === 'audio' ? pres.audio : pres.video
+  return hlsPlaylistResponse(c, hlsMediaPlaylist(track, `${kind}.mp4`))
+}
+
+/** The bytes behind every segment of one track: a Range proxy over the upstream DASH file,
+ *  same shape as the progressive proxy (403 → re-resolve once → retry). */
+async function serveHlsTrack(c: Context<AppEnv>, kind: StreamKind) {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const pres = await getHlsPresentation(videoId)
+  if (!pres) return hlsUnavailable(c, videoId)
+  const track = kind === 'audio' ? pres.audio : pres.video
+
+  const ac = new AbortController()
+  c.req.raw.signal.addEventListener('abort', () => ac.abort(), { once: true })
+  const range = c.req.header('range')
+  const fetchUpstream = (url: string) => fetch(url, {
+    signal: AbortSignal.any([ac.signal, AbortSignal.timeout(30_000)]),
+    headers: {
+      ...(range ? { Range: range } : {}),
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  })
+
+  try {
+    let upstream = await fetchUpstream(track.url)
+    // 403 = the signature rotated mid-play. Re-resolving is only safe when the fresh URL
+    // is the same itag (refreshHlsTrackUrl enforces that), otherwise every byte offset in
+    // the playlist the client is holding would point at the wrong file.
+    if (upstream.status === 403) {
+      try { await upstream.body?.cancel() } catch { /* already closed */ }
+      const fresh = await refreshHlsTrackUrl(videoId, kind)
+      if (fresh) upstream = await fetchUpstream(fresh)
+    }
+    if (!upstream.ok && upstream.status !== 206) return c.json({ error: `Upstream ${upstream.status}` }, 502)
+
+    const headers = new Headers()
+    for (const h of ['content-length', 'content-range']) {
+      const v = upstream.headers.get(h)
+      if (v) headers.set(h, v)
+    }
+    headers.set('content-type', kind === 'audio' ? 'audio/mp4' : 'video/mp4')
+    headers.set('accept-ranges', 'bytes')
+    headers.set('cache-control', 'private, max-age=0')
+    return new Response(upstream.body, { status: upstream.status, headers })
+  } catch {
+    if (ac.signal.aborted) return new Response(null, { status: 499 })   // client seeked/closed
+    return c.json({ error: 'Stream failed' }, 502)
+  }
+}
+
+/** The transcoded tier this request asks for, or null for the passthrough tier. */
+function transcodeHeight(c: Context<AppEnv>): number | null {
+  const height = Number(parseQuality(c.req.query('q')))
+  return TRANSCODE_HEIGHTS.has(height) ? height : null
+}
+
+/** Serve one file produced by a transcode session, translating the two "not now" answers
+ *  into statuses the player understands: 503 (encoders busy, retry) vs 404 (no such tier). */
+function transcodeFileResponse(c: Context<AppEnv>, result: SegmentResult, videoId: string) {
+  if (result === 'capacity') return c.json({ error: 'Transcoders busy' }, 503, { 'retry-after': '5' })
+  if (result === 'unavailable') return hlsUnavailable(c, videoId)
+  return new Response(Bun.file(result), {
+    headers: { 'content-type': 'video/mp4', 'cache-control': 'private, max-age=0' },
+  })
+}
+
+// Master playlist: the entry point a native client opens. `q` picks the tier (see the
+// block comment above) and is propagated to the media playlists.
+youtubeRoute.get('/stream/:videoId/hls.m3u8', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const height = transcodeHeight(c)
+  if (height) {
+    const plan = await getTranscodePlan(videoId, height)
+    if (plan) return hlsPlaylistResponse(c, hevcMasterPlaylist(plan, hlsQuery(c)))
+    // No 4K source or no hardware encoder: 1080p passthrough beats an unplayable playlist.
+    logger.info(`[youtube/hls] ${videoId}: no ${height}p transcode tier, serving the 1080p passthrough tier`)
+  }
+  const pres = await getHlsPresentation(videoId)
+  if (!pres) return hlsUnavailable(c, videoId)
+  return hlsPlaylistResponse(c, hlsMasterPlaylist(pres))
+})
+
+youtubeRoute.get('/stream/:videoId/hls/video.m3u8', (c) => serveHlsMediaPlaylist(c, 'video'))
+youtubeRoute.get('/stream/:videoId/hls/audio.m3u8', (c) => serveHlsMediaPlaylist(c, 'audio'))
+youtubeRoute.get('/stream/:videoId/hls/video.mp4', (c) => serveHlsTrack(c, 'video'))
+youtubeRoute.get('/stream/:videoId/hls/audio.mp4', (c) => serveHlsTrack(c, 'audio'))
+
+// Transcoded tier: playlist is computed from the duration up front (fully seekable from
+// the first request), segments are encoded on demand around wherever the player is.
+youtubeRoute.get('/stream/:videoId/hls/hevc.m3u8', async (c) => {
+  const videoId = c.req.param('videoId')
+  const height = transcodeHeight(c)
+  if (!isValidVideoId(videoId) || !height) return c.json({ error: 'Invalid video id or quality' }, 400)
+  const plan = await getTranscodePlan(videoId, height)
+  if (!plan) return hlsUnavailable(c, videoId)
+  return hlsPlaylistResponse(c, hevcMediaPlaylist(plan, hlsQuery(c)))
+})
+
+youtubeRoute.get('/stream/:videoId/hls/hevc/init.mp4', async (c) => {
+  const videoId = c.req.param('videoId')
+  const height = transcodeHeight(c)
+  if (!isValidVideoId(videoId) || !height) return c.json({ error: 'Invalid video id or quality' }, 400)
+  return transcodeFileResponse(c, await getTranscodeInit(videoId, height), videoId)
+})
+
+youtubeRoute.get('/stream/:videoId/hls/hevc/:segment', async (c) => {
+  const videoId = c.req.param('videoId')
+  const height = transcodeHeight(c)
+  const index = Number(/^(\d+)\.m4s$/.exec(c.req.param('segment'))?.[1] ?? NaN)
+  if (!isValidVideoId(videoId) || !height || !Number.isInteger(index)) return c.json({ error: 'Invalid segment request' }, 400)
+  return transcodeFileResponse(c, await getTranscodeSegment(videoId, height, index), videoId)
 })
 
 // Card hover-preview support: cache hit is free, otherwise one InnerTube HTTP call (no
