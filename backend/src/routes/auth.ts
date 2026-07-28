@@ -111,11 +111,19 @@ auth.get('/avatar/:userId', async (c) => {
     })
   }
 
-  // DiceBear when we have a seed; otherwise a colored initials square. Either way
-  // we produce an SVG and rasterize it to a square PNG.
-  const svg = user.dicebearSeed
-    ? buildDicebearSvg(avatarUser)
-    : buildInitialsSvg(avatarUser, size)
+  // DiceBear when we have a seed; otherwise a colored initials square. DiceBear
+  // rendering is best-effort — if it throws (missing/broken dep), fall back to
+  // the dependency-free initials square rather than erroring.
+  let svg: string
+  if (user.dicebearSeed) {
+    try {
+      svg = await buildDicebearSvg(avatarUser)
+    } catch {
+      svg = buildInitialsSvg(avatarUser, size)
+    }
+  } else {
+    svg = buildInitialsSvg(avatarUser, size)
+  }
 
   const png = await rasterizeSvgToPng(svg, size)
 
