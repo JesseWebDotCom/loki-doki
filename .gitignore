@@ -48,3 +48,9 @@ backend/src/**/*.js
 backend/dev-server.log
 frontend/dev-vite.log
 *.log
+
+# Launcher stamp files — touched by run.sh/run.ps1 and by the in-app updater on
+# every step it runs. Untracked-but-not-ignored, they made a successful update
+# dirty the checkout and block the *next* update's working-tree check.
+.loki-build-stamp
+.loki-install-stamp
