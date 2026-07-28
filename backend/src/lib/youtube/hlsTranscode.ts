@@ -107,7 +107,9 @@ const hevcCodecString = (height: number) => `hvc1.1.6.L${height > 1440 ? 153 : 1
 async function buildPlan(videoId: string, height: number, key: string): Promise<TranscodePlan | null> {
   const encoder = await resolveVideoEncoder()
   if (!encoder.hw) {
-    logger.warn(`[youtube/hls] no hardware HEVC encoder (${encoder.codec}), not offering the ${height}p tier`)
+    // A realtime libx265 4K encode is worse than the crisp 1080p passthrough, so the tier
+    // is withheld entirely and the master playlist falls back to passthrough.
+    logger.warn(`[youtube/hls] not offering the ${height}p tier, no hardware HEVC encoder: ${encoder.reason}`)
     return null
   }
   const urls = await resolveSplitStreamUrls(videoId, height)
@@ -158,8 +160,10 @@ async function probeSource(url: string): Promise<{ width: number; height: number
 // ── Playlists ──────────────────────────────────────────────────────────────────
 
 /** Rough per-tier bitrate for the master playlist's BANDWIDTH hint. There's one variant,
- *  so this only has to be in the right ballpark for the player's initial buffer sizing. */
-const tierBandwidth = (height: number) => (height > 1440 ? 20_000_000 : 12_000_000)
+ *  so this only has to be in the right ballpark for the player's initial buffer sizing.
+ *  Sized to the encoder caps in tierQualityArgs (measured 4K average ~19 Mbps, busy
+ *  segments into the low 30s). */
+const tierBandwidth = (height: number) => (height > 1440 ? 30_000_000 : 16_000_000)
 
 /** Master playlist for a transcoded tier: one HEVC variant with muxed AAC (no rendition
  *  group, unlike the passthrough tier: both tracks come out of the same encoder). */
@@ -309,6 +313,36 @@ async function waitForFile(file: string, key: string, stable = false): Promise<b
  */
 const ffPath = (p: string) => p.split(sep).join('/')
 
+/**
+ * Streaming quality args per hardware encoder, replacing resolveVideoEncoder()'s own args:
+ * those are tuned for offline file re-encodes where size matters. This tier streams over the
+ * home LAN where bandwidth is nearly free, and the VP9/AV1 source at these heights typically
+ * runs 15-20 Mbps, so quality gets the generous end: constant-quality VBR with a rate ceiling
+ * comfortably ABOVE the source bitrate so the encode is never starved below what it decodes.
+ * Returns null for codecs without a tier-specific set (the caller then uses the encoder's own
+ * args). libx265 never reaches here: buildPlan withholds the tier for non-hardware encoders.
+ */
+function tierQualityArgs(codec: string, height: number): string[] | null {
+  const is4k = height > 1440
+  switch (codec) {
+    case 'hevc_nvenc':
+      // p5+hq is still a few times realtime for 4K HEVC on the production RTX 3070, cq 20
+      // is visually transparent for streamed content, and spatial AQ claws back detail in
+      // the flat regions NVENC otherwise smears at high resolution.
+      return [
+        '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-cq', '20', '-b:v', '0',
+        '-maxrate', is4k ? '40M' : '24M', '-bufsize', is4k ? '80M' : '48M',
+        '-spatial-aq', '1', '-tag:v', 'hvc1',
+      ]
+    case 'hevc_videotoolbox':
+      // VideoToolbox has no cq/maxrate pair worth using; -q:v 65 lands 4K well above the
+      // source's perceptual quality on Apple Silicon.
+      return ['-q:v', '65', '-tag:v', 'hvc1']
+    default:
+      return null
+  }
+}
+
 async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 'capacity'> {
   const key = planKey(plan.videoId, plan.height)
   const existing = sessions.get(key)
@@ -329,6 +363,7 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
 
   const encoder = await resolveVideoEncoder()
   const bin = encoder.codec === 'hevc_nvenc' ? await ensureNvencFfmpeg() : await ensureFfmpeg()
+  const quality = tierQualityArgs(encoder.codec, plan.height) ?? encoder.args
   const startSec = index * SEGMENT_SEC
   const inputFlags = [
     '-user_agent', UA,
@@ -342,7 +377,7 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
     ...inputFlags, '-ss', String(startSec), '-i', plan.urls.video,
     ...inputFlags, '-ss', String(startSec), '-i', plan.urls.audio,
     '-map', '0:v:0', '-map', '1:a:0',
-    '-c:v', encoder.codec, ...encoder.args,
+    '-c:v', encoder.codec, ...quality,
     // Pin Main/8-bit so the CODECS string we advertised is the truth even for a 10-bit
     // (HDR) source, and keyframe exactly on the segment grid so every segment starts on
     // an IDR and lines up with the playlist the client already has.
@@ -389,7 +424,9 @@ async function startSession(plan: TranscodePlan, index: number): Promise<'ok' | 
     session.stopped = true
     if (code) logger.warn(`[youtube/hls] transcode exited ${code} for ${plan.videoId}@${plan.height}p from segment ${index}: ${err.slice(-400)}`)
   })
-  logger.info(`[youtube/hls] transcode ${plan.videoId} ${plan.sourceCodec} ${plan.width}x${plan.height} → ${encoder.codec} from segment ${index}`)
+  // The one line that answers "why is 4K slow/soft": encoder, its exact quality args, and
+  // the capability-probe trail that picked it.
+  logger.info(`[youtube/hls] transcode ${plan.videoId} ${plan.sourceCodec} ${plan.width}x${plan.height} → ${encoder.codec} [${quality.join(' ')}] from segment ${index} (${encoder.reason})`)
   startReaper()
   return 'ok'
 }
