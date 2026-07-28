@@ -12,6 +12,7 @@ import {
 import { verifyPin, hashPin, lockoutDuration } from '@/lib/pin'
 import { getClientIp, pinThrottleCheck, pinThrottleFail, pinThrottleReset } from '@/lib/pinThrottle'
 import { requireAuth, invalidateSessionCache } from '@/middleware/auth'
+import { buildDicebearSvg, buildInitialsSvg, rasterizeSvgToPng, type AvatarUser } from '@/lib/avatar'
 import type { AppEnv } from '@/types'
 
 const auth = new Hono<AppEnv>()
@@ -49,6 +50,93 @@ auth.get('/profiles', async (c) => {
   const pinnedIds = new Set(pins.map((p) => p.userId))
 
   return c.json(profiles.map((p) => ({ ...p, hasPin: pinnedIds.has(p.id) })))
+})
+
+// Server-side rasterized avatar for native clients (tvOS) that can't run the
+// browser's DiceBear renderer. PUBLIC and read-only, exactly like /profiles: it
+// only exposes the avatar, which /profiles already returns to the lock screen.
+// GET /api/auth/avatar/:userId(.png)?size=200  ->  square PNG (SVG on fallback).
+const AVATAR_SIZE_MIN = 64
+const AVATAR_SIZE_MAX = 512
+const AVATAR_SIZE_DEFAULT = 200
+
+// avatars change rarely, so keep the rendered PNGs in memory keyed by identity.
+const avatarPngCache = new Map<string, Uint8Array>()
+const AVATAR_CACHE_MAX = 512
+
+auth.get('/avatar/:userId', async (c) => {
+  // Accept the userId with or without a `.png` suffix (the ergonomic URL is
+  // `/avatar/<id>.png` so the client treats it as an image file).
+  const rawParam = c.req.param('userId')
+  const userId = rawParam.endsWith('.png') ? rawParam.slice(0, -4) : rawParam
+
+  const sizeParam = Number.parseInt(c.req.query('size') ?? '', 10)
+  const size = Number.isFinite(sizeParam)
+    ? Math.min(AVATAR_SIZE_MAX, Math.max(AVATAR_SIZE_MIN, sizeParam))
+    : AVATAR_SIZE_DEFAULT
+
+  const [user] = await db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      avatarUrl: users.avatarUrl,
+      dicebearStyle: users.dicebearStyle,
+      dicebearSeed: users.dicebearSeed,
+      dicebearConfig: users.dicebearConfig,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+
+  if (!user) return c.json({ error: 'Profile not found' }, 404)
+
+  // A user-set avatar image wins: it's already a real raster image, so hand the
+  // client straight to it (relative or absolute URL) rather than re-encoding.
+  if (user.avatarUrl) {
+    c.header('Cache-Control', 'public, max-age=3600')
+    return c.redirect(user.avatarUrl, 302)
+  }
+
+  const avatarUser: AvatarUser = user
+
+  // config-hash so a changed avatar (or size) misses the cache and re-renders.
+  const identity = `${user.dicebearStyle ?? ''}|${user.dicebearSeed ?? ''}|${user.dicebearConfig ?? ''}`
+  const cacheKey = `${user.id}:${size}:${Bun.hash(identity).toString(36)}`
+
+  const cached = avatarPngCache.get(cacheKey)
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' },
+    })
+  }
+
+  // DiceBear when we have a seed; otherwise a colored initials square. Either way
+  // we produce an SVG and rasterize it to a square PNG.
+  const svg = user.dicebearSeed
+    ? buildDicebearSvg(avatarUser)
+    : buildInitialsSvg(avatarUser, size)
+
+  const png = await rasterizeSvgToPng(svg, size)
+
+  if (!png) {
+    // Rasterizer unavailable: serve the raw SVG so the endpoint never crashes.
+    // (tvOS AsyncImage can't render SVG, but this keeps the API contract intact.)
+    return new Response(svg, {
+      headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+    })
+  }
+
+  const bytes = new Uint8Array(png)
+  if (avatarPngCache.size >= AVATAR_CACHE_MAX) {
+    const oldest = avatarPngCache.keys().next().value
+    if (oldest !== undefined) avatarPngCache.delete(oldest)
+  }
+  avatarPngCache.set(cacheKey, bytes)
+
+  return new Response(bytes, {
+    headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' },
+  })
 })
 
 // Select a PIN-free profile
