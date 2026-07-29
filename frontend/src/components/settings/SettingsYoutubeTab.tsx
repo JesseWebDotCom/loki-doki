@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, UploadCloud, Rss, Download, PauseCircle, Play } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import { ToggleRow } from '@/components/shared/ToggleRow'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
@@ -16,7 +17,7 @@ import { EnhanceVideoUserSetting } from './EnhanceVideoSetting'
 
 const SMART_DESCRIPTION_PREF_KEY = 'youtube.smart_description'
 
-// Mirror of backend SKIP_CATEGORIES (sponsorblock.ts) — keep keys + defaults in sync.
+// Mirror of backend SKIP_CATEGORIES (sponsorblock.ts) - keep keys + defaults in sync.
 export type SkipCategory =
   | 'sponsor' | 'selfpromo' | 'interaction' | 'intro' | 'outro' | 'preview' | 'music_offtopic'
 
@@ -30,16 +31,30 @@ const ROWS: { keys: SkipCategory[]; label: string; description: string; default:
   { keys: ['music_offtopic'],   label: 'Non-music sections',    description: 'Off-topic talking in music videos',        default: true  },
 ]
 
-const DEFAULTS = Object.fromEntries(
-  ROWS.flatMap(r => r.keys.map(k => [k, r.default])),
-) as Record<SkipCategory, boolean>
 const PREF_KEY = 'youtube.skip_categories'
+
+// Per-category behavior (mirror of backend SkipMode in sponsorblock.ts).
+//   skip:   jump over the segment automatically
+//   show:   only mark it on the seek bar
+//   prompt: on-screen "Skip" button while inside the segment
+//   off:    pretend the segment does not exist
+export type SkipMode = 'skip' | 'show' | 'prompt' | 'off'
+const MODES_PREF_KEY = 'youtube.skip_modes'
+const MODE_OPTIONS: { value: SkipMode; label: string }[] = [
+  { value: 'skip',   label: 'Skip' },
+  { value: 'show',   label: 'Show on seek bar' },
+  { value: 'prompt', label: 'Ask to skip' },
+  { value: 'off',    label: 'Off' },
+]
+const MODE_DEFAULTS = Object.fromEntries(
+  ROWS.flatMap(r => r.keys.map(k => [k, r.default ? 'skip' : 'off'])),
+) as Record<SkipCategory, SkipMode>
 
 
 export function SettingsYoutubeAutoSkip() {
   const qc = useQueryClient()
   const { user } = useAuth()
-  const [prefs, setPrefs] = useState<Record<SkipCategory, boolean>>(DEFAULTS)
+  const [modes, setModes] = useState<Record<SkipCategory, SkipMode>>(MODE_DEFAULTS)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -47,25 +62,41 @@ export function SettingsYoutubeAutoSkip() {
     fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: Record<string, unknown> | null) => {
-        const saved = data?.[PREF_KEY]
-        if (saved && typeof saved === 'object') {
-          setPrefs({ ...DEFAULTS, ...(saved as Partial<Record<SkipCategory, boolean>>) })
+        // Legacy booleans seed the modes (true = skip, false = off); a saved mode map
+        // overrides per category, matching the server's own resolution order.
+        const next = { ...MODE_DEFAULTS }
+        const legacy = data?.[PREF_KEY]
+        if (legacy && typeof legacy === 'object') {
+          for (const [k, v] of Object.entries(legacy as Partial<Record<SkipCategory, boolean>>)) {
+            if (k in next && typeof v === 'boolean') next[k as SkipCategory] = v ? 'skip' : 'off'
+          }
         }
+        const savedModes = data?.[MODES_PREF_KEY]
+        if (savedModes && typeof savedModes === 'object') {
+          for (const [k, v] of Object.entries(savedModes as Partial<Record<SkipCategory, string>>)) {
+            if (k in next && MODE_OPTIONS.some(o => o.value === v)) next[k as SkipCategory] = v as SkipMode
+          }
+        }
+        setModes(next)
       })
       .catch(() => {})
   }, [user?.id])
 
-  function toggle(keys: SkipCategory[]) {
+  function setMode(keys: SkipCategory[], mode: SkipMode) {
     if (!user?.id) return
-    const on = !keys.every(k => prefs[k])  // all-on → off, otherwise → on
-    const next = { ...prefs, ...Object.fromEntries(keys.map(k => [k, on])) }
-    setPrefs(next)
+    const next = { ...modes, ...Object.fromEntries(keys.map(k => [k, mode])) }
+    setModes(next)
     setSaving(true)
+    // Keep the legacy boolean map in the same PATCH (skip = true, anything else = false)
+    // so older clients reading youtube.skip_categories stay consistent.
+    const legacy = Object.fromEntries(
+      (Object.entries(next) as [SkipCategory, SkipMode][]).map(([k, m]) => [k, m === 'skip']),
+    )
     fetch(`/api/users/${user.id}/preferences`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [PREF_KEY]: next }),
+      body: JSON.stringify({ [MODES_PREF_KEY]: next, [PREF_KEY]: legacy }),
     })
       // Drop cached SponsorBlock results so open/next videos pick up the new choices.
       .then(() => qc.invalidateQueries({ queryKey: ['yt-sb'] }))
@@ -79,16 +110,22 @@ export function SettingsYoutubeAutoSkip() {
         {saving && <Spinner size="sm" />}
       </div>
       <p className="text-[11px] text-muted-foreground/70 -mt-1">
-        Choose which parts of a video are skipped automatically, using community-sourced
-        SponsorBlock data. Turn one off to watch that section.
+        Choose what happens to each kind of segment, using community-sourced SponsorBlock
+        data: skip it automatically, mark it on the seek bar, get a Skip button, or leave it alone.
       </p>
       <div className="space-y-2">
         {ROWS.map(({ keys, label, description }) => (
-          <ToggleRow
-            key={keys.join('+')}
-            title={label} description={description}
-            checked={keys.every(k => prefs[k])} onCheckedChange={() => toggle(keys)}
-          />
+          <div key={keys.join('+')} className="flex items-center justify-between gap-3 rounded-card border border-border/50 bg-background/50 px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold">{label}</p>
+              <p className="text-[11px] text-muted-foreground">{description}</p>
+            </div>
+            <select value={modes[keys[0]!]} onChange={e => setMode(keys, e.target.value as SkipMode)}
+              aria-label={`${label} behavior`}
+              className="shrink-0 rounded-control border border-border bg-background px-2 py-1.5 text-sm">
+              {MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
         ))}
       </div>
     </div>
@@ -359,6 +396,111 @@ export function SettingsYoutubeTitlesThumbnails() {
         description="Swap sensationalized titles and thumbnails for neutral, community-voted ones."
         checked={dearrow} onCheckedChange={toggleDearrow}
       />
+    </div>
+  )
+}
+
+// ── Hidden content ─────────────────────────────────────────────────────────────
+// Per-user blocklists the server applies to every YouTube list surface (feeds, search,
+// related, trending): channels by id or name, and keyword matches against titles.
+
+const HIDDEN_CHANNELS_KEY = 'youtube.hidden_channels'
+const HIDDEN_KEYWORDS_KEY = 'youtube.hidden_keywords'
+
+export function SettingsYoutubeHiddenContent() {
+  return (
+    <div className="space-y-8">
+      <HiddenListManager
+        prefKey={HIDDEN_CHANNELS_KEY}
+        title="Hidden channels"
+        help="Videos from these channels never appear in your feeds, search or recommendations."
+        placeholder="Channel name or channel ID…"
+        addLabel="Add channel"
+      />
+      <HiddenListManager
+        prefKey={HIDDEN_KEYWORDS_KEY}
+        title="Hidden keywords"
+        help="Videos whose titles contain these words are hidden everywhere in the app."
+        placeholder="Word or phrase…"
+        addLabel="Add keyword"
+      />
+    </div>
+  )
+}
+
+function HiddenListManager({ prefKey, title, help, placeholder, addLabel }: {
+  prefKey: string; title: string; help: string; placeholder: string; addLabel: string
+}) {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const [items, setItems] = useState<string[]>([])
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!user?.id) return
+    fetch(`/api/users/${user.id}/preferences`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Record<string, unknown> | null) => {
+        const saved = data?.[prefKey]
+        if (Array.isArray(saved)) setItems(saved.filter((x): x is string => typeof x === 'string'))
+      })
+      .catch(() => {})
+  }, [user?.id, prefKey])
+
+  function save(next: string[]) {
+    if (!user?.id) return
+    setItems(next)
+    setSaving(true)
+    fetch(`/api/users/${user.id}/preferences`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [prefKey]: next }),
+    })
+      // The filters apply server-side, so refetch the list surfaces that are cached.
+      .then(() => { qc.invalidateQueries({ queryKey: ['yt-feed'] }); qc.invalidateQueries({ queryKey: ['yt-related'] }) })
+      .finally(() => setSaving(false))
+  }
+
+  function add() {
+    const trimmed = input.trim()
+    if (!trimmed) return
+    if (items.some(x => x.toLowerCase() === trimmed.toLowerCase())) { setInput(''); return }
+    setInput('')
+    save([...items, trimmed])
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-overline text-muted-foreground">{title}</p>
+        {saving && <Spinner size="sm" />}
+      </div>
+      <p className="text-[11px] text-muted-foreground/70 -mt-1">{help}</p>
+      <div className="flex gap-2 pt-1">
+        <Input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
+          placeholder={placeholder} aria-label={addLabel}
+          className="h-9 flex-1 bg-background px-3" />
+        <Button variant="secondary" onClick={add} disabled={!input.trim()} className="shrink-0 gap-1.5">
+          <Plus className="size-3.5" /> Add
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <p className="py-3 text-center text-sm text-muted-foreground">Nothing hidden yet</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(item => (
+            <div key={item} className="flex items-center justify-between gap-3 rounded-card border border-border/50 bg-background/50 px-3 py-2">
+              <p className="min-w-0 truncate text-sm">{item}</p>
+              <button onClick={() => save(items.filter(x => x !== item))}
+                className="shrink-0 text-muted-foreground hover:text-destructive" aria-label={`Remove ${item}`}>
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

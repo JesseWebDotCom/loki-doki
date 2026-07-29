@@ -22,7 +22,7 @@ import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
-import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
+import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1673,10 +1673,17 @@ youtubeRoute.get('/recommended', async (c) => {
 youtubeRoute.get('/sponsorblock/:videoId', async (c) => {
   const user = c.get('user')
   const videoId = c.req.param('videoId')
-  // Only return the categories this user has chosen to skip — the player auto-skips
-  // whatever it receives, so filtering here keeps unskipped segments off the scrubber too.
-  const enabled = await getUserSkipCategories(user.id)
-  const segments = (await getSkipSegments(videoId)).filter(s => enabled[s.category as keyof typeof enabled])
+  // Per-category behavior: each returned segment carries the user's mode for its
+  // category (skip / show / prompt). Category set to off never leaves the server.
+  // Legacy boolean prefs map to skip/off, so old settings keep working, and old
+  // clients that ignore `mode` still auto-skip exactly the segments they used to
+  // receive when we drop the non-skip ones for them (no `modes=1` query flag).
+  const modes = await getUserSkipModes(user.id)
+  const wantModes = c.req.query('modes') === '1'
+  const withModes = (await getSkipSegments(videoId))
+    .map(s => ({ ...s, mode: modes[s.category as keyof typeof modes] ?? 'off' }))
+    .filter(s => s.mode !== 'off')
+  const segments = wantModes ? withModes : withModes.filter(s => s.mode === 'skip')
   return c.json({ segments })
 })
 
