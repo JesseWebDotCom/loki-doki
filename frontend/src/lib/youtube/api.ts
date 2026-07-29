@@ -310,10 +310,15 @@ export async function getRelatedSearches(videoId: string): Promise<RelatedSearch
 
 // ── SponsorBlock ─────────────────────────────────────────────────────────────────
 
-export interface SkipSegment { category: string; start: number; end: number }
+/** Per-category behavior the server attached to each segment: 'skip' auto-skips,
+ *  'show' only marks the seek bar, 'prompt' offers an on-screen Skip button.
+ *  Categories set to 'off' never leave the server. */
+export type SegmentMode = 'skip' | 'show' | 'prompt'
+export interface SkipSegment { category: string; start: number; end: number; mode: SegmentMode }
 
 export async function getSponsorSegments(videoId: string): Promise<SkipSegment[]> {
-  const r = await fetch(`/api/youtube/sponsorblock/${videoId}`, opts)
+  // modes=1: ask for ALL non-off segments with their mode (not just the auto-skip ones).
+  const r = await fetch(`/api/youtube/sponsorblock/${videoId}?modes=1`, opts)
   if (!r.ok) return []
   return (await r.json() as { segments: SkipSegment[] }).segments ?? []
 }

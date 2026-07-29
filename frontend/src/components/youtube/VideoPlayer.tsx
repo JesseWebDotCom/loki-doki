@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions, Lock, FastForward } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Expand, Zap, PictureInPicture, Music, ShieldCheck, Settings, Check, Captions, Lock, FastForward, SkipForward } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
@@ -45,6 +45,13 @@ const PROXY_QUALITY_KEY = 'yt.proxyQuality'
 const YT_QUALITY_LABEL: Record<string, string> = {
   highres: '4K+', hd2160: '2160p', hd1440: '1440p', hd1080: '1080p', hd720: '720p',
   large: '480p', medium: '360p', small: '240p', tiny: '144p', auto: 'Auto',
+}
+
+// SponsorBlock category → the short label used on the manual "Skip <category>" chip
+// (mirrors WatchPage's SB_LABELS for its skipped-toast).
+const SB_CHIP_LABELS: Record<string, string> = {
+  sponsor: 'sponsor', selfpromo: 'self-promo', interaction: 'reminder',
+  intro: 'intro', outro: 'outro', preview: 'recap', music_offtopic: 'non-music',
 }
 
 // ── YouTube IFrame API loader ──────────────────────────────────────────────────
@@ -504,9 +511,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
         if (lv?.length) setEmbedLevels(prev => (prev.length === lv.length && prev.every((x, i) => x === lv[i])) ? prev : lv)
       }
 
-      // SponsorBlock: if we're inside a skippable segment, jump to its end.
+      // SponsorBlock: if we're inside an auto-skip segment, jump to its end. 'show' and
+      // 'prompt' segments are never auto-skipped (markers / the Skip chip handle those).
       if (skipSegments?.length && s.playing) {
-        const seg = skipSegments.find(g => s.t >= g.start && s.t < g.end - 0.3)
+        const seg = skipSegments.find(g => g.mode === 'skip' && s.t >= g.start && s.t < g.end - 0.3)
         if (seg && lastSkip.current !== `${seg.start}`) {
           lastSkip.current = `${seg.start}`
           seekTo(seg.end)
@@ -780,11 +788,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
 
   const pct = duration ? Math.min(100, (position / duration) * 100) : 0
 
-  // Scrubber tick marks for each SponsorBlock segment.
+  // Scrubber tick marks for each SponsorBlock segment (all modes; color varies by mode).
   const segMarks = useMemo(() => {
     if (!skipSegments?.length || !duration) return []
-    return skipSegments.map(g => ({ left: (g.start / duration) * 100, width: Math.max(0.5, ((g.end - g.start) / duration) * 100), category: g.category }))
+    return skipSegments.map(g => ({ left: (g.start / duration) * 100, width: Math.max(0.5, ((g.end - g.start) / duration) * 100), category: g.category, mode: g.mode }))
   }, [skipSegments, duration])
+
+  // 'prompt' segment the playhead is currently inside: drives the "Skip <category>" chip.
+  const promptSeg = useMemo(() => {
+    if (!skipSegments?.length) return null
+    return skipSegments.find(g => g.mode === 'prompt' && position >= g.start && position < g.end - 0.3) ?? null
+  }, [skipSegments, position])
 
   // Chapter notches + the title of the chapter currently playing.
   const chapterMarks = useMemo(() => {
@@ -956,10 +970,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
               <polyline points={heatPath} className="fill-white/25 stroke-white/50" strokeWidth={1} vectorEffect="non-scaling-stroke" />
             </svg>
           )}
-          {/* SponsorBlock segment markers */}
+          {/* SponsorBlock segment markers: amber = auto-skipped, sky = shown/prompted only */}
           {segMarks.map((s, i) => (
             // design-ok(raw-palette-semantic): SponsorBlock warning marks on the scrubber over the video surface
-            <span key={i} className="absolute top-0 h-full rounded-full bg-amber-400/80"
+            <span key={i} className={cn('absolute top-0 h-full rounded-full', s.mode === 'skip' ? 'bg-amber-400/80' : 'bg-sky-400/70')}
               style={{ left: `${s.left}%`, width: `${s.width}%` }} title={`SponsorBlock: ${s.category}`} />
           ))}
           {/* Chapter notches */}
@@ -1168,6 +1182,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
           </span>
         )}
       </button>
+
+      {/* SponsorBlock 'prompt' mode: while the playhead is inside a prompt segment, offer
+          a small Skip chip above the control bar instead of auto-skipping. Clicking jumps
+          to the segment's end; it disappears once the segment is passed. */}
+      {promptSeg && !screenLocked && (
+        // design-ok(raw-palette-semantic) design-ok(backdrop-blur-outside-chrome) design-ok(hand-styled-button): skip chip floating over the video surface, styled like the player's other chips
+        <button
+          onClick={() => { const end = promptSeg.end; seekTo(end); setPosition(end) }}
+          className="absolute bottom-16 right-3 z-30 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/85">
+          <SkipForward className="size-3.5" /> Skip {SB_CHIP_LABELS[promptSeg.category] ?? promptSeg.category}
+        </button>
+      )}
 
       {/* Gesture feedback: a transient chip for a double-tap seek, a persistent one while
           hold-to-2× is engaged. Keyed on the gesture id so repeats re-run the animation. */}

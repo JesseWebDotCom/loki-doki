@@ -1,11 +1,11 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server, ArrowLeftRight } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server, ArrowLeftRight, EyeOff } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
   SettingsYoutubeChannels, SettingsYoutubeAutoSkip, SettingsYoutubeVideoQuality,
-  SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions,
+  SettingsYoutubeTitlesThumbnails, SettingsYoutubeDescriptions, SettingsYoutubeHiddenContent,
 } from '@/components/settings/SettingsYoutubeTab'
 import { SettingsVideoSources } from '@/components/settings/SettingsVideoSources'
 import { SettingsVideoTitles } from '@/components/settings/SettingsVideoTitles'
@@ -48,6 +48,7 @@ const SECTIONS: AppSettingsSection[] = [
   { id: 'plex-sync',    label: 'Plex sync',           icon: Server,      group: 'Library', content: <SettingsVideosPlexSync /> },
   { id: 'portability',  label: 'Import & export',     icon: ArrowLeftRight, group: 'Library', content: <SettingsVideosPortability /> },
   { id: 'auto-skip',    label: 'Auto-skip',           icon: SkipForward, group: 'YouTube', content: <SettingsYoutubeAutoSkip /> },
+  { id: 'hidden',       label: 'Hidden content',      icon: EyeOff,      group: 'YouTube', content: <SettingsYoutubeHiddenContent /> },
   { id: 'titles',       label: 'Titles & thumbnails', icon: Wand2,       group: 'YouTube', content: <SettingsYoutubeTitlesThumbnails /> },
   { id: 'descriptions', label: 'Descriptions',        icon: FileText,    group: 'YouTube', content: <SettingsYoutubeDescriptions /> },
   { id: 'companion',    label: 'Companion',           icon: Bot,         group: 'General', content: <CompanionAbilitiesCard appId="youtube" /> },
