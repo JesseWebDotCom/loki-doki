@@ -3,8 +3,12 @@
 // frontend/src/components/companion/*) so the PNG a native client loads matches
 // the SVG the browser draws. Ported verbatim where the browser code is pure.
 
-import { createAvatar, type Style } from '@dicebear/core'
-import * as collection from '@dicebear/collection'
+// DiceBear is loaded LAZILY (dynamic import in buildDicebearSvg) rather than at
+// module top-level: a native-dependency or resolution failure in @dicebear on any
+// platform must never crash server startup — the avatar route degrades to the
+// initials fallback instead. (Learned the hard way: a top-level import here took
+// the whole server down on the production Windows box.)
+import type { Style } from '@dicebear/core'
 
 // --- styles (port of components/companion/styles.ts) -----------------------
 
@@ -17,12 +21,6 @@ function isCharacterStyle(value: unknown): value is CharacterStyle {
 function coerceStyle(value: unknown): CharacterStyle {
   return isCharacterStyle(value) ? value : 'avataaars'
 }
-
-const STYLE_MAP = {
-  avataaars: collection.avataaars,
-  bottts: collection.bottts,
-  'toon-head': collection.toonHead,
-} as const
 
 // --- face overrides (port of components/companion/faceForState.ts) ---------
 
@@ -116,7 +114,17 @@ export interface AvatarUser {
  * exactly (default `listening` pose, per-state face overrides, resting eyes,
  * cross-style key filtering).
  */
-export function buildDicebearSvg(user: AvatarUser): string {
+export async function buildDicebearSvg(user: AvatarUser): Promise<string> {
+  // Lazy-load DiceBear so a failure to resolve/load it can never crash startup —
+  // the caller treats a thrown/rejected result as "no SVG" and uses initials.
+  const { createAvatar } = await import('@dicebear/core')
+  const collection = await import('@dicebear/collection')
+  const STYLE_MAP = {
+    avataaars: collection.avataaars,
+    bottts: collection.bottts,
+    'toon-head': collection.toonHead,
+  } as const
+
   const style = coerceStyle(user.dicebearStyle)
 
   let cfg: Record<string, unknown> = {}

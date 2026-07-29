@@ -111,11 +111,19 @@ auth.get('/avatar/:userId', async (c) => {
     })
   }
 
-  // DiceBear when we have a seed; otherwise a colored initials square. Either way
-  // we produce an SVG and rasterize it to a square PNG.
-  const svg = user.dicebearSeed
-    ? buildDicebearSvg(avatarUser)
-    : buildInitialsSvg(avatarUser, size)
+  // DiceBear when we have a seed; otherwise a colored initials square. DiceBear
+  // rendering is best-effort — if it throws (missing/broken dep), fall back to
+  // the dependency-free initials square rather than erroring.
+  let svg: string
+  if (user.dicebearSeed) {
+    try {
+      svg = await buildDicebearSvg(avatarUser)
+    } catch {
+      svg = buildInitialsSvg(avatarUser, size)
+    }
+  } else {
+    svg = buildInitialsSvg(avatarUser, size)
+  }
 
   const png = await rasterizeSvgToPng(svg, size)
 
@@ -137,6 +145,51 @@ auth.get('/avatar/:userId', async (c) => {
   return new Response(bytes, {
     headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' },
   })
+})
+
+// PUBLIC, read-only: the household's Continue Watching row for the tvOS Top
+// Shelf extension. App extensions can't share the app's session cookie, so this
+// mirrors the avatar endpoint's stance: household-private server, low-sensitivity
+// data (recent titles only — no per-user attribution), thumbnails on YouTube's
+// public CDN so the extension can fetch them without auth either.
+auth.get('/topshelf', async (c) => {
+  const { ytWatchState, ytVideos } = await import('@/db/schema')
+  const { and, desc, eq, gt } = await import('drizzle-orm')
+  const rows = await db.select({
+    videoId: ytWatchState.videoId,
+    positionSec: ytWatchState.positionSec,
+    completed: ytWatchState.completed,
+    updatedAt: ytWatchState.updatedAt,
+    title: ytVideos.title,
+    author: ytVideos.author,
+    durationSec: ytVideos.durationSec,
+  })
+    .from(ytWatchState)
+    .leftJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
+    .where(and(
+      eq(ytWatchState.origin, 'youtube'),
+      eq(ytWatchState.completed, false),
+      gt(ytWatchState.positionSec, 10),
+    ))
+    .orderBy(desc(ytWatchState.updatedAt))
+    .limit(60)
+
+  const seen = new Set<string>()
+  const items: object[] = []
+  for (const r of rows) {
+    if (seen.has(r.videoId) || !r.title) continue
+    seen.add(r.videoId)
+    items.push({
+      videoId: r.videoId,
+      title: r.title,
+      author: r.author ?? null,
+      thumbnailUrl: `https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg`,
+      positionSec: r.positionSec,
+      durationSec: r.durationSec ?? null,
+    })
+    if (items.length >= 10) break
+  }
+  return c.json({ items }, 200, { 'Cache-Control': 'public, max-age=300' })
 })
 
 // Select a PIN-free profile
