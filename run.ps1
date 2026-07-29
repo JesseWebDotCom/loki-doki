@@ -23,6 +23,9 @@
 param(
   [switch]$Dev,
   [switch]$Uninstall,
+  # Skip the browser open after startup. Used by health-watchdog.ps1's auto-restarts,
+  # which would otherwise pop a new Chrome window on the desktop for every recovery.
+  [switch]$NoBrowser,
   # Sustained power ceiling (watts) applied to each settable NVIDIA GPU at launch. Disabled
   # by default (0) since 2026-07-16: the brownouts this guarded against were traced to a
   # failing battery (replaced + reset + calibrated), so the cards run at full power for
@@ -44,7 +47,18 @@ $SidecarPatterns = @(
   'bun run start',                               # backend (production wrapper)
   "$Root\frontend\node_modules",                # frontend (vite)
   "$Root\data\comfyui",                         # ComfyUI (python)
-  'bun run dev'                                 # leftover dev wrappers
+  'bun run dev',                                # leftover dev wrappers
+  # Transient data\bin tools are children of the backend; one that outlives it keeps
+  # the backend's inherited port-3000 listen handle alive with a DEAD owning PID,
+  # which Stop-Port cannot kill — that stuck state blocked every restart on 7/29
+  # until the orphan (a wedged yt-dlp) was found by hand. ollama.exe is deliberately
+  # NOT swept (see the keep-models-warm note in the finally block).
+  "$Root\data\bin\yt-dlp",
+  "$Root\data\bin\ffmpeg",
+  "$Root\data\bin\ffprobe",
+  "$Root\data\bin\aria2c",
+  "$Root\data\bin\vtracer",
+  "$Root\data\bin\node"
 )
 
 # ── Bun bootstrap ─────────────────────────────────────────────────────────────
@@ -373,8 +387,10 @@ try {
     Start-Sleep -Milliseconds 200
   }
   $url = "http://localhost:$webPort"
-  try { Start-Process 'chrome.exe' "--new-window $url" }
-  catch { Start-Process $url }
+  if (-not $NoBrowser) {
+    try { Start-Process 'chrome.exe' "--new-window $url" }
+    catch { Start-Process $url }
+  }
 
   Write-Host ''
   Write-Host "Loki Doki is running at $url  (press Ctrl+C to stop)"

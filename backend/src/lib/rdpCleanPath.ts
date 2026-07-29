@@ -1,4 +1,4 @@
-import { connect as netConnect, type Socket } from 'node:net'
+import { connect as netConnect, isIP, type Socket } from 'node:net'
 import { connect as tlsConnect, type TLSSocket } from 'node:tls'
 import { logger } from '@/lib/logger'
 
@@ -144,14 +144,28 @@ function performRDPHandshake(host: string, port: number, x224Request: Buffer): P
     const tcpSocket: Socket = netConnect({ host, port }, () => { tcpSocket.write(x224Request) })
     tcpSocket.once('error', (err) => reject(new Error(`TCP connection failed: ${err.message}`)))
     tcpSocket.once('data', (x224Response: Buffer) => {
-      if (x224Response.length === 0) { tcpSocket.destroy(); reject(new Error('RDP server closed without X.224 response')); return }
-      tcpSocket.removeAllListeners('error')
-      tcpSocket.removeAllListeners('data')
-      const tlsSocket = tlsConnect({ socket: tcpSocket, servername: host, rejectUnauthorized: false }, () => {
-        const certChain = extractCertChain(tlsSocket.getPeerCertificate(true) as unknown as PeerCert)
-        resolve({ x224Response: Buffer.from(x224Response), certChain, tlsSocket })
-      })
-      tlsSocket.once('error', (err) => reject(new Error(`TLS handshake failed: ${err.message}`)))
+      // A sync throw in this callback is NOT caught by the Promise: it unwinds through the
+      // socket's emit into uncaughtException and kills the whole server (which is exactly
+      // what tls.connect did when handed an IP-literal servername — RDP-to-IP crashed
+      // production on 7/29). Everything here stays inside the try.
+      try {
+        if (x224Response.length === 0) { tcpSocket.destroy(); reject(new Error('RDP server closed without X.224 response')); return }
+        tcpSocket.removeAllListeners('error')
+        tcpSocket.removeAllListeners('data')
+        const tlsSocket = tlsConnect({
+          socket: tcpSocket,
+          // SNI is DNS-names-only (RFC 6066); node throws on an IP literal, so omit it there.
+          ...(isIP(host) ? {} : { servername: host }),
+          rejectUnauthorized: false,
+        }, () => {
+          const certChain = extractCertChain(tlsSocket.getPeerCertificate(true) as unknown as PeerCert)
+          resolve({ x224Response: Buffer.from(x224Response), certChain, tlsSocket })
+        })
+        tlsSocket.once('error', (err) => reject(new Error(`TLS handshake failed: ${err.message}`)))
+      } catch (err) {
+        tcpSocket.destroy()
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
     })
     tcpSocket.setTimeout(15000, () => { tcpSocket.destroy(); reject(new Error('Connection timed out')) })
   })
