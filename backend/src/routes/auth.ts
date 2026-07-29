@@ -147,6 +147,51 @@ auth.get('/avatar/:userId', async (c) => {
   })
 })
 
+// PUBLIC, read-only: the household's Continue Watching row for the tvOS Top
+// Shelf extension. App extensions can't share the app's session cookie, so this
+// mirrors the avatar endpoint's stance: household-private server, low-sensitivity
+// data (recent titles only — no per-user attribution), thumbnails on YouTube's
+// public CDN so the extension can fetch them without auth either.
+auth.get('/topshelf', async (c) => {
+  const { ytWatchState, ytVideos } = await import('@/db/schema')
+  const { and, desc, eq, gt } = await import('drizzle-orm')
+  const rows = await db.select({
+    videoId: ytWatchState.videoId,
+    positionSec: ytWatchState.positionSec,
+    completed: ytWatchState.completed,
+    updatedAt: ytWatchState.updatedAt,
+    title: ytVideos.title,
+    author: ytVideos.author,
+    durationSec: ytVideos.durationSec,
+  })
+    .from(ytWatchState)
+    .leftJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
+    .where(and(
+      eq(ytWatchState.origin, 'youtube'),
+      eq(ytWatchState.completed, false),
+      gt(ytWatchState.positionSec, 10),
+    ))
+    .orderBy(desc(ytWatchState.updatedAt))
+    .limit(60)
+
+  const seen = new Set<string>()
+  const items: object[] = []
+  for (const r of rows) {
+    if (seen.has(r.videoId) || !r.title) continue
+    seen.add(r.videoId)
+    items.push({
+      videoId: r.videoId,
+      title: r.title,
+      author: r.author ?? null,
+      thumbnailUrl: `https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg`,
+      positionSec: r.positionSec,
+      durationSec: r.durationSec ?? null,
+    })
+    if (items.length >= 10) break
+  }
+  return c.json({ items }, 200, { 'Cache-Control': 'public, max-age=300' })
+})
+
 // Select a PIN-free profile
 auth.post('/select', async (c) => {
   const { userId, pin: newPin } = (await c.req.json()) as { userId: string; pin?: string }
