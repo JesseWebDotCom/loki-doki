@@ -48,6 +48,36 @@ export async function getUserSkipCategories(userId: string): Promise<Record<Skip
   }
 }
 
+// Per-category behavior (FreeTube-style). The legacy boolean map still works:
+// true maps to 'skip', false to 'off'. A saved mode map overrides per category.
+//   skip:   jump over the segment automatically
+//   show:   only mark it on the seek bar
+//   prompt: pause-free on-screen "Skip?" button while inside the segment
+//   off:    pretend the segment does not exist
+export type SkipMode = 'skip' | 'show' | 'prompt' | 'off'
+const MODES_PREF_KEY = 'youtube.skip_modes'
+const VALID_MODES: readonly SkipMode[] = ['skip', 'show', 'prompt', 'off']
+
+export async function getUserSkipModes(userId: string): Promise<Record<SkipCategory, SkipMode>> {
+  const legacy = await getUserSkipCategories(userId)
+  const base = Object.fromEntries(
+    CATEGORIES.map(c => [c, legacy[c] ? 'skip' : 'off']),
+  ) as Record<SkipCategory, SkipMode>
+
+  const [row] = await db.select({ value: userPreferences.value }).from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, MODES_PREF_KEY)))
+    .limit(1)
+  if (!row) return base
+  try {
+    const saved = JSON.parse(row.value) as Partial<Record<SkipCategory, string>>
+    for (const c of CATEGORIES) {
+      const mode = saved[c]
+      if (mode && (VALID_MODES as readonly string[]).includes(mode)) base[c] = mode as SkipMode
+    }
+  } catch { /* ignore malformed pref */ }
+  return base
+}
+
 export interface SkipSegment {
   category: string
   start: number   // seconds

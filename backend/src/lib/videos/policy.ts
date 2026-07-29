@@ -13,6 +13,7 @@ import { getUserCeiling } from '@/lib/contentPolicy'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { getClassifications, ensureClassifications, classificationBlocks, classify } from '@/lib/media/classify'
 import { allowlistViewFor, allowlistPermits } from '@/lib/videos/allowlist'
+import { applyYtHiddenFilters } from '@/lib/youtube/contentFilters'
 import { logger } from '@/lib/logger'
 import type { VideoItem } from '@/lib/videos/types'
 
@@ -98,14 +99,19 @@ export async function filterYtItemsForUser<T extends { videoId: string; title: s
   userId: string, vids: T[],
 ): Promise<T[]> {
   if (!vids.length) return vids
-  const asItems: VideoItem[] = vids.map((v) => ({
+  // User-managed hide lists first (hidden channels and title keywords). This is the
+  // one choke point every YouTube list surface flows through, so the blocklists
+  // apply to feed, trending, popular, search, related and recommended alike.
+  const visible = await applyYtHiddenFilters(userId, vids)
+  if (!visible.length) return visible
+  const asItems: VideoItem[] = visible.map((v) => ({
     source: 'youtube', id: v.videoId, url: `https://www.youtube.com/watch?v=${v.videoId}`,
     title: v.title,
     creator: v.channelId ? { id: v.channelId, name: v.author ?? '' } : v.author ? { id: '', name: v.author } : null,
   }))
   const kept = await filterVideosForUser(userId, asItems)
   const keepIds = new Set(kept.map((i) => i.id))
-  return vids.filter((v) => keepIds.has(v.videoId))
+  return visible.filter((v) => keepIds.has(v.videoId))
 }
 
 /** Single-item gate for the playback/detail routes — the hard guarantee that a direct link
