@@ -77,18 +77,24 @@ function defaultEyeFor(style: CharacterStyle): string | null {
 // --- per-style option filtering (port of companion/dicebearSchema.ts) ------
 
 interface DicebearStyleSchema { properties?: Record<string, unknown> }
-const RAW_SCHEMAS: Record<CharacterStyle, DicebearStyleSchema> = {
-  avataaars: (collection as Record<string, { schema?: DicebearStyleSchema }>)['avataaars']?.schema ?? {},
-  bottts: (collection as Record<string, { schema?: DicebearStyleSchema }>)['bottts']?.schema ?? {},
-  'toon-head': (collection as Record<string, { schema?: DicebearStyleSchema }>)['toonHead']?.schema ?? {},
+type DicebearCollection = Record<string, { schema?: DicebearStyleSchema }>
+/** DiceBear export name per style ('toon-head' is exported as toonHead). */
+const SCHEMA_EXPORT: Record<CharacterStyle, string> = {
+  avataaars: 'avataaars',
+  bottts: 'bottts',
+  'toon-head': 'toonHead',
 }
 const keyCache: Partial<Record<CharacterStyle, Set<string>>> = {}
-function getValidKeys(style: CharacterStyle): Set<string> {
-  if (!keyCache[style]) keyCache[style] = new Set(Object.keys(RAW_SCHEMAS[style].properties ?? {}))
+// The collection is passed in by buildDicebearSvg's lazy import — reading schemas at
+// module top-level would defeat the whole "DiceBear must never crash startup" contract.
+function getValidKeys(style: CharacterStyle, collection: DicebearCollection): Set<string> {
+  if (!keyCache[style]) {
+    keyCache[style] = new Set(Object.keys(collection[SCHEMA_EXPORT[style]]?.schema?.properties ?? {}))
+  }
   return keyCache[style]!
 }
-function filterOptionsForStyle(style: CharacterStyle, options: Record<string, unknown>): Record<string, unknown> {
-  const valid = getValidKeys(style)
+function filterOptionsForStyle(style: CharacterStyle, options: Record<string, unknown>, collection: DicebearCollection): Record<string, unknown> {
+  const valid = getValidKeys(style, collection)
   if (valid.size === 0) return options
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(options)) {
@@ -158,7 +164,7 @@ export async function buildDicebearSvg(user: AvatarUser): Promise<string> {
     opts.eyebrowsProbability = 100
   }
 
-  const filtered = filterOptionsForStyle(style, opts)
+  const filtered = filterOptionsForStyle(style, opts, collection as unknown as DicebearCollection)
   // DiceBear's per-style Options types genuinely differ, so the STYLE_MAP union
   // can't unify with createAvatar's single generic. Cast at the library boundary.
   const chosenStyle = STYLE_MAP[style] as Style<Record<string, unknown>>
