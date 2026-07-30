@@ -26,6 +26,7 @@ import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
 import { peekAiChapters, kickAiChapters } from '@/lib/youtube/aiChapters'
 import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
 import { peekFiller, kickFiller } from '@/lib/youtube/filler'
+import { peekAsk, kickAsk } from '@/lib/youtube/askVideo'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1610,6 +1611,22 @@ youtubeRoute.get('/filler/:videoId', async (c) => {
   if (segments !== undefined) return c.json({ segments: segments ?? [] })
   kickFiller(videoId, user.id, await getUserFirstName(user.id))
   return c.json({ segments: [], pending: true })
+})
+
+// "Ask This Video": transcript-grounded Q&A with jump-to-moment citations.
+// Instant from cache per (video, question); a miss kicks a background build and
+// returns `pending` so clients poll while playback continues.
+youtubeRoute.get('/ask/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const videoId = c.req.param('videoId')
+  const question = c.req.query('q')?.trim()
+  if (!question || question.length < 3) return c.json({ error: 'question required' }, 400)
+
+  const cached = await peekAsk(videoId, question)
+  if (cached !== undefined) return c.json({ result: cached })
+  kickAsk(videoId, question, user.id, await getUserFirstName(user.id))
+  return c.json({ result: null, pending: true })
 })
 
 // "Previously..." resume recap: a 2-3 sentence reminder of everything before the
