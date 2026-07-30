@@ -25,6 +25,7 @@ import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/
 import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
 import { peekAiChapters, kickAiChapters } from '@/lib/youtube/aiChapters'
 import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
+import { peekFiller, kickFiller } from '@/lib/youtube/filler'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1596,6 +1597,19 @@ youtubeRoute.get('/chapters/:videoId', async (c) => {
     return c.json({ chapters: [], aiPending: true })
   }
   return c.json({ chapters: [] })
+})
+
+// "Get To The Point": AI filler segments (drawn-out intros, housekeeping, repeated
+// recaps, padding) served like SponsorBlock spans. Instant from cache; a miss kicks
+// a background analysis and returns `pending` so clients poll while playing.
+youtubeRoute.get('/filler/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const videoId = c.req.param('videoId')
+  const segments = await peekFiller(videoId)
+  if (segments !== undefined) return c.json({ segments: segments ?? [] })
+  kickFiller(videoId, user.id, await getUserFirstName(user.id))
+  return c.json({ segments: [], pending: true })
 })
 
 // "Previously..." resume recap: a 2-3 sentence reminder of everything before the
