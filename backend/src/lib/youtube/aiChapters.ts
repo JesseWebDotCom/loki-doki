@@ -169,5 +169,22 @@ async function buildAiChapters(videoId: string, userId: string, firstName: strin
     { role: 'system', content: CHAPTERS_SYSTEM },
     { role: 'user', content: digest },
   ], undefined, { temperature: 0.2, num_predict: 500 })
-  return parseChapterJson(result.message.content, lastSec)
+  const first = parseChapterJson(result.message.content, lastSec)
+  if (first) return first
+
+  // One corrective retry: point at the exact failure mode (bad units or
+  // clustered stamps) before giving up. The raw output is logged so a
+  // persistent rejection is diagnosable from /api/logs/recent.
+  logger.warn({ videoId, lastSec, raw: result.message.content.slice(0, 300) },
+    'yt ai chapters: rejected, retrying once')
+  const retry = await ollamaChat(model, [
+    { role: 'system', content: CHAPTERS_SYSTEM },
+    { role: 'user', content: digest },
+    { role: 'assistant', content: result.message.content.slice(0, 1200) },
+    { role: 'user', content:
+      `Those timestamps were invalid. The video is ${Math.round(lastSec)} seconds long; chapter ` +
+      '"t" values must be TOTAL SECONDS spread across that whole runtime (convert [12:30] to 750), ' +
+      'with consecutive chapters minutes apart. Respond with only the corrected JSON array.' },
+  ], undefined, { temperature: 0.1, num_predict: 500 })
+  return parseChapterJson(retry.message.content, lastSec)
 }
