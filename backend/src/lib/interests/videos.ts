@@ -313,8 +313,13 @@ export async function buildVideoPool(userId: string): Promise<void> {
     }))
   })()
 
+  // Seed titles let "why this" name the exact watch that earned the suggestion.
+  const seedTitle = new Map(ytSignals.map((s) => [s.ref.slice('youtube:'.length), s.title]))
   const candidates: Candidate[] = [
-    ...relatedLists.flat().map((v) => itToCandidate(v, 'related')),
+    ...relatedLists.flatMap((videos, i) => {
+      const from = seedTitle.get(seeds[i] ?? '') ?? ''
+      return videos.map((v) => itToCandidate(v, 'related', from ? [from] : []))
+    }),
     ...topicLists.flatMap(({ query, videos }) => videos.map((v) => itToCandidate(v, 'topic-search', [query]))),
     // Channel-tab videos don't repeat their own channel's name/id — stamp the fetched
     // channel's identity so affinity scoring (and the card's byline) survive.
@@ -538,7 +543,31 @@ export async function serveYtRecommended(
   }
   await enrichChannelThumbs(served)
   await recordServed(userId, DOMAIN, served.map((v) => byRef.get(ytRef(v.videoId))!).filter(Boolean))
-  return { videos: served, building: false }
+  // Explain every recommendation: each card carries where it came from.
+  const explained = served.map((v) => {
+    const entry = byRef.get(ytRef(v.videoId))
+    return { ...v, why: entry ? whyServed(entry) : undefined }
+  })
+  return { videos: explained, building: false }
+}
+
+/** Human-readable provenance for a served suggestion (real request: viewers
+ *  should be able to hold a card and see why it is there). */
+function whyServed(entry: RankedCandidate): string {
+  switch (entry.bucket) {
+    case 'related':
+      return entry.topics[0] ? `Because you watched "${entry.topics[0]}"` : 'Similar to videos you watched'
+    case 'topic-search':
+      return entry.topics[0] ? `Because you're into ${entry.topics[0]}` : 'Matches your interests'
+    case 'creator-latest':
+      return entry.creatorName ? `New from ${entry.creatorName}, a channel you keep coming back to` : 'From a creator you watch'
+    case 'yt-home':
+      return 'Picked for you by YouTube\'s recommendations'
+    case 'similar':
+      return 'Similar to your favorites'
+    case 'trending':
+      return 'Trending right now'
+  }
 }
 
 /** Cross-source rail for /api/videos/suggested (hub VideoItem shape). No fallback —
