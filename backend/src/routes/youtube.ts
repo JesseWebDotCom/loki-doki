@@ -23,6 +23,8 @@ import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, inn
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
+import { peekAiChapters, kickAiChapters } from '@/lib/youtube/aiChapters'
+import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1577,11 +1579,40 @@ youtubeRoute.get('/comments/:videoId', async (c) => {
 })
 
 // Authoritative chapter list (creator/auto chapters) — used to enrich the watch page
-// when the description has no parseable timestamps.
+// when the description has no parseable timestamps. Chapterless videos fall back to
+// AI chapters built from the caption track: served instantly when cached, otherwise a
+// background build is kicked and this returns empty with `aiPending` so clients know
+// chapters may appear on a later fetch.
 youtubeRoute.get('/chapters/:videoId', async (c) => {
+  const user = c.get('user')
   const videoId = c.req.param('videoId')
   const chapters = await tryInnertube('chapters', () => innertubeChapters(videoId), [])
-  return c.json({ chapters })
+  if (chapters.length > 0) return c.json({ chapters })
+
+  const ai = await peekAiChapters(videoId)
+  if (ai && ai.length > 0) return c.json({ chapters: ai, ai: true })
+  if (ai === undefined && user) {
+    kickAiChapters(videoId, user.id, await getUserFirstName(user.id))
+    return c.json({ chapters: [], aiPending: true })
+  }
+  return c.json({ chapters: [] })
+})
+
+// "Previously..." resume recap: a 2-3 sentence reminder of everything before the
+// viewer's resume point. Instant from cache; a miss kicks a background build and
+// returns `pending` so the client can poll while playback continues.
+youtubeRoute.get('/recap/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const videoId = c.req.param('videoId')
+  const atSec = parseInt(c.req.query('atSec') ?? '0', 10)
+  if (!Number.isFinite(atSec) || atSec < 300) return c.json({ recap: null })
+
+  const bucket = recapBucket(atSec)
+  const recap = await peekRecap(videoId, bucket)
+  if (recap !== undefined) return c.json({ recap })
+  kickRecap(videoId, user.id, await getUserFirstName(user.id), atSec)
+  return c.json({ recap: null, pending: true })
 })
 
 // Most-replayed heatmap: the rewatch-intensity curve drawn under the scrubber. Rides the
