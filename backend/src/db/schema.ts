@@ -2408,6 +2408,25 @@ export const videoMoments = sqliteTable('video_moments', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Family Picks: the household's shared watch queue. Anyone adds from their phone or the
+// TV, everyone sees who added what, and votes (video_votes with playlist_id
+// 'family-picks') order the night. played_at hides finished items without losing the
+// history the Wrapped recap can mine later.
+export const familyPicks = sqliteTable('family_picks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  source: text('source').notNull(),
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull(),
+  author: text('author'),
+  thumbnailUrl: text('thumbnail_url'),
+  durationSec: integer('duration_sec'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  playedAt: integer('played_at', { mode: 'timestamp' }),
+}, (t) => ({
+  pickUnique: uniqueIndex('family_picks_unique').on(t.source, t.videoId),
+}))
+
 // Movie-night voting over a shared playlist: one row per person per entry. The winner is
 // simply the entry with the most votes (ties break by earliest vote).
 export const videoVotes = sqliteTable('video_votes', {

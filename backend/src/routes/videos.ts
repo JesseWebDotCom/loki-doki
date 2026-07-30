@@ -6,10 +6,10 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { and, asc, count as sqlCount, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count as sqlCount, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoTranscripts, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
+import { familyPicks, mediaAssets, users, videoFolders, videoFolderMembers, videoFollows, videoItems, videoMoments, videoSaves, videoTranscripts, videoVotes, videoWatchState, ytSubscriptions, ytVideos as ytVideosTable } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { getProvider, listProviders, matchUrlToProvider, getEnabledSources, setEnabledSources } from '@/lib/videos/registry'
 import { allowAdultVideos, filterVideosForUser, videoAllowedForUser } from '@/lib/videos/policy'
@@ -994,6 +994,85 @@ videosRoute.get('/recap', async (c) => {
 // ── Family social layer: moments, timed reactions, movie-night votes, Blend ───────
 // All household-visible on purpose: leaving a reaction for the rest of the family IS the
 // feature. None of it leaves the server, which is exactly what nobody else can offer.
+
+// ── Family Picks: the household's shared watch queue ─────────────────────────────
+// Anyone adds from any device, the TV shows who added what, and movie-night votes
+// (video_votes, playlist_id 'family-picks') order the queue. Adding counts as the
+// adder's vote so a fresh pick is never at zero.
+
+const FAMILY_PICKS_PLAYLIST = 'family-picks'
+
+videosRoute.get('/family-picks', async (c) => {
+  const user = c.get('user')
+  const rows = await db.select({
+    id: familyPicks.id, userId: familyPicks.userId, source: familyPicks.source,
+    videoId: familyPicks.videoId, title: familyPicks.title, author: familyPicks.author,
+    thumbnailUrl: familyPicks.thumbnailUrl, durationSec: familyPicks.durationSec,
+    createdAt: familyPicks.createdAt, name: users.nickname, firstName: users.firstName,
+  })
+    .from(familyPicks)
+    .leftJoin(users, eq(users.id, familyPicks.userId))
+    .where(isNull(familyPicks.playedAt))
+    .orderBy(asc(familyPicks.createdAt))
+  const votes = await db.select().from(videoVotes).where(eq(videoVotes.playlistId, FAMILY_PICKS_PLAYLIST))
+  const tally = new Map<string, { count: number; mine: boolean }>()
+  for (const v of votes) {
+    const key = `${v.source}:${v.videoId}`
+    const cur = tally.get(key) ?? { count: 0, mine: false }
+    cur.count += 1
+    if (v.userId === user.id) cur.mine = true
+    tally.set(key, cur)
+  }
+  const picks = rows.map((r) => {
+    const t = tally.get(`${r.source}:${r.videoId}`) ?? { count: 0, mine: false }
+    return {
+      id: r.id, source: r.source, videoId: r.videoId, title: r.title, author: r.author,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec,
+      addedBy: r.name || r.firstName || 'Someone', mine: r.userId === user.id,
+      votes: t.count, voted: t.mine, createdAt: r.createdAt.getTime(),
+    }
+  }).sort((a, b) => b.votes - a.votes || a.createdAt - b.createdAt)
+  return c.json({ picks })
+})
+
+videosRoute.post('/family-picks', async (c) => {
+  const user = c.get('user')
+  const body = await c.req.json().catch(() => ({})) as {
+    source?: string; videoId?: string; title?: string; author?: string
+    thumbnailUrl?: string; durationSec?: number
+  }
+  const source = body.source?.trim() || 'youtube'
+  const videoId = body.videoId?.trim()
+  const title = body.title?.trim()
+  if (!videoId || !title) return c.json({ error: 'videoId and title required' }, 400)
+  await db.insert(familyPicks).values({
+    id: randomUUID(), userId: user.id, source, videoId, title: title.slice(0, 300),
+    author: body.author?.trim() || null, thumbnailUrl: body.thumbnailUrl?.trim() || null,
+    durationSec: Number.isFinite(body.durationSec) ? Math.floor(body.durationSec as number) : null,
+    createdAt: new Date(),
+  }).onConflictDoUpdate({
+    // Re-adding a played pick puts it back in the queue.
+    target: [familyPicks.source, familyPicks.videoId],
+    set: { playedAt: null },
+  })
+  // Adding is also the adder's vote.
+  await db.insert(videoVotes)
+    .values({ id: randomUUID(), userId: user.id, playlistId: FAMILY_PICKS_PLAYLIST, source, videoId, createdAt: new Date() })
+    .onConflictDoNothing()
+  return c.json({ ok: true })
+})
+
+// The adder can withdraw a pick; anyone can mark one played (it just finished on the TV).
+videosRoute.delete('/family-picks/:id', async (c) => {
+  const user = c.get('user')
+  await db.delete(familyPicks).where(and(eq(familyPicks.id, c.req.param('id')), eq(familyPicks.userId, user.id)))
+  return c.json({ ok: true })
+})
+
+videosRoute.post('/family-picks/:id/played', async (c) => {
+  await db.update(familyPicks).set({ playedAt: new Date() }).where(eq(familyPicks.id, c.req.param('id')))
+  return c.json({ ok: true })
+})
 
 videosRoute.get('/:source/moments/:id', async (c) => {
   const source = c.req.param('source')

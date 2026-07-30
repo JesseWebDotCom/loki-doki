@@ -2226,6 +2226,19 @@ export function runMigrations() {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS video_moments_video ON video_moments(source, video_id);
+    CREATE TABLE IF NOT EXISTS family_picks (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT,
+      thumbnail_url TEXT,
+      duration_sec INTEGER,
+      created_at INTEGER NOT NULL,
+      played_at INTEGER,
+      UNIQUE(source, video_id)
+    );
     CREATE TABLE IF NOT EXISTS video_votes (
       id TEXT NOT NULL PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
