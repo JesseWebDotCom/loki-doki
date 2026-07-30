@@ -204,6 +204,14 @@ export async function fetchWatchHistory(accessToken: string, limit = 60): Promis
   return collectVideosDeep(data).slice(0, limit)
 }
 
+/** The linked account's REAL YouTube home feed (what Google's recommender picked for
+ *  this user right now). Used as a seed/calibration source for our own suggestions:
+ *  Google sees signals we never will, so its picks are a strong variety prior. */
+export async function fetchHomeFeed(accessToken: string, limit = 60): Promise<TvVideo[]> {
+  const data = await tvCall('browse', accessToken, { browseId: 'FEwhat_to_watch' })
+  return collectVideosDeep(data).slice(0, limit)
+}
+
 export async function fetchSubscribedChannels(accessToken: string): Promise<TvChannel[]> {
   const channels = new Map<string, TvChannel>()
 

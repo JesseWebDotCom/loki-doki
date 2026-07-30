@@ -1614,6 +1614,19 @@ youtubeRoute.get('/filler/:videoId', async (c) => {
   return c.json({ segments: [], pending: true })
 })
 
+// The linked account's raw YouTube home feed (Google's recommender), used to
+// calibrate and seed our own suggestions. Also handy for eyeballing what Google
+// thinks this user likes.
+youtubeRoute.get('/account/home-feed', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ linked: false, videos: [] })
+  const { fetchHomeFeed } = await import('@/lib/youtube/tvClient')
+  const videos = await fetchHomeFeed(token, 60).catch(() => [])
+  return c.json({ linked: true, videos })
+})
+
 // Pop-Up Facts: VH1-style trivia bubbles timed to the video's topic sections.
 // Instant from cache; a miss kicks a background build and returns `pending`.
 youtubeRoute.get('/popup/:videoId', async (c) => {

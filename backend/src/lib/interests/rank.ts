@@ -22,6 +22,10 @@ const DEFAULT_WEIGHTS: RankWeights = { cos: 0.45, creator: 0.2, topic: 0.15, fre
 const BUCKET_PRIOR: Record<Candidate['bucket'], number> = {
   related: 0.9,
   similar: 0.9,
+  // Google's own home-feed picks for the linked account: their recommender sees
+  // signals we never will (session context, cross-device, negative feedback at
+  // scale), so its picks carry a strong prior and bring the variety users miss.
+  'yt-home': 0.9,
   'topic-search': 0.85,
   'creator-latest': 0.8,
   trending: 0.5,

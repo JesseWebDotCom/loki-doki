@@ -18,6 +18,8 @@ import {
   type ItVideo,
 } from '@/lib/youtube/innertube'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
+import { getValidAccessToken } from '@/lib/youtube/account'
+import { fetchHomeFeed } from '@/lib/youtube/tvClient'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { filterVideosForUser, filterYtItemsForUser } from '@/lib/videos/policy'
 import { getEnabledSources, getProvider } from '@/lib/videos/registry'
@@ -297,6 +299,20 @@ export async function buildVideoPool(userId: string): Promise<void> {
     collectFollowItems(userId),
   ])
 
+  // The linked account's real YouTube home feed: Google's recommender as a
+  // candidate source. Best-effort like everything else; no linked account or an
+  // expired token simply contributes nothing.
+  const homeFeed: ItVideo[] = await (async () => {
+    const token = await getValidAccessToken(userId).catch(() => null)
+    if (!token) return []
+    const feed = await fetchHomeFeed(token, 50).catch(() => [])
+    return feed.map((v) => ({
+      videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
+      channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
+      publishedText: null, views: null,
+    }))
+  })()
+
   const candidates: Candidate[] = [
     ...relatedLists.flat().map((v) => itToCandidate(v, 'related')),
     ...topicLists.flatMap(({ query, videos }) => videos.map((v) => itToCandidate(v, 'topic-search', [query]))),
@@ -311,6 +327,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     ),
     ...hubRelated,
     ...followItems,
+    ...homeFeed.map((v) => itToCandidate(v, 'yt-home')),
     ...popular.map((v) => itToCandidate(v, 'trending')),
     ...trending.map((v) => itToCandidate(v, 'trending')),
   ]

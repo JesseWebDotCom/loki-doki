@@ -40,7 +40,7 @@ export interface InterestProfile {
 
 /** Where a candidate came from — feeds a small ranking prior (a related-video or
  *  similar-title hit is a stronger lead than a generic trending item). */
-export type CandidateBucket = 'related' | 'topic-search' | 'creator-latest' | 'similar' | 'trending'
+export type CandidateBucket = 'related' | 'topic-search' | 'creator-latest' | 'similar' | 'trending' | 'yt-home'
 
 export interface Candidate {
   ref: string
