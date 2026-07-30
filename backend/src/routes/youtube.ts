@@ -2229,6 +2229,9 @@ youtubeRoute.get('/collections', async (c) => {
     videoSource: ytCollections.videoSource,
     channelThumbSub: ytSubscriptions.thumbnailUrl,
     channelThumbVid: ytVideos.channelThumb,
+    views: ytVideos.views,
+    viewCount: ytVideos.viewCount,
+    publishedAt: ytVideos.publishedAt,
   })
     .from(ytCollections)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytCollections.videoId))
@@ -2244,6 +2247,8 @@ youtubeRoute.get('/collections', async (c) => {
       durationSec: r.durationSec, thumbnailUrl: r.thumbnailUrl,
       addedAt: r.addedAt ? r.addedAt.getTime() : 0,
       videoSource: r.videoSource,
+      views: r.views ?? (r.viewCount != null ? String(r.viewCount) : null),
+      publishedAt: r.publishedAt ?? null,
     })
   }
   // Resolve missing avatars in the background so logos fill in on the next poll.
@@ -2395,6 +2400,8 @@ youtubeRoute.get('/history', async (c) => {
     channelId: ytVideos.channelId,
     durationSec: ytVideos.durationSec,
     views: ytVideos.views,
+    viewCount: ytVideos.viewCount,
+    publishedAt: ytVideos.publishedAt,
     channelThumbSub: ytSubscriptions.thumbnailUrl,
     channelThumbVid: ytVideos.channelThumb,
   })
@@ -2417,7 +2424,8 @@ youtubeRoute.get('/history', async (c) => {
     // Prefer the subscription thumb, then the avatar persisted + warmed for offline.
     channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
     durationSec: r.durationSec ?? null,
-    views: r.views ?? null,
+    views: r.views ?? (r.viewCount != null ? String(r.viewCount) : null),
+    publishedAt: r.publishedAt ?? null,
     positionSec: r.positionSec,
     completed: r.completed,
     updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,
