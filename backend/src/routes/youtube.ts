@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { eq, ne, and, or, desc, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks, plexLibrarySections } from '@/db/schema'
+import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, ytChannelCache, users, userPreferences, podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, musicOfflineStationTracks, plexLibrarySections } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { youtubeTool } from '@/tools/youtube'
 import { resolveToolConfig } from '@/lib/toolConfig'
@@ -394,13 +394,34 @@ youtubeRoute.get('/feed', async (c) => {
 
   // Join the subscription by channelId so each video carries its *channel's* avatar
   // (channelThumb) — works whether or not the row's subscriptionId was set.
-  const rows = await db.select({ video: ytVideos, channelThumb: ytSubscriptions.thumbnailUrl })
+  let rows = await db.select({ video: ytVideos, channelThumb: ytSubscriptions.thumbnailUrl })
     .from(ytVideos)
     .leftJoin(ytSubscriptions, and(eq(ytSubscriptions.externalId, ytVideos.channelId), eq(ytSubscriptions.userId, user.id)))
     .where(or(...matchConds))
     .orderBy(desc(ytVideos.publishedAt))
     .limit(limit)
     .offset(offset)
+
+  // Follow levels (youtube.follow_levels pref: {channelId: level}): a channel can
+  // stay subscribed while its feed presence is trimmed. quiet drops everything,
+  // live keeps only live items, major drops Shorts and sub-4-minute uploads.
+  try {
+    const [levelRow] = await db.select({ value: userPreferences.value }).from(userPreferences)
+      .where(and(eq(userPreferences.userId, user.id), eq(userPreferences.key, 'youtube.follow_levels')))
+      .limit(1)
+    const levels = levelRow ? JSON.parse(levelRow.value) as Record<string, string> : {}
+    if (Object.keys(levels).length) {
+      rows = rows.filter((r) => {
+        const level = levels[r.video.channelId ?? ''] ?? 'all'
+        // Live rows carry no duration in the feed, which doubles as the live proxy.
+        const isLiveish = (r.video.durationSec ?? 0) === 0
+        if (level === 'quiet') return false
+        if (level === 'live') return isLiveish
+        if (level === 'major') return (r.video.durationSec ?? 0) >= 240 || isLiveish
+        return true
+      })
+    }
+  } catch { /* malformed pref never breaks the feed */ }
 
   // Attach watch state
   const videoIds = rows.map(r => r.video.videoId)
