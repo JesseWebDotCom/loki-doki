@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowDownUp, Clapperboard, Globe, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Sparkles, Video, type LucideIcon,
+  ArrowDownUp, Clapperboard, Globe, Home, Clock, Heart, History, Download, ListVideo, Link2, MessagesSquare, Music2, Play, Popcorn, Sparkles, Video, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
@@ -107,6 +107,8 @@ export function VideosRail({ variant = 'sidebar' }: { variant?: 'sidebar' | 'dra
         className="mb-4"
       />
       <RailLink to="/videos" icon={Home} label="Home" end />
+      {/* Household-shared (not per-user), so it lives up top rather than in Your Library. */}
+      <RailLink to="/videos/family-picks" icon={Popcorn} label="Family Picks" />
       <RailLink to="/videos/clip" icon={Link2} label="Clip a Link" />
 
       {/* Which of these show up is admin-controlled (Videos → Settings → Sources). */}

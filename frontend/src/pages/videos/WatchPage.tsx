@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'reac
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   HardDriveDownload, Download, Heart, Clock, Search, Smartphone, Mic, Check,
-  ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus,
+  ThumbsUp, Pin, SquareArrowOutDownLeft, MoreHorizontal, Circle, Square, Plus, Popcorn,
 } from 'lucide-react'
 import { type LucideIcon, ExternalLink, Share2, PictureInPicture2, Sparkles, ListVideo, FileText, Bookmark, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -57,7 +57,7 @@ import {
   getSourceItem, getSourceComments, getSourceCreator, getSourceRelated, getSourceSummary, getSourceTranscript, getAutoChapters, listSaves, saveVideo, putWatchState, savedFileUrl,
   listFollows, addFollow, removeFollow, getVideoSources,
   getVideoTranscriptStatus, transcribeVideo,
-  listMoments, addMoment, removeMoment,
+  listMoments, addMoment, removeMoment, addFamilyPick,
   type HubPlayback, type HubVideoItem, type VideoSource,
 } from '@/lib/videos/api'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
@@ -808,6 +808,18 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
+  // Queue this video for the whole household (adding also casts your vote).
+  async function addToFamilyPicks() {
+    try {
+      await addFamilyPick({
+        source: 'youtube', videoId, title, author,
+        thumbnailUrl: thumbUrl(videoId, 'hq'), durationSec: meta?.durationSec ?? null,
+      })
+      toast.success('Added to Family Picks')
+      void qc.invalidateQueries({ queryKey: ['family-picks'] })
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Could not add the pick') }
+  }
+
   // Live DVR: record an in-progress stream from its start. `recording` is local UI state only,
   // the capture itself runs server-side as a durable job, so reloading this page just loses the
   // "Stop" affordance (clicking Record again harmlessly coalesces onto the same in-progress job).
@@ -869,6 +881,10 @@ function YoutubeActionRail({ videoId, title, author, channelId, channelThumb, me
           <DropdownMenuItem onClick={() => toggleCollection('watch-later', snapshot)}>
             <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
             {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void addToFamilyPicks()}
+            title="Queue it for the whole household; votes decide what plays first.">
+            <Popcorn className="size-4" /> Add to Family Picks
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => ui.openDownload(videoId, title, localKind)}>
             <Download className="size-4" /> Download
@@ -1521,6 +1537,19 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
 
   const { shareLink } = useShareLink()
 
+  // Queue this video for the whole household (adding also casts your vote).
+  async function addToFamilyPicks() {
+    if (!item) return
+    try {
+      await addFamilyPick({
+        source, videoId: id, title: item.title, author: item.creator?.name ?? null,
+        thumbnailUrl: item.thumbnailUrl ?? null, durationSec: item.durationSec ?? null,
+      })
+      toast.success('Added to Family Picks')
+      void qc.invalidateQueries({ queryKey: ['family-picks'] })
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Could not add the pick') }
+  }
+
   const { data: followsData } = useQuery({ queryKey: ['videos-follows'], queryFn: listFollows })
   const follow = followsData?.follows.find((f) => f.source === source && f.externalId.toLowerCase() === (item?.creator?.id ?? '').toLowerCase())
   const followMutation = useMutation({
@@ -1713,6 +1742,10 @@ function GenericWatch({ source, videoId: id }: { source: VideoSource; videoId: s
               <DropdownMenuItem onClick={() => toggleCollection('watch-later', collectionSnapshot())}>
                 <Clock className={cn('size-4', watchLater && 'fill-current text-[var(--yt-accent-fg)]')} />
                 {watchLater ? 'Remove from Watch Later' : 'Watch Later'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void addToFamilyPicks()}
+                title="Queue it for the whole household; votes decide what plays first.">
+                <Popcorn className="size-4" /> Add to Family Picks
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => { const a = document.createElement('a'); a.href = vstreamUrl; a.download = `${item.title || 'video'}.mp4`; document.body.appendChild(a); a.click(); a.remove() }}>
                 <Download className="size-4" /> Download

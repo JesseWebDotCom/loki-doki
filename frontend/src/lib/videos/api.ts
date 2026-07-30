@@ -425,6 +425,50 @@ export function getBlend(): Promise<{ items: HubVideoItem[]; sharedCreators: num
   return getJson('/api/videos/blend')
 }
 
+// ── Family Picks: the household's shared watch queue ─────────────────────────────
+// Anyone adds from any device; movie-night votes (playlist id 'family-picks') order
+// the queue. Adding auto-votes for the adder, so a fresh pick never sits at zero.
+
+export const FAMILY_PICKS_PLAYLIST = 'family-picks'
+
+export interface FamilyPick {
+  id: string
+  source: VideoSource
+  videoId: string
+  title: string
+  author: string | null
+  thumbnailUrl: string | null
+  durationSec: number | null
+  /** Display name of the household member who added it. */
+  addedBy: string
+  /** True when the current user added this pick (enables Withdraw). */
+  mine: boolean
+  votes: number
+  /** True when the current user has voted for this pick. */
+  voted: boolean
+  createdAt: number
+}
+
+/** Unplayed picks, sorted by votes desc then age. */
+export function listFamilyPicks(): Promise<{ picks: FamilyPick[] }> {
+  return getJson('/api/videos/family-picks')
+}
+/** Add a pick (re-adding a played one revives it). The server also casts the adder's vote. */
+export function addFamilyPick(pick: {
+  source: VideoSource | 'youtube'; videoId: string; title: string
+  author?: string | null; thumbnailUrl?: string | null; durationSec?: number | null
+}): Promise<{ ok: true }> {
+  return sendJson('/api/videos/family-picks', 'POST', pick)
+}
+/** Withdraw one of your own picks. */
+export function withdrawFamilyPick(id: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/family-picks/${encodeURIComponent(id)}`, 'DELETE')
+}
+/** Anyone can mark a pick played once it has run on the TV. */
+export function markFamilyPickPlayed(id: string): Promise<{ ok: true }> {
+  return sendJson(`/api/videos/family-picks/${encodeURIComponent(id)}/played`, 'POST', {})
+}
+
 // ── Subscription folders ─────────────────────────────────────────────────────────
 
 export interface FolderMember { source: VideoSource; externalId: string }
