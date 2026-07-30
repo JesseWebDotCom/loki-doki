@@ -28,6 +28,7 @@ import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
 import { peekFiller, kickFiller } from '@/lib/youtube/filler'
 import { peekAsk, kickAsk } from '@/lib/youtube/askVideo'
 import { peekPopupFacts, kickPopupFacts } from '@/lib/youtube/popupFacts'
+import { peekWorth, kickWorth } from '@/lib/youtube/worthIt'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1625,6 +1626,19 @@ youtubeRoute.get('/account/home-feed', async (c) => {
   const { fetchHomeFeed } = await import('@/lib/youtube/tvClient')
   const videos = await fetchHomeFeed(token, 60).catch(() => [])
   return c.json({ linked: true, videos })
+})
+
+// "Worth it?": pre-watch verdict (tl;dr, does-it-answer-the-title, real topics).
+// Instant from cache; a miss kicks a background build and returns `pending`.
+youtubeRoute.get('/worth/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const videoId = c.req.param('videoId')
+  const title = c.req.query('title')?.trim() || videoId
+  const verdict = await peekWorth(videoId)
+  if (verdict !== undefined) return c.json({ verdict })
+  kickWorth(videoId, title, user.id, await getUserFirstName(user.id))
+  return c.json({ verdict: null, pending: true })
 })
 
 // Pop-Up Facts: VH1-style trivia bubbles timed to the video's topic sections.
