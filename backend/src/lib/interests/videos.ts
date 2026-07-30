@@ -465,6 +465,31 @@ const itToVideoItem = (v: ItVideo): VideoItem => ({
 
 /** YouTube-only slice for /api/youtube/recommended (native ItVideo response shape).
  *  building=true → caller serves its legacy fallback chain. */
+/** Near-duplicate suppression: the same trailer reuploaded by two channels (same
+ *  runtime within a few seconds, near-identical titles) should serve once, not
+ *  twice (real feedback). Earlier entry wins - it ranked higher. */
+function dedupeNearDuplicates(items: ItVideo[]): ItVideo[] {
+  const normalize = (t: string) =>
+    t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 2)
+  const kept: ItVideo[] = []
+  const keptMeta: Array<{ tokens: Set<string>; dur: number }> = []
+  for (const v of items) {
+    const tokens = new Set(normalize(v.title ?? ''))
+    const dur = v.durationSec ?? -1
+    const dupe = keptMeta.some((k) => {
+      if (dur < 0 || k.dur < 0 || Math.abs(dur - k.dur) > 3) return false
+      if (!tokens.size || !k.tokens.size) return false
+      let overlap = 0
+      for (const w of tokens) if (k.tokens.has(w)) overlap++
+      return overlap / Math.min(tokens.size, k.tokens.size) >= 0.7
+    })
+    if (dupe) continue
+    kept.push(v)
+    keptMeta.push({ tokens, dur })
+  }
+  return kept
+}
+
 export async function serveYtRecommended(
   userId: string,
   target = 24,
@@ -479,7 +504,8 @@ export async function serveYtRecommended(
   if (building || !entries.length) return { videos: [], building }
 
   const byRef = new Map(entries.map((e) => [e.ref, e]))
-  const kept = await filterYtItemsForUser(userId, entries.map((e) => e.payload as ItVideo))
+  const kept = dedupeNearDuplicates(
+    await filterYtItemsForUser(userId, entries.map((e) => e.payload as ItVideo)))
   // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
   // rotation demotes the personalized picks.
   const trendingCap = Math.max(3, Math.floor(target / 3))

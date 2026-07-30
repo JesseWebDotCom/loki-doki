@@ -38,7 +38,10 @@ async function timedTranscript(
   return { lines, durationSec }
 }
 
-/** Parse `[t=123] Title` rows out of a model reply, dropping anything malformed. */
+/** Parse `[t=123] Title` rows out of a model reply, dropping anything malformed.
+ *  Same spacing/coverage rules as lib/youtube/aiChapters: chapters minutes apart
+ *  spanning the runtime, or nothing at all - a clustered list ("a chapter every
+ *  few seconds", real feedback) is worse than no chapters. */
 function parseTimedList(text: string, durationSec: number): AiChapter[] {
   const out: AiChapter[] = []
   for (const line of text.split('\n')) {
@@ -49,8 +52,19 @@ function parseTimedList(text: string, durationSec: number): AiChapter[] {
     if (!title || !Number.isFinite(start) || start < 0 || start > durationSec + 60) continue
     out.push({ start, title })
   }
-  const sorted = out.sort((a, b) => a.start - b.start)
-  return sorted.filter((c, i) => i === 0 || c.start - sorted[i - 1]!.start >= 20)
+  out.sort((a, b) => a.start - b.start)
+  // Gap check against the last KEPT chapter (the old previous-element compare let
+  // dense runs through whenever every other entry cleared the bar).
+  const minGap = Math.max(45, Math.floor(durationSec / 40))
+  const spaced: AiChapter[] = []
+  for (const c of out) {
+    const prev = spaced[spaced.length - 1]
+    if (prev && c.start - prev.start < minGap) continue
+    spaced.push(c)
+  }
+  if (spaced.length < 2) return []
+  if ((spaced[spaced.length - 1]?.start ?? 0) < durationSec * 0.33) return []
+  return spaced.slice(0, 12)
 }
 
 // ── Auto-chapters ────────────────────────────────────────────────────────────────
@@ -62,7 +76,8 @@ export async function autoChapters(opts: {
   source: string; videoId: string; title: string | null; url: string | null
   userId: string; userFirstName: string
 }): Promise<AiChapter[]> {
-  const cached = await cachedLookup(`videos:autochapters`, `${opts.source}:${opts.videoId}`, 7 * 24 * 60 * 60_000, async () => {
+  // v2 namespace: discard every week-cached list built before the spacing rules.
+  const cached = await cachedLookup(`videos:autochapters-v2`, `${opts.source}:${opts.videoId}`, 7 * 24 * 60 * 60_000, async () => {
     const t = await timedTranscript(opts.source, opts.videoId, opts.userId, opts.userFirstName, opts.url)
     if (!t) return []
     try {
