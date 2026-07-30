@@ -27,6 +27,7 @@ import { peekAiChapters, kickAiChapters } from '@/lib/youtube/aiChapters'
 import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
 import { peekFiller, kickFiller } from '@/lib/youtube/filler'
 import { peekAsk, kickAsk } from '@/lib/youtube/askVideo'
+import { peekPopupFacts, kickPopupFacts } from '@/lib/youtube/popupFacts'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
@@ -1611,6 +1612,18 @@ youtubeRoute.get('/filler/:videoId', async (c) => {
   if (segments !== undefined) return c.json({ segments: segments ?? [] })
   kickFiller(videoId, user.id, await getUserFirstName(user.id))
   return c.json({ segments: [], pending: true })
+})
+
+// Pop-Up Facts: VH1-style trivia bubbles timed to the video's topic sections.
+// Instant from cache; a miss kicks a background build and returns `pending`.
+youtubeRoute.get('/popup/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const videoId = c.req.param('videoId')
+  const facts = await peekPopupFacts(videoId)
+  if (facts !== undefined) return c.json({ facts: facts ?? [] })
+  kickPopupFacts(videoId, user.id, await getUserFirstName(user.id))
+  return c.json({ facts: [], pending: true })
 })
 
 // "Ask This Video": transcript-grounded Q&A with jump-to-moment citations.

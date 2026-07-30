@@ -185,7 +185,7 @@ async function buildAiChapters(videoId: string, userId: string, firstName: strin
   return parseChapterJson(result.message.content, lastSec)
 }
 
-interface Segment { start: number; text: string }
+export interface Segment { start: number; text: string }
 
 /** Chunk cues into ~30s blocks (grown for long videos so we embed at most ~110). */
 function blocksForEmbedding(cues: Cue[], lastSec: number): Segment[] {
@@ -206,7 +206,7 @@ function blocksForEmbedding(cues: Cue[], lastSec: number): Segment[] {
  * spacing scale with runtime, except near the edges where short intro/outro chapters
  * are legitimate (real feedback: spread out mostly, but intros and outros run short).
  */
-async function segmentByEmbeddings(cues: Cue[], lastSec: number): Promise<Segment[] | null> {
+export async function segmentByEmbeddings(cues: Cue[], lastSec: number): Promise<Segment[] | null> {
   const blocks = blocksForEmbedding(cues, lastSec)
   if (blocks.length < 8) return null
 
