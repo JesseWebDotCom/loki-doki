@@ -86,11 +86,43 @@ export async function servePool(userId: string, domain: InterestDomain, opts: Se
     .filter((e) => (opts.entryFilter?.(e) ?? true) && !opts.watchedRefs.has(e.ref) && !imps.get(e.ref)?.dismissedAt)
     .map((e) => {
       const shown = imps.get(e.ref)?.shownCount ?? 0
-      return shown > 0 ? { ...e, score: e.score / (1 + 0.5 * shown) } : e
+      const discounted = shown > 0 ? e.score / (1 + 0.5 * shown) : e.score
+      // Dithering (Dunning): a little log-normal noise per serve so consecutive
+      // refreshes rotate the mid-ranks instead of repeating the same page.
+      const dithered = discounted * Math.exp(gaussian() * 0.25)
+      return { ...e, score: dithered }
     })
     .sort((a, b) => b.score - a.score)
 
-  return { entries: capPerCreator(scored, opts.maxPerCreator ?? 2).slice(0, opts.limit), building: false }
+  const capped = capPerCreator(scored, opts.maxPerCreator ?? 2)
+  let slice = capped.slice(0, opts.limit)
+
+  // Exploration slots (the fresh-content funnel, scaled down): guarantee a few
+  // never-shown items per page so cold candidates can earn their first signal
+  // instead of losing to incumbents forever.
+  const wantUnseen = Math.max(1, Math.floor(opts.limit / 8))
+  const unseenIn = slice.filter((e) => (imps.get(e.ref)?.shownCount ?? 0) === 0).length
+  if (unseenIn < wantUnseen) {
+    const poolUnseen = capped.slice(opts.limit).filter((e) => (imps.get(e.ref)?.shownCount ?? 0) === 0)
+    const need = Math.min(wantUnseen - unseenIn, poolUnseen.length)
+    if (need > 0) {
+      // Swap the lowest-scored seen items for the best unseen ones.
+      const keep = slice.filter((e) => (imps.get(e.ref)?.shownCount ?? 0) === 0)
+      const seen = slice.filter((e) => (imps.get(e.ref)?.shownCount ?? 0) > 0)
+      slice = [...keep, ...seen.slice(0, Math.max(0, seen.length - need)), ...poolUnseen.slice(0, need)]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, opts.limit)
+    }
+  }
+
+  return { entries: slice, building: false }
+}
+
+/** Box-Muller standard normal — good enough for serve-time dithering. */
+function gaussian(): number {
+  const u = Math.max(Number.EPSILON, Math.random())
+  const v = Math.random()
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
 }
 
 /** Record the slice a rail actually returned (call AFTER policy filtering + final slice). */

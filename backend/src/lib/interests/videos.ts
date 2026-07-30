@@ -37,8 +37,16 @@ const WINDOW_MS = 365 * 24 * 60 * 60 * 1000
 const HUB_SOURCES: GenericVideoSource[] = ['reddit', 'tiktok', 'vimeo']
 
 const ytRef = (videoId: string) => `youtube:${videoId}`
-const clampEngagement = (completed: boolean, pos: number, dur: number | null) =>
-  completed ? 1 : dur && dur > 0 ? Math.min(1, Math.max(0.05, pos / dur)) : 0.3
+// Watch SECONDS, not just completion fraction, shape the signal (YouTube's
+// weighted-by-watch-time insight): finishing a 45-minute video says far more
+// about taste than finishing a 40-second short. Capped at 30 minutes so one
+// movie can't dominate; floor of 0.5 keeps shorts as real (weaker) signals.
+const clampEngagement = (completed: boolean, pos: number, dur: number | null) => {
+  const frac = completed ? 1 : dur && dur > 0 ? Math.min(1, Math.max(0.05, pos / dur)) : 0.3
+  const watchSec = completed ? Math.min(dur ?? 600, 1800) : Math.min(pos, 1800)
+  const timeFactor = 0.5 + 0.5 * Math.sqrt(watchSec / 1800)
+  return frac * timeFactor
+}
 
 // Daily shows title their episodes with dates, and the topic extractor dutifully turns
 // "The View Full Broadcast, July 10 2026" into the topic "July 10, 2026" — which, as a
