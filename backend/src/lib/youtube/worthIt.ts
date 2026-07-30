@@ -16,7 +16,9 @@ export interface WorthVerdict {
   keyTopics: string[]
 }
 
-const NAMESPACE = 'yt-worth'
+// v2: v1 rejected any answersTitle not literally starting "Yes:" (models write
+// "Yes -", "Yes,", or a bare "No"); the parser now normalizes the grade.
+const NAMESPACE = 'yt-worth-v2'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 
 const WORTH_SYSTEM =
@@ -62,13 +64,29 @@ async function buildVerdict(videoId: string, title: string, userId: string, firs
     { role: 'user', content: `Title: ${title}\n\nTranscript:\n${text}` },
   ], undefined, { temperature: 0.2, num_predict: 350 })
 
-  const m = result.message.content.match(/\{[\s\S]*\}/)
-  if (!m) return null
+  const raw = result.message.content
+  const m = raw.match(/\{[\s\S]*\}/)
+  if (!m) {
+    logger.warn({ videoId, raw: raw.slice(0, 200) }, 'yt worth-it: no JSON in reply')
+    return null
+  }
   let parsed: any
-  try { parsed = JSON.parse(m[0]) } catch { return null }
+  try { parsed = JSON.parse(m[0]) } catch {
+    logger.warn({ videoId, raw: m[0].slice(0, 200) }, 'yt worth-it: malformed JSON')
+    return null
+  }
   const tldr = String(parsed?.tldr ?? '').trim()
-  const answers = String(parsed?.answersTitle ?? '').trim()
-  if (tldr.length < 20 || !/^(yes|partly|no):/i.test(answers)) return null
+  const answersRaw = String(parsed?.answersTitle ?? '').trim()
+  // Normalize the grade: models write "Yes:", "Yes -", "Yes," or a bare "yes".
+  const gm = answersRaw.match(/^["']?(yes|partly|partially|no)\b[\s:,.-]*(.*)$/i)
+  if (tldr.length < 20 || !gm) {
+    logger.warn({ videoId, tldr: tldr.slice(0, 80), answers: answersRaw.slice(0, 80) },
+      'yt worth-it: verdict failed validation')
+    return null
+  }
+  const gradeWord = gm[1]!.toLowerCase() === 'partially' ? 'Partly'
+    : gm[1]![0]!.toUpperCase() + gm[1]!.slice(1).toLowerCase()
+  const answers = gm[2] ? `${gradeWord}: ${gm[2]}` : `${gradeWord}: it does what the title says.`
   const topics = Array.isArray(parsed?.keyTopics)
     ? parsed.keyTopics.map((t: unknown) => String(t).trim()).filter((t: string) => t.length > 1).slice(0, 6)
     : []
