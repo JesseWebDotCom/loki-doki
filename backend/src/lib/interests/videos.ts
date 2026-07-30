@@ -30,7 +30,10 @@ import { EMPTY_POOL_TTL_MS, recordServed, savePool, servePool } from './pool'
 import type { Candidate, InterestSignal, RankedCandidate } from './types'
 
 const DOMAIN = 'videos' as const
-const WINDOW_MS = 90 * 24 * 60 * 60 * 1000
+// A full year of taste, not a quarter: interests from months back (that lego
+// phase, the anime arc) still deserve fresh suggestions alongside last week's
+// trailers. Era-bucketed seeding below keeps recency from dominating.
+const WINDOW_MS = 365 * 24 * 60 * 60 * 1000
 const HUB_SOURCES: GenericVideoSource[] = ['reddit', 'tiktok', 'vimeo']
 
 const ytRef = (videoId: string) => `youtube:${videoId}`
@@ -93,7 +96,7 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
     .innerJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
     .where(and(eq(ytWatchState.userId, userId), eq(ytWatchState.origin, 'youtube'), gt(ytWatchState.updatedAt, cutoff)))
     .orderBy(desc(ytWatchState.updatedAt))
-    .limit(300)
+    .limit(600)
 
   // Hub-source plays (reddit/tiktok/vimeo), metadata from video_items.
   const hub = await db
@@ -185,16 +188,31 @@ const hubToCandidate = (v: VideoItem, bucket: Candidate['bucket']): Candidate =>
   payload: v,
 })
 
-/** Pick seeds across the recency window, not just the newest few: split the (already
- *  newest-first) signals into three tertiles and take the most-engaged from each, so a
- *  month-old interest still seeds the related fan-out. */
-function stratifiedSeeds(ytSignals: InterestSignal[], perTertile: number, cap: number): string[] {
+/** Pick seeds across ERAS of watch history rather than tertiles of a recency-sorted
+ *  list (tertiles of a mostly-recent list are still mostly recent). Buckets: this
+ *  week, this month, this quarter, and the rest of the year. Every era that has
+ *  watches contributes its most-engaged seeds, so months-old interests keep
+ *  earning fresh, similar-but-newer suggestions next to yesterday's watches. */
+function stratifiedSeeds(ytSignals: InterestSignal[], perEra: number, cap: number): string[] {
+  const now = Date.now()
+  const day = 24 * 60 * 60 * 1000
+  const weekAgo = now - 7 * day
+  const monthAgo = now - 30 * day
+  const quarterAgo = now - 90 * day
+  const buckets: [InterestSignal[], InterestSignal[], InterestSignal[], InterestSignal[]] = [[], [], [], []]
+  for (const s of ytSignals) {
+    const idx = s.at >= weekAgo ? 0 : s.at >= monthAgo ? 1 : s.at >= quarterAgo ? 2 : 3
+    buckets[idx].push(s)
+  }
   const seeds: string[] = []
-  const third = Math.ceil(ytSignals.length / 3) || 1
-  for (let t = 0; t < 3; t++) {
-    const slice = ytSignals.slice(t * third, (t + 1) * third)
-    slice.sort((a, b) => b.engagement - a.engagement)
-    for (const s of slice.slice(0, perTertile)) seeds.push(s.ref.slice('youtube:'.length))
+  // Round-robin across eras (newest era first within each round) so the cap
+  // never squeezes out the older buckets.
+  const sorted = buckets.map((b) => [...b].sort((a, z) => z.engagement - a.engagement))
+  for (let round = 0; round < perEra; round++) {
+    for (const bucket of sorted) {
+      const s = bucket[round]
+      if (s) seeds.push(s.ref.slice('youtube:'.length))
+    }
   }
   return [...new Set(seeds)].slice(0, cap)
 }
@@ -239,7 +257,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
   )
 
   // Fan-out, all best-effort: a failing source degrades its bucket, never the build.
-  const seeds = stratifiedSeeds(ytSignals, 3, 8)
+  const seeds = stratifiedSeeds(ytSignals, 3, 12)
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
