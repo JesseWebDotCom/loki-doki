@@ -345,10 +345,33 @@ export async function getComments(videoId: string, limit = 20): Promise<YtCommen
 
 export interface YtChapter { start: number; title: string }
 
-export async function getChapters(videoId: string): Promise<YtChapter[]> {
+/** Full /chapters response: `ai` marks AI-built chapters (from the caption track), and
+ *  `aiPending` means a background build was kicked, so a refetch ~30-90s later may
+ *  return chapters for a video that had none. */
+export interface YtChaptersResult { chapters: YtChapter[]; ai?: boolean; aiPending?: boolean }
+
+export async function getChaptersWithStatus(videoId: string): Promise<YtChaptersResult> {
   const r = await fetch(`/api/youtube/chapters/${videoId}`, opts)
-  if (!r.ok) return []
-  return (await r.json() as { chapters: YtChapter[] }).chapters ?? []
+  if (!r.ok) return { chapters: [] }
+  const data = await r.json() as YtChaptersResult
+  return { chapters: data.chapters ?? [], ai: data.ai, aiPending: data.aiPending }
+}
+
+export async function getChapters(videoId: string): Promise<YtChapter[]> {
+  return (await getChaptersWithStatus(videoId)).chapters
+}
+
+// ── "Previously..." resume recap ──────────────────────────────────────────────────
+
+/** Recap of everything before `atSec` (the server returns null under 5 minutes in).
+ *  `pending` means a background build was kicked; poll again a few seconds later. */
+export interface YtRecap { recap: string | null; pending?: boolean }
+
+export async function getRecap(videoId: string, atSec: number): Promise<YtRecap> {
+  const r = await fetch(`/api/youtube/recap/${videoId}?atSec=${Math.floor(atSec)}`, opts)
+  if (!r.ok) return { recap: null }
+  const data = await r.json() as YtRecap
+  return { recap: data.recap ?? null, pending: data.pending }
 }
 
 /** One "most replayed" heat marker: rewatch intensity (0-1) over a time slice. */

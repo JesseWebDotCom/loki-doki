@@ -38,7 +38,7 @@ import { AddToPlaylistPill } from '@/components/youtube/AddToPlaylistButton'
 import { useYtFeed, useSavedState } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getRelatedSearches, getSponsorSegments,
-  getComments, getChapters, getHeatmap, getVotes, addSubscription, deleteSubscription,
+  getComments, getChaptersWithStatus, getHeatmap, getVotes, addSubscription, deleteSubscription,
   startLiveRecord, stopLiveRecord, saveOffline, ytImageProxy, prewarmStream,
   type VideoMeta, type VideoVotes, type StreamQuality,
 } from '@/lib/youtube/api'
@@ -79,6 +79,7 @@ import { useVideoViewFlags } from '@/lib/videos/useVideoViewFlags'
 import { AskVideoPanel } from '@/components/videos/AskVideoPanel'
 import { MomentsPanel } from '@/components/shared/MomentsPanel'
 import { CatchMeUpCard } from '@/components/videos/CatchMeUpCard'
+import { ResumeRecapOverlay } from '@/components/youtube/ResumeRecapOverlay'
 import { useVideoGestures, gestureIndicatorText } from '@/hooks/use-video-gestures'
 
 /** A feed/related item → a mini-player queue entry. */
@@ -426,15 +427,27 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
   // parse). When that turns up nothing, fall back to YouTube's authoritative chapter list
   // (creator-set or auto) via InnerTube, only fetched in that case, so it's cheap.
   const descChapters = useMemo(() => parseChapters(meta?.description), [meta?.description])
-  const { data: itChapters = [], isFetched: itChaptersDone } = useQuery({
+  const { data: itChapterData, isFetched: itChaptersDone, refetch: refetchChapters } = useQuery({
     queryKey: ['yt-chapters', videoId],
-    queryFn: () => getChapters(videoId),
+    queryFn: () => getChaptersWithStatus(videoId),
     enabled: online && !!videoId && !!meta && descChapters.length === 0,
   })
+  const itChapters = itChapterData?.chapters ?? []
+  // Chapterless videos: the server kicks a background AI-chapter build on first sight
+  // and flags aiPending. Refetch a couple of times so the chapters slide onto the
+  // scrubber mid-watch once the build lands (~30-90s).
+  const aiChaptersPending = descChapters.length === 0 && itChapters.length === 0 && !!itChapterData?.aiPending
+  useEffect(() => {
+    if (!aiChaptersPending) return
+    const t1 = setTimeout(() => { void refetchChapters() }, 45_000)
+    const t2 = setTimeout(() => { void refetchChapters() }, 120_000)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [aiChaptersPending, videoId, refetchChapters])
   // Last resort: derive chapters from the transcript with the local model, only for
   // videos that genuinely have none. Commodity elsewhere (Panopto, Kaltura, Mux) and
-  // week-cached server-side, so this costs one pass per video, ever.
-  const noRealChapters = descChapters.length === 0 && itChaptersDone && itChapters.length === 0
+  // week-cached server-side, so this costs one pass per video, ever. Skipped while the
+  // /chapters endpoint's own AI build is pending, so the LLM never runs twice.
+  const noRealChapters = descChapters.length === 0 && itChaptersDone && itChapters.length === 0 && !aiChaptersPending
   const { data: aiChapterData } = useQuery({
     queryKey: ['yt-auto-chapters', videoId],
     queryFn: () => getAutoChapters('youtube', videoId),
@@ -538,6 +551,11 @@ function YoutubeWatch({ videoId }: { videoId: string }) {
               onPlaying={(p) => { playingRef.current = p; if (p && countdown) setCountdown(null) }}
               videoMeta={videoMeta}
             />
+            {/* Resuming 5+ minutes in: a transient "Previously..." reminder over the
+                top-left of the picture, so re-entry doesn't need the description panel. */}
+            {online && resumeSec >= 300 && (
+              <ResumeRecapOverlay key={videoId} videoId={videoId} atSec={resumeSec} />
+            )}
             {countdown && countdownNext && (
               <AutoplayCountdown
                 nextItem={countdownNext} secondsLeft={countdown.secondsLeft} total={countdown.total}
