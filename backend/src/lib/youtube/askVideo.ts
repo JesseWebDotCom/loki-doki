@@ -21,6 +21,8 @@ const MISS_TTL_MS = 10 * 60 * 1000
 
 const ASK_SYSTEM =
   'You answer a viewer\'s question about a video using ONLY its timestamped transcript. ' +
+  'Transcript lines are stamped [minutes:seconds]; cite moments in TOTAL SECONDS (a line ' +
+  'stamped [12:30] is t 750). ' +
   'Respond with ONLY a JSON object, no prose outside it, no code fences: {"answer": "<2-4 ' +
   'sentence answer in plain language>", "moments": [{"t": <seconds>, "label": "<2-5 word ' +
   'description>"}]}. Include 1 to 4 moments pointing at the transcript timestamps that ' +

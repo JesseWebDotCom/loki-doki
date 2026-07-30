@@ -13,19 +13,24 @@ import { logger } from '@/lib/logger'
 
 export interface AiChapter { start: number; title: string }
 
-const NAMESPACE = 'yt-ai-chapters'
+// v2: v1 accepted clustered timestamps (models echoing minute numbers as seconds
+// produced a chapter every few seconds - real feedback). Bumping the namespace
+// throws away every cached v1 list.
+const NAMESPACE = 'yt-ai-chapters-v2'
 // A negative result (no captions, LLM garbage) retries sooner than a good one: captions
 // often appear hours after upload, and a flaky model run should not blank a video for a month.
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 
 const CHAPTERS_SYSTEM =
-  'You segment a video into chapters from its timestamped transcript. Respond with ONLY a JSON ' +
-  'array, no prose, no code fences: [{"t": <start seconds as integer>, "title": "<2-6 word ' +
-  'title>"}, ...]. Rules: 4 to 12 chapters covering the whole video; the first chapter starts at ' +
-  't 0; timestamps strictly ascending and taken from the transcript timestamps; titles are plain, ' +
-  'specific, sentence case, in English, and never clickbait; a chapter marks a genuine topic ' +
-  'shift, not every paragraph. The transcript may be auto-generated and messy; segment whatever ' +
-  'is present.'
+  'You segment a video into chapters from its timestamped transcript. Transcript lines are ' +
+  'stamped [minutes:seconds]. Respond with ONLY a JSON array, no prose, no code fences: ' +
+  '[{"t": <start in TOTAL SECONDS as integer>, "title": "<2-6 word title>"}, ...]. Convert ' +
+  'stamps to total seconds: a line stamped [12:30] starts at t 750, never t 12. Rules: 4 to ' +
+  '10 chapters covering the whole runtime, so consecutive chapters are normally MINUTES apart, ' +
+  'never seconds apart; the first chapter starts at t 0; timestamps strictly ascending; titles ' +
+  'are plain, specific, sentence case, in English, and never clickbait; a chapter marks a ' +
+  'genuine topic shift, not every paragraph. The transcript may be auto-generated and messy; ' +
+  'segment whatever is present.'
 
 export interface Cue { start: number; text: string }
 
@@ -80,13 +85,13 @@ export function timedDigest(cues: Cue[], budget = 13_000): string {
   return lines.join('\n').slice(0, budget)
 }
 
-function parseChapterJson(raw: string): AiChapter[] | null {
+function parseChapterJson(raw: string, runtimeSec: number): AiChapter[] | null {
   const m = raw.match(/\[[\s\S]*\]/)
   if (!m) return null
   let parsed: unknown
   try { parsed = JSON.parse(m[0]) } catch { return null }
   if (!Array.isArray(parsed)) return null
-  const out: AiChapter[] = []
+  let out: AiChapter[] = []
   for (const item of parsed) {
     const t = Number((item as any)?.t ?? (item as any)?.start)
     const title = String((item as any)?.title ?? '').trim()
@@ -94,10 +99,31 @@ function parseChapterJson(raw: string): AiChapter[] | null {
     out.push({ start: Math.round(t), title: title.slice(0, 80) })
   }
   out.sort((a, b) => a.start - b.start)
-  const deduped = out.filter((c, i) => i === 0 || c.start > out[i - 1]!.start)
-  if (deduped.length < 3) return null
-  if (deduped[0]!.start > 0) deduped[0] = { ...deduped[0]!, start: 0 }
-  return deduped.slice(0, 14)
+
+  // Wrong-units rescue: small models sometimes echo the [m:ss] minute as the
+  // seconds value, cramming every chapter into the first sliver of the runtime
+  // ("a chapter every few seconds" - real feedback). If the whole list fits in
+  // a tiny fraction of the video but scales cleanly by 60, it was minutes.
+  const last = out[out.length - 1]?.start ?? 0
+  if (out.length >= 3 && last > 0 && last < runtimeSec * 0.15 && last * 60 <= runtimeSec + 120) {
+    out = out.map((c) => ({ ...c, start: c.start * 60 }))
+  }
+
+  // A chapter list is only useful when it spans the video with real spacing:
+  // enforce a minimum gap (chapters are minutes apart, not paragraphs) and
+  // require coverage of at least a third of the runtime.
+  const minGap = Math.max(45, Math.floor(runtimeSec / 40))
+  const spaced: AiChapter[] = []
+  for (const c of out) {
+    const prev = spaced[spaced.length - 1]
+    if (prev && c.start - prev.start < minGap) continue
+    if (c.start > runtimeSec + 60) continue
+    spaced.push(c)
+  }
+  if (spaced.length < 3) return null
+  if ((spaced[spaced.length - 1]?.start ?? 0) < runtimeSec * 0.33) return null
+  if (spaced[0]!.start > 0) spaced[0] = { ...spaced[0]!, start: 0 }
+  return spaced.slice(0, 12)
 }
 
 const _inFlight = new Set<string>()
@@ -143,8 +169,5 @@ async function buildAiChapters(videoId: string, userId: string, firstName: strin
     { role: 'system', content: CHAPTERS_SYSTEM },
     { role: 'user', content: digest },
   ], undefined, { temperature: 0.2, num_predict: 500 })
-  const chapters = parseChapterJson(result.message.content)
-  // Sanity: a chapter list that overshoots the runtime came from hallucinated timestamps.
-  if (chapters && chapters[chapters.length - 1]!.start > lastSec + 60) return null
-  return chapters
+  return parseChapterJson(result.message.content, lastSec)
 }

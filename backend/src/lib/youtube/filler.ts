@@ -18,7 +18,9 @@ const NAMESPACE = 'yt-filler'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 
 const FILLER_SYSTEM =
-  'You find skippable filler in a video from its timestamped transcript. Respond with ONLY a ' +
+  'You find skippable filler in a video from its timestamped transcript. Transcript lines are ' +
+  'stamped [minutes:seconds]; convert to TOTAL SECONDS (a line stamped [12:30] is at 750). ' +
+  'Respond with ONLY a ' +
   'JSON array, no prose, no code fences: [{"s": <start seconds>, "e": <end seconds>, "label": ' +
   '"<2-4 word reason>"}, ...]. Filler means content a viewer loses nothing by skipping: ' +
   'drawn-out greetings and channel housekeeping, "before we start" tangents, restating the ' +
