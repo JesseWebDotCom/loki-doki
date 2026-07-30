@@ -291,7 +291,9 @@ async function titleSegments(segments: Segment[], lastSec: number): Promise<AiCh
   if (m) {
     try {
       const parsed = JSON.parse(m[0])
-      if (Array.isArray(parsed)) titles = parsed.map((t) => String(t).trim().slice(0, 80))
+      // Models sneak "Chapter 3:" prefixes in despite instructions; strip them.
+      if (Array.isArray(parsed)) titles = parsed.map((t) =>
+        String(t).trim().replace(/^(?:chapter|part|section)\s*\d+\s*[:.-]\s*/i, '').slice(0, 80))
     } catch { /* fall through to generic titles */ }
   }
   return segments.map((s, i) => ({
