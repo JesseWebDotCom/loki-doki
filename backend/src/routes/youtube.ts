@@ -1443,12 +1443,12 @@ youtubeRoute.post('/digest', async (c) => {
 // "Popular" = most-watched (Invidious /popular, reliable). "Trending" = YouTube trending
 // tab (Piped, thinner/flakier — may be empty, in which case the UI hides the shelf).
 youtubeRoute.get('/popular', async (c) => {
-  const limit = Math.min(50, parseInt(c.req.query('limit') ?? '30', 10))
+  const limit = Math.min(600, parseInt(c.req.query('limit') ?? '30', 10))
   return c.json({ videos: await filterYtItemsForUser(c.get('user').id, await fetchPopular(limit)) })
 })
 
 youtubeRoute.get('/trending', async (c) => {
-  const limit = Math.min(50, parseInt(c.req.query('limit') ?? '30', 10))
+  const limit = Math.min(600, parseInt(c.req.query('limit') ?? '30', 10))
   return c.json({ videos: await filterYtItemsForUser(c.get('user').id, await fetchTrending(limit)) })
 })
 

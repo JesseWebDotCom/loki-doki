@@ -13,7 +13,7 @@
 
 import { logger } from '@/lib/logger'
 import { decodeEntities } from '@/lib/htmlText'
-import { innertubeChannelAvatar, tryInnertube, type ItVideo } from './innertube'
+import { innertubeChannelAvatar, innertubeRelated, tryInnertube, type ItVideo } from './innertube'
 
 // A browser-like UA is required — most Invidious instances serve a Cloudflare/bot
 // challenge (HTML, not JSON) to non-browser agents.
@@ -177,38 +177,75 @@ async function invidiousTrending(): Promise<ItVideo[]> {
   return []
 }
 
+// ── Bottomless discovery ────────────────────────────────────────────────────────
+// Neither upstream pages: Piped /trending is one fixed page (~50) and Invidious
+// /popular ~150. Past the scrape, the cached feed extends itself with related
+// fan-out seeded from its own tail — shared globally (per-user policy filtering
+// happens in the routes), bounded per request, discarded whenever the scrape
+// refreshes.
+const DISCOVERY_DEEP_MAX = 600
+
+async function extendDiscoveryFeed(cache: { videos: ItVideo[] }, want: number): Promise<void> {
+  const target = Math.min(want, DISCOVERY_DEEP_MAX)
+  const before = cache.videos.length
+  const seen = new Set(cache.videos.map((v) => v.videoId))
+  let rounds = 0
+  while (cache.videos.length < target && rounds < 3) {
+    rounds++
+    const seeds = cache.videos.slice(-5).map((v) => v.videoId)
+    if (!seeds.length) break
+    const batches = await Promise.all(seeds.map((id) =>
+      tryInnertube('discovery-deep', () => innertubeRelated(id, 20), [] as ItVideo[])))
+    const fresh = batches.flat().filter((v) => !seen.has(v.videoId))
+    if (!fresh.length) break
+    for (const v of fresh) {
+      if (seen.has(v.videoId)) continue
+      seen.add(v.videoId)
+      cache.videos.push(v)
+      if (cache.videos.length >= target) break
+    }
+  }
+  if (cache.videos.length > before) await enrichChannelThumbs(cache.videos.slice(before))
+}
+
 /** "Popular right now" — the most-watched videos (Invidious /popular, ~150 items). The
  *  reliable discovery shelf. Best-effort, cached, never throws; falls back to trending
- *  sources, then a stale cache. */
+ *  sources, then a stale cache. Asks past the scrape extend it (bottomless). */
 export async function fetchPopular(limit = 40): Promise<ItVideo[]> {
-  if (popularCache && Date.now() - popularCache.at < TTL_MS) return popularCache.videos.slice(0, limit)
-  const videos = (await invidiousPopular()) || []
-  const out = videos.length ? videos : await pipedTrending()
-  if (out.length) {
-    // Invidious /popular has no channel thumbnails — backfill the ones we'll show.
-    // Mutates the shared objects, so the cache keeps the resolved avatars.
-    await enrichChannelThumbs(out.slice(0, 48))
-    popularCache = { at: Date.now(), videos: out }
-    return out.slice(0, limit)
+  if (!popularCache || Date.now() - popularCache.at >= TTL_MS) {
+    const videos = (await invidiousPopular()) || []
+    const out = videos.length ? videos : await pipedTrending()
+    if (out.length) {
+      // Invidious /popular has no channel thumbnails — backfill the ones we'll show.
+      // Mutates the shared objects, so the cache keeps the resolved avatars.
+      await enrichChannelThumbs(out.slice(0, 48))
+      popularCache = { at: Date.now(), videos: out }
+    } else {
+      logger.warn('[youtube/discovery] popular sources unavailable')
+    }
   }
-  logger.warn('[youtube/discovery] popular sources unavailable')
-  return popularCache?.videos.slice(0, limit) ?? []
+  if (!popularCache) return []
+  if (limit > popularCache.videos.length) await extendDiscoveryFeed(popularCache, limit)
+  return popularCache.videos.slice(0, limit)
 }
 
 /** "Trending" — YouTube's trending tab, sourced from Piped /trending (Invidious mostly
  *  disables it). Thinner and flakier than Popular, so callers should treat an empty list
- *  as "hide the shelf". Best-effort, cached, never throws. */
+ *  as "hide the shelf". Best-effort, cached, never throws. Asks past the scrape extend
+ *  it (bottomless). */
 export async function fetchTrending(limit = 40): Promise<ItVideo[]> {
-  if (trendingCache && Date.now() - trendingCache.at < TTL_MS) return trendingCache.videos.slice(0, limit)
-  const videos = await pipedTrending()
-  const out = videos.length ? videos : await invidiousTrending()
-  if (out.length) {
-    // Piped omits avatars for some uploaders and the Invidious fallback has none at all,
-    // so backfill the ones we'll show via InnerTube — same as Popular. Mutates the shared
-    // objects, so the cache keeps the resolved avatars.
-    await enrichChannelThumbs(out.slice(0, 48))
-    trendingCache = { at: Date.now(), videos: out }
-    return out.slice(0, limit)
+  if (!trendingCache || Date.now() - trendingCache.at >= TTL_MS) {
+    const videos = await pipedTrending()
+    const out = videos.length ? videos : await invidiousTrending()
+    if (out.length) {
+      // Piped omits avatars for some uploaders and the Invidious fallback has none at all,
+      // so backfill the ones we'll show via InnerTube — same as Popular. Mutates the shared
+      // objects, so the cache keeps the resolved avatars.
+      await enrichChannelThumbs(out.slice(0, 48))
+      trendingCache = { at: Date.now(), videos: out }
+    }
   }
-  return trendingCache?.videos.slice(0, limit) ?? []
+  if (!trendingCache) return []
+  if (limit > trendingCache.videos.length) await extendDiscoveryFeed(trendingCache, limit)
+  return trendingCache.videos.slice(0, limit)
 }
