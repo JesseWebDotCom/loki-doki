@@ -1743,7 +1743,10 @@ youtubeRoute.get('/recommended', async (c) => {
   // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
   if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ videos: [], building: false })
 
-  const suggested = await serveYtRecommended(user.id, 24)
+  // Endless scroll on the TV's Suggested page grows the ask; the pool holds
+  // ~150 ranked candidates, so deeper pages keep serving real picks.
+  const limit = Math.min(120, Math.max(1, parseInt(c.req.query('limit') ?? '24', 10) || 24))
+  const suggested = await serveYtRecommended(user.id, limit)
   if (!suggested.building && suggested.videos.length) {
     return c.json({ videos: suggested.videos, seeded: true, building: false })
   }
