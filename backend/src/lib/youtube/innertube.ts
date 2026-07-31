@@ -221,12 +221,16 @@ function parseLockupVideo(r: any): ItVideo | null {
   let channelId: string | null = null
   collectBrowseId(r, id => { if (!channelId && id.startsWith('UC')) channelId = id })
 
+  // Watch-next lockups carry the channel avatar; channel-page grids omit it.
+  const avatarSources: any[] =
+    lm?.image?.decoratedAvatarViewModel?.avatar?.avatarViewModel?.image?.sources ?? []
+
   return {
     videoId,
     title,
     author,
     channelId,
-    channelThumb: null,
+    channelThumb: fixProtoRelative(avatarSources.length ? avatarSources[avatarSources.length - 1]?.url : null),
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
     durationSec,
     publishedText: published,
@@ -717,12 +721,20 @@ export async function innertubeRelated(videoId: string, limit = 20, timeout = 80
   const data = await call('next', { videoId }, timeout, safe)
   const results = data?.contents?.twoColumnWatchNextResults?.secondaryResults?.secondaryResults?.results ?? data
   const out: ItVideo[] = []
+  const seen = new Set<string>([videoId])
+  const push = (v: ItVideo | null) => {
+    if (v && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v) }
+  }
   const raw: any[] = []
   collect(results, 'compactVideoRenderer', raw, limit * 2)
-  const seen = new Set<string>([videoId])
-  for (const r of raw) {
-    const v = parseVideoRenderer(r)
-    if (v && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v); if (out.length >= limit) break }
+  for (const r of raw) { if (out.length >= limit) break; push(parseVideoRenderer(r)) }
+  // 2026 watch-next: the rail migrated to lockupViewModel and the compact
+  // renderers vanished — without this the whole related surface (up next,
+  // deep feeds, interest fan-out) silently returns empty.
+  if (out.length < limit) {
+    const lockups: any[] = []
+    collect(results, 'lockupViewModel', lockups, limit * 2)
+    for (const r of lockups) { if (out.length >= limit) break; push(parseLockupVideo(r)) }
   }
   return out
 }
