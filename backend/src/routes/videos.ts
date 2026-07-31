@@ -1199,7 +1199,8 @@ videosRoute.get('/blend', async (c) => {
     .map((r) => ({
       source: r.source as VideoSource, id: r.externalId, url: '', title: r.title,
       creator: r.creatorId ? { id: r.creatorId, name: r.creatorName ?? '' } : null,
-      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, isAdult: r.isAdult ?? false,
+      thumbnailUrl: r.thumbnailUrl, durationSec: r.durationSec, viewsText: r.viewsText ?? null,
+      isAdult: r.isAdult ?? false,
       publishedAt: r.publishedAt ? r.publishedAt.getTime() : null,
     }))
   const allowed = await filterVideosForUser(user.id, items)

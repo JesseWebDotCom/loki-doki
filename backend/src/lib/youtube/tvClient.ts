@@ -12,6 +12,7 @@
 
 import { logger } from '@/lib/logger'
 import { decodeEntities } from '@/lib/htmlText'
+import { statsFromMetadataRows } from '@/lib/youtube/innertube'
 
 const BASE = 'https://www.youtube.com/youtubei/v1'
 const TV_CLIENT = { clientName: 'TVHTML5', clientVersion: '7.20260311.12.00', hl: 'en', gl: 'US' }
@@ -266,6 +267,8 @@ export interface TvVideo {
   author: string | null
   channelId: string | null
   durationSec: number | null
+  views: string | null
+  publishedText: string | null
 }
 
 function collectVideosDeep(data: any): TvVideo[] {
@@ -287,6 +290,8 @@ function collectVideosDeep(data: any): TvVideo[] {
         author: byline?.text ? decodeEntities(byline.text) : null,
         channelId: byline?.navigationEndpoint?.browseEndpoint?.browseId ?? null,
         durationSec: Number.isFinite(lengthSeconds) ? lengthSeconds : parseClock(textOf(r?.lengthText)),
+        views: textOf(r?.viewCountText ?? r?.shortViewCountText) || null,
+        publishedText: textOf(r?.publishedTimeText) || null,
       })
     }
   }
@@ -309,6 +314,8 @@ function collectVideosDeep(data: any): TvVideo[] {
       author: textOf(firstLine) || null,
       channelId: firstBrowseId(t, 'UC'),
       durationSec: null,
+      views: null,
+      publishedText: null,
     })
   }
 
@@ -323,12 +330,15 @@ function collectVideosDeep(data: any): TvVideo[] {
     const title = lm?.title?.content
     if (typeof title !== 'string' || !title) continue
     const rows: any[] = lm?.metadata?.contentMetadataViewModel?.metadataRows ?? []
+    const stats = statsFromMetadataRows(rows)
     out.set(videoId, {
       videoId,
       title,
       author: rows[0]?.metadataParts?.[0]?.text?.content ?? null,
       channelId: firstBrowseId(l, 'UC'),
       durationSec: null,
+      views: stats.views,
+      publishedText: stats.published,
     })
   }
 

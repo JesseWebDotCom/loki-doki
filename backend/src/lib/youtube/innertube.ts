@@ -135,6 +135,19 @@ function parseVideoRenderer(r: any): ItVideo | null {
   const title = decodeEntities(r?.title?.runs?.[0]?.text ?? r?.title?.simpleText ?? r?.headline?.simpleText ?? '')
   if (!title) return null
   const { author, channelId } = ownerOf(r)
+  // textOf (not .simpleText) — several variants carry these as `runs`, not simpleText.
+  let views = textOf(r?.viewCountText) || textOf(r?.shortViewCountText) || null
+  let publishedText = textOf(r?.publishedTimeText) || null
+  // playlistVideoRenderer has no viewCountText/publishedTimeText — its stats are loose
+  // runs in videoInfo (e.g. ["1.2M views", " • ", "2 years ago"]).
+  if (!views || !publishedText) {
+    for (const run of r?.videoInfo?.runs ?? []) {
+      const t = run?.text
+      if (typeof t !== 'string') continue
+      if (!views && /view|watching/i.test(t)) views = decodeEntities(t)
+      else if (!publishedText && /ago$|premiere|streamed/i.test(t)) publishedText = decodeEntities(t)
+    }
+  }
   return {
     videoId,
     title,
@@ -143,8 +156,8 @@ function parseVideoRenderer(r: any): ItVideo | null {
     channelThumb: channelThumbOf(r),
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
     durationSec: parseClock(textOf(r?.lengthText)) ?? durationFromOverlays(r),
-    publishedText: r?.publishedTimeText?.simpleText ?? null,
-    views: r?.viewCountText?.simpleText ?? r?.shortViewCountText?.simpleText ?? null,
+    publishedText,
+    views,
   }
 }
 
@@ -180,6 +193,27 @@ function collect(node: any, key: string, out: any[], limit: number): void {
   }
 }
 
+// Scan a lockup's metadataRows for the stats parts ("1.2M views" / "2 years ago").
+// Shared by the video + shorts lockup parsers here and by the TV client's lockup branch.
+export function statsFromMetadataRows(rows: any[]): { views: string | null; published: string | null } {
+  const parts: any[] = rows.flatMap((row: any) => row?.metadataParts ?? [])
+  let views: string | null = null
+  let published: string | null = null
+  for (const p of parts) {
+    const t = p?.text?.content
+    if (typeof t !== 'string') continue
+    if (/view|watching/i.test(t)) views = t
+    else if (/ago$|premiere|streamed|Scheduled/i.test(t)) published = t
+  }
+  return { views, published }
+}
+
+// Rows live at metadata.lockupMetadataViewModel.metadata.contentMetadataViewModel on both
+// video and shorts lockups.
+function lockupMetadataRows(r: any): any[] {
+  return r?.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel?.metadataRows ?? []
+}
+
 // The newer `lockupViewModel` shape (contentType LOCKUP_CONTENT_TYPE_VIDEO). YouTube has
 // migrated channel "Videos" tabs and various grids to this — the old videoRenderer keys
 // are absent there, so without this a channel page comes back with zero videos.
@@ -194,15 +228,7 @@ function parseLockupVideo(r: any): ItVideo | null {
   // metadataRows: on home/search the first row is the channel name, then a row of
   // [views • published]. On a channel's own page there's no channel row.
   const rows: any[] = lm?.metadata?.contentMetadataViewModel?.metadataRows ?? []
-  const parts: any[] = rows.flatMap((row: any) => row?.metadataParts ?? [])
-  let views: string | null = null
-  let published: string | null = null
-  for (const p of parts) {
-    const t = p?.text?.content
-    if (typeof t !== 'string') continue
-    if (/view|watching/i.test(t)) views = t
-    else if (/ago$|premiere|streamed|Scheduled/i.test(t)) published = t
-  }
+  const { views, published } = statsFromMetadataRows(rows)
   // Author is the first metadata row when present (a channel grid omits it).
   const author = rows.length >= 2 ? (rows[0]?.metadataParts?.[0]?.text?.content ?? null) : null
 
@@ -293,8 +319,11 @@ function parseShortLockup(r: any): ItVideo | null {
     r?.entityId?.match(/([\w-]{11})$/)?.[1]
   if (!videoId || typeof videoId !== 'string') return null
   const meta = r?.overlayMetadata
-  const title = meta?.primaryText?.content ?? r?.accessibilityText ?? ''
+  const title = meta?.primaryText?.content ?? (textOf(meta?.primaryText) || r?.accessibilityText || '')
   if (!title) return null
+  // Stats: overlayMetadata.secondaryText is the compact view count; when it's absent the
+  // lockup usually still carries standard metadataRows — scan those for views/published.
+  const rowStats = statsFromMetadataRows(lockupMetadataRows(r))
   return {
     videoId,
     title,
@@ -303,16 +332,17 @@ function parseShortLockup(r: any): ItVideo | null {
     channelThumb: null,
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
     durationSec: null,
-    publishedText: null,
-    views: meta?.secondaryText?.content ?? null,
+    publishedText: rowStats.published,
+    views: meta?.secondaryText?.content ?? (textOf(meta?.secondaryText) || rowStats.views),
   }
 }
 
-function shortFromVideoId(videoId: string, title: string): ItVideo {
+function shortFromVideoId(videoId: string, title: string, lockup?: any): ItVideo {
+  const stats = statsFromMetadataRows(lockupMetadataRows(lockup))
   return {
     videoId, title, author: null, channelId: null, channelThumb: null,
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-    durationSec: null, publishedText: null, views: null,
+    durationSec: null, publishedText: stats.published, views: stats.views,
   }
 }
 
@@ -336,7 +366,7 @@ function collectShorts(data: any, limit: number): ItVideo[] {
     if (r?.contentType === 'LOCKUP_CONTENT_TYPE_SHORTS') {
       const id = r?.contentId
       const title = r?.metadata?.lockupMetadataViewModel?.title?.content
-      if (id && title) push(shortFromVideoId(id, title))
+      if (id && title) push(shortFromVideoId(id, title, r))
     }
     if (out.length >= limit) return out
   }

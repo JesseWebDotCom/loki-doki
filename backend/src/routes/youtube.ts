@@ -83,6 +83,26 @@ function safeJson<T>(raw: string | null): T | null {
   try { return JSON.parse(raw) as T } catch { return null }
 }
 
+// Fire-and-forget: top up a ytVideos row whose caption stats never landed (stub rows from
+// watch-state / ensureChannelThumb carry no views/publishedAt, and the /video fast path
+// short-circuits on description alone, so they'd otherwise never heal). Deduped per
+// process so heartbeat-frequency callers don't hammer InnerTube for the same video.
+const statsBackfillTried = new Set<string>()
+async function backfillVideoStats(videoId: string): Promise<void> {
+  if (statsBackfillTried.has(videoId)) return
+  statsBackfillTried.add(videoId)
+  const [row] = await db.select({ views: ytVideos.views, publishedAt: ytVideos.publishedAt, durationSec: ytVideos.durationSec })
+    .from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
+  if (!row || (row.views != null && row.publishedAt != null)) return
+  const meta = await tryInnertube('statsBackfill', () => innertubePlayerMeta(videoId), null)
+  if (!meta) return
+  const patch: Partial<typeof ytVideos.$inferInsert> = {}
+  if (row.views == null && meta.views) patch.views = meta.views
+  if (row.publishedAt == null && meta.publishedAt) patch.publishedAt = meta.publishedAt
+  if (row.durationSec == null && meta.durationSec != null) patch.durationSec = meta.durationSec
+  if (Object.keys(patch).length > 0) await db.update(ytVideos).set(patch).where(eq(ytVideos.videoId, videoId)).catch(() => {})
+}
+
 // Map InnerTube shapes to the frontend's search-result shapes (shared by the typed +
 // "load more" search paths).
 const itVideoResult = (v: ItVideo) => ({
@@ -91,6 +111,7 @@ const itVideoResult = (v: ItVideo) => ({
   author: v.author ?? undefined, channelId: v.channelId ?? undefined, channelThumb: v.channelThumb,
   thumbnailUrl: v.thumbnailUrl,
   durationSec: v.durationSec, publishedText: v.publishedText, views: v.views,
+  publishedAt: v.publishedAt ?? null,
 })
 const itChannelResult = (ch: ItChannel) => ({
   channelId: ch.channelId, title: ch.title, handle: ch.handle, thumbnailUrl: ch.thumbnailUrl,
@@ -1200,6 +1221,10 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
+    // Same self-heal for stats: this fast path short-circuits on description alone, so a
+    // row missing views/publishedAt would serve a blank caption forever. Backfill in the
+    // background — don't block the response on an InnerTube round-trip.
+    if (v.views == null || v.publishedAt == null) void backfillVideoStats(videoId).catch(() => {})
     const [channelThumb, subscribers] = await Promise.all([avatarFor(sub, v.channelId), subscribersFor(v.channelId)])
     return c.json({ videoId, title, author, channelId: v.channelId, channelThumb, subscribers, description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
@@ -2508,7 +2533,7 @@ youtubeRoute.get('/history', async (c) => {
 
   // Linked YouTube account: merge the real account history (deduped against local rows)
   // as its own section, so signed-in users see everything they watched anywhere.
-  let accountHistory: Array<{ videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null; channelThumb: string | null }> = []
+  let accountHistory: Array<{ videoId: string; title: string; author: string | null; channelId: string | null; durationSec: number | null; views: string | null; publishedText: string | null; channelThumb: string | null }> = []
   try {
     const token = await getValidAccessToken(user.id)
     if (token) {
@@ -2567,6 +2592,10 @@ youtubeRoute.post('/watch-state', async (c) => {
       createdAt: new Date(),
     }).onConflictDoNothing()
   }
+  // The stub row above carries no views/publishedAt (and pre-existing stubs may lack them
+  // too) — backfill in the background so History captions heal. Deduped inside; a no-op
+  // once the row is complete.
+  void backfillVideoStats(videoId).catch(() => {})
 
   const now = new Date()
   await db.insert(ytWatchState).values({

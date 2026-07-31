@@ -309,7 +309,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     return feed.map((v) => ({
       videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
       channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
-      publishedText: null, views: null,
+      publishedText: v.publishedText, views: v.views,
     }))
   })()
 
