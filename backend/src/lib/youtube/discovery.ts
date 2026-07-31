@@ -147,6 +147,11 @@ async function invidiousPopular(): Promise<ItVideo[]> {
     const arr = await fetchJson(`${base}/api/v1/popular`)
     if (!Array.isArray(arr) || !arr.length) continue
     const videos = arr.map(invidiousToItVideo).filter((v): v is ItVideo => !!v)
+    // /popular mixes in half-scraped rows: viewCount null, lengthSeconds 0,
+    // published stamped at fetch time ("5 minutes ago" on everything). Keep
+    // the fully-scraped ones when they can fill the shelf on their own.
+    const complete = videos.filter(v => v.views)
+    if (complete.length >= 20) return complete
     if (videos.length) return videos
   }
   return []
