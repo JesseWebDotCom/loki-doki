@@ -25,7 +25,7 @@ import { filterVideosForUser, filterYtItemsForUser } from '@/lib/videos/policy'
 import { getEnabledSources, getProvider } from '@/lib/videos/registry'
 import { logger } from '@/lib/logger'
 import type { GenericVideoSource, VideoItem } from '@/lib/videos/types'
-import { buildAndSaveProfile } from './profile'
+import { buildAndSaveProfile, getProfileStale } from './profile'
 import { dismissedCreatorCounts, getImpressions } from './impressions'
 import { rankCandidates } from './rank'
 import { EMPTY_POOL_TTL_MS, recordServed, savePool, servePool } from './pool'
@@ -512,6 +512,245 @@ function dedupeNearDuplicates(items: ItVideo[]): ItVideo[] {
   return kept
 }
 
+// ── Serve-time live layer ──────────────────────────────────────────────────────
+// The mechanics that make YouTube's home feel alive (studied against real
+// feeds, 2026-07-31), none user-specific:
+//   1. HOT: the newest watches spawn multi-angle topic clusters (review /
+//      explained / behind-the-scenes / reaction + related), so today's watch
+//      reshapes today's feed.
+//   2. BINGE: >=4 same-creator plays inside 36h graduates into that creator's
+//      collections/compilations instead of a 31st single.
+//   3. TOPICAL: generic trending only surfaces where it intersects the user's
+//      topic/creator profile (the "Comic-Con week" effect).
+//   4. COMPOSE: pages are slotted with format-diversity quotas (short/standard/
+//      long), a per-creator cap, and evergreen anchor slots — not pure rank
+//      order.
+// The layer builds in the background (serve never blocks) and is cached per
+// user; watched and policy filters always apply.
+
+type Suggested = ItVideo & { why?: string }
+
+interface LiveLayer { hot: Suggested[]; binge: Suggested[]; topical: Suggested[] }
+
+const liveLayers = new Map<string, { key: string; at: number; layer: LiveLayer }>()
+const liveBuilding = new Set<string>()
+const LIVE_LAYER_TTL_MS = 20 * 60_000
+
+const HOT_ANGLES = ['review', 'explained', 'behind the scenes']
+const BINGE_SHAPES = ['best of', 'compilation', 'interview', 'live full']
+
+/** Title → searchable topic: strip brackets/hashtags, keep the leading phrase. */
+function titleTopic(title: string): string {
+  return title
+    .replace(/[[(].*?[\])]/g, ' ')
+    .replace(/#\w+/g, ' ')
+    .split(/[|•·]/)[0]!
+    .replace(/[^\w\s']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .slice(0, 6)
+    .join(' ')
+}
+
+async function recentYtWatches(userId: string, limit: number) {
+  return db
+    .select({
+      videoId: ytWatchState.videoId,
+      updatedAt: ytWatchState.updatedAt,
+      title: ytVideos.title,
+      author: ytVideos.author,
+      channelId: ytVideos.channelId,
+      relatedTopics: ytVideos.relatedTopics,
+    })
+    .from(ytWatchState)
+    .innerJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
+    .where(and(eq(ytWatchState.userId, userId), eq(ytWatchState.origin, 'youtube')))
+    .orderBy(desc(ytWatchState.updatedAt))
+    .limit(limit)
+}
+
+async function buildLiveLayer(userId: string): Promise<void> {
+  const recent = await recentYtWatches(userId, 40)
+  const key = recent.slice(0, 2).map((w) => w.videoId).join(',')
+  const watched = await watchedVideoRefs(userId)
+  const taken = new Set<string>()
+  const usable = (v: ItVideo) => !watched.has(ytRef(v.videoId)) && !taken.has(v.videoId)
+
+  // 1. Hot clusters from the two newest watches.
+  const hot: Suggested[] = []
+  for (const w of recent.slice(0, 2)) {
+    if (!w.title || w.title === w.videoId) continue
+    const topic = primaryTopic(w.relatedTopics)[0] ?? titleTopic(w.title)
+    if (!topic) continue
+    const empty = { videos: [] as ItVideo[], channels: [], playlists: [], continuation: null }
+    const [angleHits, related] = await Promise.all([
+      Promise.all(HOT_ANGLES.map((angle) =>
+        tryInnertube('live-hot', () => innertubeSearch(`${topic} ${angle}`, 6, 0, 8000, 0, SEARCH_FILTERS.videos), empty))),
+      tryInnertube('live-hot-related', () => innertubeRelated(w.videoId, 10), [] as ItVideo[]),
+    ])
+    const pool = [...angleHits.flatMap((s) => s.videos), ...related].filter(usable)
+    const seedWhy = `Because you just watched "${w.title.slice(0, 60)}"`
+    for (const v of dedupeNearDuplicates(pool)) {
+      if (taken.has(v.videoId)) continue
+      taken.add(v.videoId)
+      hot.push({ ...v, why: seedWhy })
+    }
+  }
+
+  // 2. Binge graduation: a creator with >=4 plays in the last 36h.
+  const binge: Suggested[] = []
+  const cutoff = Date.now() - 36 * 60 * 60 * 1000
+  const runs = new Map<string, number>()
+  for (const w of recent) {
+    if (!w.author || w.updatedAt.getTime() < cutoff) continue
+    runs.set(w.author, (runs.get(w.author) ?? 0) + 1)
+  }
+  const [bingedCreator] = [...runs.entries()].filter(([, n]) => n >= 4).sort((a, b) => b[1] - a[1])
+  if (bingedCreator) {
+    const name = bingedCreator[0]
+    const empty = { videos: [] as ItVideo[], channels: [], playlists: [], continuation: null }
+    const hits = await Promise.all(BINGE_SHAPES.map((shape) =>
+      tryInnertube('live-binge', () => innertubeSearch(`${name} ${shape}`, 5, 0, 8000, 0, SEARCH_FILTERS.videos), empty)))
+    // Collections first: long-form before singles.
+    const pool = dedupeNearDuplicates(hits.flatMap((s) => s.videos).filter(usable))
+      .sort((a, b) => (b.durationSec ?? 0) - (a.durationSec ?? 0))
+    for (const v of pool.slice(0, 8)) {
+      taken.add(v.videoId)
+      binge.push({ ...v, why: `You're on a ${name} run` })
+    }
+  }
+
+  // 3. Trending ∩ the user's topic/creator profile.
+  const topical: Suggested[] = []
+  const { profile } = await getProfileStale(userId, DOMAIN)
+  if (profile && (profile.topics.length || profile.creators.length)) {
+    const trending = await fetchTrending(50)
+    const topicWords = profile.topics.map((t) => ({
+      words: t.text.toLowerCase().split(/\s+/).filter((w) => w.length > 3),
+      text: t.text,
+      weight: t.weight,
+    }))
+    const creators = new Map(profile.creators.map((c) => [c.name.toLowerCase(), c.weight]))
+    const scored = trending.filter(usable).map((v) => {
+      const title = v.title.toLowerCase()
+      let score = 0
+      let matched: string | null = null
+      for (const t of topicWords) {
+        if (t.words.some((w) => title.includes(w))) {
+          score += t.weight
+          matched ??= t.text
+        }
+      }
+      const creatorWeight = v.author ? creators.get(v.author.toLowerCase()) ?? 0 : 0
+      score += creatorWeight * 1.2
+      return { v, score, matched }
+    }).filter((s) => s.score >= 0.25).sort((a, b) => b.score - a.score)
+    for (const s of scored.slice(0, 8)) {
+      taken.add(s.v.videoId)
+      topical.push({ ...s.v, why: s.matched ? `Trending in ${s.matched}` : 'Trending from a creator you watch' })
+    }
+  }
+
+  // Policy filters last, then cache.
+  const layer: LiveLayer = {
+    hot: (await filterYtItemsForUser(userId, hot.slice(0, 24))) as Suggested[],
+    binge: (await filterYtItemsForUser(userId, binge)) as Suggested[],
+    topical: (await filterYtItemsForUser(userId, topical)) as Suggested[],
+  }
+  await enrichChannelThumbs([...layer.hot, ...layer.binge, ...layer.topical])
+  liveLayers.set(userId, { key, at: Date.now(), layer })
+}
+
+/** Cached layer for this serve; kicks a background (re)build when stale or when
+ *  the newest watch changed — the next serve gets the reactive cluster. */
+function peekLiveLayer(userId: string, newestWatchId: string | null): LiveLayer | null {
+  const cached = liveLayers.get(userId)
+  const stale = !cached
+    || Date.now() - cached.at > LIVE_LAYER_TTL_MS
+    || (newestWatchId != null && !cached.key.startsWith(newestWatchId))
+  if (stale && !liveBuilding.has(userId)) {
+    liveBuilding.add(userId)
+    void buildLiveLayer(userId)
+      .catch((err) => logger.warn(`[interests/videos] live layer build failed: ${err}`))
+      .finally(() => liveBuilding.delete(userId))
+  }
+  return cached?.layer ?? null
+}
+
+// ── Page composition (format quotas + evergreen anchors + creator cap) ─────────
+
+const durClass = (v: ItVideo): 'short' | 'std' | 'long' => {
+  const d = v.durationSec ?? 0
+  if (d > 1800) return 'long'
+  if (d > 0 && d < 360) return 'short'
+  return 'std'
+}
+
+function viewsNumber(raw: string | null): number {
+  if (!raw) return 0
+  const m = raw.replace(/,/g, '').match(/([\d.]+)\s*([KMB])?/i)
+  if (!m) return 0
+  const mult = { K: 1e3, M: 1e6, B: 1e9 }[m[2]?.toUpperCase() as 'K' | 'M' | 'B'] ?? 1
+  return parseFloat(m[1]!) * mult
+}
+
+/** Old but massive — the proven classics YouTube anchors every page with. */
+const isEvergreen = (v: ItVideo): boolean =>
+  viewsNumber(v.views) >= 1_000_000 && /([2-9]|\d{2,})\s+years?\s+ago/.test(v.publishedText ?? '')
+
+/** One YouTube-like page block: hot leads, quota slots for short/long/evergreen,
+ *  binge and topical each get a look, base (ranked pool) fills the rest. */
+const SLOT_PLAN: Array<{ pool: 'hot' | 'binge' | 'topical' | 'base'; pref?: 'short' | 'long' | 'evergreen' }> = [
+  { pool: 'hot' }, { pool: 'base' }, { pool: 'base', pref: 'short' }, { pool: 'hot' },
+  { pool: 'base', pref: 'long' }, { pool: 'topical' }, { pool: 'base' }, { pool: 'binge' },
+  { pool: 'base', pref: 'short' }, { pool: 'hot' }, { pool: 'base', pref: 'evergreen' }, { pool: 'base' },
+]
+
+function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number, watched: Set<string>): Suggested[] {
+  const pools: Record<'hot' | 'binge' | 'topical' | 'base', Suggested[]> = {
+    base: [...base],
+    hot: [...(layer?.hot ?? [])],
+    binge: [...(layer?.binge ?? [])],
+    topical: [...(layer?.topical ?? [])],
+  }
+  const seen = new Set<string>()
+  const perCreator = new Map<string, number>()
+  const out: Suggested[] = []
+
+  const prefOk = (v: Suggested, pref?: 'short' | 'long' | 'evergreen') =>
+    !pref || (pref === 'evergreen' ? isEvergreen(v) : durClass(v) === pref)
+  const takeFrom = (arr: Suggested[], pref?: 'short' | 'long' | 'evergreen'): Suggested | null => {
+    const i = arr.findIndex((v) =>
+      !seen.has(v.videoId)
+      && !watched.has(ytRef(v.videoId))
+      && prefOk(v, pref)
+      && (perCreator.get((v.author ?? '').toLowerCase()) ?? 0) < 3)
+    if (i < 0) return null
+    const [v] = arr.splice(i, 1)
+    seen.add(v!.videoId)
+    const creator = (v!.author ?? '').toLowerCase()
+    if (creator) perCreator.set(creator, (perCreator.get(creator) ?? 0) + 1)
+    return v!
+  }
+
+  let slot = 0
+  while (out.length < target) {
+    const plan = SLOT_PLAN[slot % SLOT_PLAN.length]!
+    const v = takeFrom(pools[plan.pool], plan.pref)
+      ?? takeFrom(pools[plan.pool])
+      ?? takeFrom(pools.base, plan.pref)
+      ?? takeFrom(pools.base)
+      ?? takeFrom(pools.hot)
+      ?? takeFrom(pools.topical)
+      ?? takeFrom(pools.binge)
+    if (!v) break
+    out.push(v)
+    slot++
+  }
+  return out
+}
+
 export async function serveYtRecommended(
   userId: string,
   target = 24,
@@ -548,7 +787,12 @@ export async function serveYtRecommended(
     const entry = byRef.get(ytRef(v.videoId))
     return { ...v, why: entry ? whyServed(entry) : undefined }
   })
-  return { videos: explained, building: false }
+
+  // Live layer + page composition: hot clusters from the newest watches, binge
+  // collections, topical trending and format quotas over the ranked base.
+  const newestWatchId = (await recentYtWatches(userId, 1))[0]?.videoId ?? null
+  const layer = peekLiveLayer(userId, newestWatchId)
+  return { videos: composeFeed(explained, layer, target, watchedRefs), building: false }
 }
 
 // ── Bottomless feed ─────────────────────────────────────────────────────────────
