@@ -18,7 +18,7 @@ import { logger } from '@/lib/logger'
 
 const execFileAsync = promisify(execFile)
 
-export const WIDTH_BUCKETS = [240, 480, 960] as const
+export const WIDTH_BUCKETS = [240, 480, 960, 1280] as const
 
 /** Snap a requested width to the smallest bucket that covers it (crisp on 2x screens is
  *  the caller's job - pass the device-pixel width). Out-of-range → largest bucket. */

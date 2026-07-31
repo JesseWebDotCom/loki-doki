@@ -6,6 +6,7 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from '@/db'
 import { userPreferences } from '@/db/schema'
+import { cachedLookup } from '@/lib/lookupCache'
 import { logger } from '@/lib/logger'
 
 const API = 'https://sponsor.ajay.app/api/skipSegments'
@@ -92,19 +93,25 @@ interface RawSegment {
 
 export async function getSkipSegments(videoId: string, timeout = 6000): Promise<SkipSegment[]> {
   try {
-    const cats = encodeURIComponent(JSON.stringify(CATEGORIES))
-    const res = await fetch(`${API}?videoID=${encodeURIComponent(videoId)}&categories=${cats}`, {
-      headers: { 'User-Agent': 'LokiDoki/1.0' },
-      signal: AbortSignal.timeout(timeout),
+    // Cached an hour, keyed by the category set (so a future category addition re-fetches
+    // instead of serving a stale subset). Segments for a video barely change once
+    // submitted, and every play was paying a live sponsor.ajay.app round-trip. Transient
+    // failures THROW inside the fetcher, so nothing is cached and the next play retries.
+    return await cachedLookup('sponsorblock', `${videoId}:${CATEGORIES.join('+')}`, 60 * 60_000, async () => {
+      const cats = encodeURIComponent(JSON.stringify(CATEGORIES))
+      const res = await fetch(`${API}?videoID=${encodeURIComponent(videoId)}&categories=${cats}`, {
+        headers: { 'User-Agent': 'LokiDoki/1.0' },
+        signal: AbortSignal.timeout(timeout),
+      })
+      // 404 = "no segments submitted for this video", which is the common, non-error case.
+      if (res.status === 404) return []
+      if (!res.ok) throw new Error(`sponsorblock ${res.status}`)
+      const data = (await res.json()) as RawSegment[]
+      return (Array.isArray(data) ? data : [])
+        .filter(s => s.actionType === 'skip' && Array.isArray(s.segment) && s.segment.length === 2)
+        .map(s => ({ category: s.category, start: s.segment[0], end: s.segment[1] }))
+        .sort((a, b) => a.start - b.start)
     })
-    // 404 = "no segments submitted for this video", which is the common, non-error case.
-    if (res.status === 404) return []
-    if (!res.ok) throw new Error(`sponsorblock ${res.status}`)
-    const data = (await res.json()) as RawSegment[]
-    return (Array.isArray(data) ? data : [])
-      .filter(s => s.actionType === 'skip' && Array.isArray(s.segment) && s.segment.length === 2)
-      .map(s => ({ category: s.category, start: s.segment[0], end: s.segment[1] }))
-      .sort((a, b) => a.start - b.start)
   } catch (err) {
     logger.warn(`[youtube/sponsorblock] lookup failed for ${videoId}: ${err}`)
     return []

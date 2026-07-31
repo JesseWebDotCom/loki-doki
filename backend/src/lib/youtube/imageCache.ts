@@ -26,9 +26,14 @@ import { db } from '@/db'
 import { ytImageCache, ytSubscriptions, ytChannelCache, ytVideos, ytDownloads } from '@/db/schema'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
+import { PLACEHOLDER_MAX_BYTES } from '@/lib/youtube/thumbnail'
 
 const CACHE_DIR = join(dataDir, 'yt-image-cache')
 const TTL_MS = 24 * 60 * 60 * 1000
+// Video thumbnails (i.ytimg.com/vi/<id>/…) are immutable per id — evicting them after 24h
+// just forces a pointless re-fetch of identical bytes on the next view, so they get a month.
+const VIDEO_THUMB_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const isVideoThumbUrl = (url: string): boolean => url.includes('i.ytimg.com/vi/')
 const FETCH_TIMEOUT_MS = 10_000
 
 // Only fetch from YouTube's own image hosts — same allow-list the proxy route enforces.
@@ -104,7 +109,17 @@ export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; c
   const pending = inflight.get(hash)
   if (pending) return pending
   const p = (async () => {
-    const fetched = await fetchUpstream(url.toString())
+    let fetched = await fetchUpstream(url.toString())
+    // YouTube has no maxresdefault/hq720 for many videos, but i.ytimg.com answers those
+    // with HTTP 200 + a ~1.1KB grey placeholder (see lib/youtube/thumbnail.ts) — which
+    // would get cached and served as a grey hero forever. Detect it (or a plain 404) and
+    // transparently fall back to hqdefault (exists for every video), cached under the
+    // ORIGINAL requested key so every later request stays a plain hit.
+    const variant = /^https:\/\/i\.ytimg\.com\/vi\/([\w-]{11})\/(maxresdefault|hq720)\.jpg$/.exec(rawUrl)
+    if (variant && (fetched === null || (fetched !== 'not-modified' && fetched.data.byteLength <= PLACEHOLDER_MAX_BYTES))) {
+      const fallback = await fetchUpstream(`https://i.ytimg.com/vi/${variant[1]}/hqdefault.jpg`)
+      if (fallback && fallback !== 'not-modified') fetched = fallback
+    }
     if (!fetched || fetched === 'not-modified') return null
     await persist(hash, rawUrl, fetched)
     return { data: fetched.data, contentType: fetched.contentType }
@@ -112,6 +127,19 @@ export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; c
   inflight.set(hash, p)
   void p.finally(() => { if (inflight.get(hash) === p) inflight.delete(hash) })
   return p
+}
+
+/** Read-through accessor with an optional width hint (?w=), mirroring lib/imageProxy's:
+ *  serves a bucketed webp downscale rendered beside the original, or the original when
+ *  resizing isn't possible (no vips, animated source, bad width). */
+export async function getOrFetchImageResized(rawUrl: string, w: string | undefined): Promise<{ data: Buffer; contentType: string } | null> {
+  const orig = await getOrFetchImage(rawUrl)
+  if (!orig) return null
+  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(w)
+  if (!bucket) return orig
+  const variant = await getResizedVariant(join(CACHE_DIR, hashUrl(rawUrl)), orig.contentType, bucket)
+  return variant ?? orig
 }
 
 // ── Maintenance ────────────────────────────────────────────────────────────────
@@ -180,18 +208,24 @@ async function renewSubscribed(now: number): Promise<void> {
   }
 }
 
-// Delete non-subscribed entries 24h past their fetch, plus any orphaned files on disk.
+// Delete non-subscribed entries past their TTL (24h, or 30 days for immutable video
+// thumbnails — see VIDEO_THUMB_TTL_MS), plus any orphaned files on disk.
 async function evictExpired(now: number): Promise<void> {
   const stale = await db.select().from(ytImageCache)
     .where(and(eq(ytImageCache.subscribed, false), lt(ytImageCache.fetchedAt, new Date(now - TTL_MS))))
   for (const row of stale) {
+    if (isVideoThumbUrl(row.url) && row.fetchedAt.getTime() > now - VIDEO_THUMB_TTL_MS) continue
     if (row.filePath) { try { await unlink(join(CACHE_DIR, row.filePath)) } catch { /* already gone */ } }
     await db.delete(ytImageCache).where(eq(ytImageCache.urlHash, row.urlHash))
   }
-  // Sweep stray files whose row is gone (filename == urlHash, so membership is a direct check).
+  // Sweep stray files whose row is gone (filename == urlHash, so membership is a direct
+  // check). Resized variants live beside their original as <urlHash>.w<bucket>.webp (see
+  // lib/imageResize) — strip that suffix so a live entry's variants aren't swept, while an
+  // evicted entry's variants go with it.
   const known = new Set((await db.select({ h: ytImageCache.urlHash }).from(ytImageCache)).map(r => r.h))
   for (const f of await readdir(CACHE_DIR).catch(() => [] as string[])) {
-    if (!known.has(f)) { try { await unlink(join(CACHE_DIR, f)) } catch { /* race with a write */ } }
+    const base = f.replace(/\.w\d+\.webp$/, '')
+    if (!known.has(base)) { try { await unlink(join(CACHE_DIR, f)) } catch { /* race with a write */ } }
   }
 }
 

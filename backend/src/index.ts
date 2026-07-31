@@ -15,6 +15,7 @@ import { startBriefingRefresh } from '@/lib/briefing/refresh'
 import { pruneExpiredSessions } from '@/lib/session'
 import { warmupModel } from '@/lib/models'
 import { requestLogger } from '@/middleware/requestLogger'
+import { gzipJson } from '@/middleware/compress'
 import { recordApiLatency } from '@/lib/apiLatency'
 import { setup } from '@/routes/setup'
 import { auth } from '@/routes/auth'
@@ -627,8 +628,14 @@ app.use('/api/*', async (c, next) => {
   const ct = c.res.headers.get('content-type') ?? ''
   const p = c.req.path
   if (ct.includes('text/event-stream') || p.includes('/stream') || p.endsWith('/terminal')) return
+  // Image proxies fire ~100-200 times per home-screen render and would drown the p95.
+  if (p.startsWith('/api/youtube/img') || p.startsWith('/api/youtube/dearrow-thumb')) return
   recordApiLatency(performance.now() - t0)
 })
+
+// gzip JSON API responses (see middleware/compress.ts). Registered after the latency probe
+// so it wraps the routes directly and the recorded time includes compression.
+app.use('/api/*', gzipJson)
 
 // Global error boundary: without this, any throw from a route handler surfaces as a
 // bare, body-less 500 that's indistinguishable from a transient stall — so a real bug

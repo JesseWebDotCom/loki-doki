@@ -220,6 +220,19 @@ const startInflight = new Map<string, Promise<'ok' | 'capacity'>>()
 let reaper: ReturnType<typeof setInterval> | null = null
 let rootSweep: Promise<unknown> | null = null
 
+/** Boot-time root cleanup: drop session directories untouched for a week. Recent ones are
+ *  kept — their segments are reusable (see the call site in doStartSession). */
+const ROOT_SWEEP_AGE_MS = 7 * 24 * 60 * 60 * 1000
+async function sweepStaleRoot(): Promise<void> {
+  const cutoff = Date.now() - ROOT_SWEEP_AGE_MS
+  for (const entry of await readdir(ROOT).catch(() => [] as string[])) {
+    const p = join(ROOT, entry)
+    try {
+      if (statSync(p).mtimeMs < cutoff) await rm(p, { recursive: true, force: true, maxRetries: 5 })
+    } catch { /* raced with a write or already gone — skip */ }
+  }
+}
+
 // A backend restart must not leave encoders running for the rest of the video, filling
 // the disk with segments nobody will ask for. index.ts's SIGINT/SIGTERM shutdown ends in
 // process.exit, so one 'exit' hook covers both that and a plain quit.
@@ -304,7 +317,9 @@ async function waitForFile(file: string, key: string, stable = false): Promise<b
     lastSize = size
     const s = sessions.get(key)
     if (!s || s.stopped) return fileSize(file) > 0    // encoder died, one last look
-    await new Promise(r => setTimeout(r, 150))
+    // 25ms, not 150: the encoder emits a 4s segment every ~1s when it's ahead, so a
+    // coarse poll added up to ~150ms of pure latency to EVERY segment request.
+    await new Promise(r => setTimeout(r, 25))
   }
   return false
 }
@@ -383,10 +398,13 @@ async function doStartSession(plan: TranscodePlan, index: number, key: string): 
   }
   if (existing) stopProcess(existing)
 
-  // Sessions never outlive the process, so anything already in the root is from a crash.
-  // Shared promise, not a boolean: two requests racing at boot must not have one of them
-  // create its session directory while the other is still deleting the tree.
-  rootSweep ??= rm(ROOT, { recursive: true, force: true, maxRetries: 5 }).catch(() => {})
+  // Anything already in the root is from a previous boot — but its segments are still
+  // valid (the grid is deterministic per videoId+height, and the muxer's temp_file flag
+  // means only whole segments ever land), so keep the recent ones instead of paying the
+  // encoder again after every restart. Only entries a week stale get dropped. Shared
+  // promise, not a boolean: two requests racing at boot must not have one of them create
+  // its session directory while the other is still deleting it.
+  rootSweep ??= sweepStaleRoot().catch(() => {})
   await rootSweep
   const dir = sessionDir(plan)
   await mkdir(dir, { recursive: true })

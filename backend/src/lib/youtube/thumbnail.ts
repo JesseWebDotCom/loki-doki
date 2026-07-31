@@ -11,7 +11,8 @@ const MAXRES_URL = (videoId: string) => `https://i.ytimg.com/vi/${videoId}/maxre
 const HQ_URL = (videoId: string) => `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
 
 // The real placeholder is ~1120 bytes; any genuine maxres photo is tens of KB at minimum.
-const PLACEHOLDER_MAX_BYTES = 4000
+// Exported for the img-proxy cache, which applies the same detection to fetched bytes.
+export const PLACEHOLDER_MAX_BYTES = 4000
 
 /** Best-available thumbnail URL for `videoId` — maxresdefault when YouTube actually
  *  generated one, hqdefault otherwise. Costs one HEAD request; call this at points that

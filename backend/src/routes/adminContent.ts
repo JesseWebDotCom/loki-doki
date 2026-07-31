@@ -11,6 +11,7 @@ import {
   getUserPref, setUserPref,
 } from '@/lib/contentPolicy'
 import { ALLOWLIST_PREF, invalidateAllowlistCache } from '@/lib/videos/allowlist'
+import { invalidatePolicyTierCache } from '@/lib/media/policyTier'
 import {
   DEFAULT_VIDEO_VIEW_FLAGS, VIDEO_FLAG_PREFS, getVideoViewFlags, invalidateVideoViewFlags,
   type VideoViewFlags,
@@ -50,12 +51,14 @@ adminContent.put('/profiles/:slug', requireAdmin, async (c) => {
   const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown>; kidSafeMedia?: boolean }
   const profile = await updateProfile(slug, body)
   if (!profile) return c.json({ error: 'not found' }, 404)
+  invalidatePolicyTierCache()   // any user may be on this profile
   return c.json({ ok: true, profile })
 })
 
 adminContent.delete('/profiles/:slug', requireAdmin, async (c) => {
   const res = await deleteProfile(c.req.param('slug'))
   if (!res.ok) return c.json({ error: res.error }, 400)
+  invalidatePolicyTierCache()
   return c.json({ ok: true })
 })
 
@@ -63,6 +66,7 @@ adminContent.put('/default-profile', requireAdmin, async (c) => {
   const { slug } = (await c.req.json()) as { slug?: string }
   if (!slug || !(await getProfile(slug))) return c.json({ error: 'unknown profile' }, 400)
   await setDefaultProfileSlug(slug)
+  invalidatePolicyTierCache()   // affects every user without an explicit assignment
   return c.json({ ok: true, defaultSlug: slug })
 })
 
@@ -82,6 +86,7 @@ adminContent.put('/users/:userId/profile', requireAdmin, async (c) => {
   const profile = slug ? await getProfile(slug) : null
   if (!profile) return c.json({ error: 'unknown profile' }, 400)
   await setUserProfileSlug(userId, slug!)
+  invalidatePolicyTierCache(userId)
   // Surface which categories this assignment opens to 100%, so the UI can warn.
   return c.json({ ok: true, slug, unrestricted: unrestrictedCategories(profile.dials) })
 })

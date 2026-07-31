@@ -231,6 +231,12 @@ async function indexTrack(url: string, kind: StreamKind): Promise<HlsTrack | nul
 const TTL_MS = 3 * 60 * 60 * 1000
 const cache = new Map<string, HlsPresentation>()
 const inflight = new Map<string, Promise<HlsPresentation | null>>()
+// Un-indexable videos (no avc1 pair above the progressive ceiling) fail the SAME way on
+// every play — without a negative cache each play re-pays InnerTube + possibly yt-dlp
+// just to rediscover it. Short TTL, since a fresh resolve can change the answer.
+// (Pattern: previewMisses in lib/youtube/stream.ts.)
+const MISS_TTL_MS = 5 * 60 * 1000
+const misses = new Map<string, number>()
 
 /** Build (or reuse) the avc1+AAC HLS index for a video. Null when the video has no h264
  *  DASH track above the progressive ceiling, or its tracks aren't indexable. The caller
@@ -241,6 +247,11 @@ export async function getHlsPresentation(videoId: string): Promise<HlsPresentati
   const hit = cache.get(videoId)
   if (hit && hit.expires > Date.now()) return hit
   if (hit) cache.delete(videoId)
+  const missUntil = misses.get(videoId)
+  if (missUntil !== undefined) {
+    if (missUntil > Date.now()) return null
+    misses.delete(videoId)
+  }
   const pending = inflight.get(videoId)
   if (pending) return pending
   const p = buildPresentation(videoId)
@@ -251,13 +262,17 @@ export async function getHlsPresentation(videoId: string): Promise<HlsPresentati
 
 async function buildPresentation(videoId: string): Promise<HlsPresentation | null> {
   const urls = await resolveSplitStreamUrls(videoId, HLS_MAX_HEIGHT, 'avc1')
-  if (!urls) return null
+  if (!urls) {
+    misses.set(videoId, Date.now() + MISS_TTL_MS)
+    return null
+  }
   const [video, audio] = await Promise.all([
     indexTrack(urls.video, 'video').catch(() => null),
     indexTrack(urls.audio, 'audio').catch(() => null),
   ])
   if (!video || !audio) {
     logger.warn(`[youtube/hls] no indexable avc1+aac pair for ${videoId} (video=${!!video} audio=${!!audio})`)
+    misses.set(videoId, Date.now() + MISS_TTL_MS)
     return null
   }
   const pres: HlsPresentation = { video, audio, expires: Date.now() + TTL_MS }
@@ -268,6 +283,7 @@ async function buildPresentation(videoId: string): Promise<HlsPresentation | nul
 
 export function invalidateHlsPresentation(videoId: string): void {
   cache.delete(videoId)
+  misses.delete(videoId)
   invalidateSplitStreamUrls(videoId, HLS_MAX_HEIGHT, 'avc1')
 }
 

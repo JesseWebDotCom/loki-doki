@@ -248,20 +248,37 @@ function collectBrowseId(node: any, cb: (id: string) => void): void {
   for (const k in node) collectBrowseId(node[k], cb)
 }
 
+// Every video renderer variant collectVideos understands, tested at each node of ONE walk
+// (a search/browse response is multi-MB once parsed, so a walk per key was the hot spot).
+const VIDEO_RENDERER_KEYS = ['videoRenderer', 'gridVideoRenderer', 'compactVideoRenderer', 'playlistVideoRenderer', 'richItemRenderer', 'lockupViewModel'] as const
+
 function collectVideos(data: any, limit: number): ItVideo[] {
   const out: ItVideo[] = []
   const seen = new Set<string>()
-  for (const rendererKey of ['videoRenderer', 'gridVideoRenderer', 'compactVideoRenderer', 'playlistVideoRenderer', 'richItemRenderer', 'lockupViewModel']) {
-    const raw: any[] = []
-    collect(data, rendererKey, raw, limit * 3)
-    for (const r of raw) {
-      const v = rendererKey === 'lockupViewModel'
+  // Single depth-first walk in document order. A matched wrapper is still descended into
+  // (e.g. richItemRenderer carrying a lockupViewModel) — the videoId dedupe makes the
+  // occasional double-parse harmless, exactly as the per-key passes overlapped before.
+  const walk = (node: any): void => {
+    if (out.length >= limit || !node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const item of node) { walk(item); if (out.length >= limit) return }
+      return
+    }
+    for (const key of VIDEO_RENDERER_KEYS) {
+      const r = node[key]
+      if (!r || typeof r !== 'object') continue
+      const v = key === 'lockupViewModel'
         ? parseLockupVideo(r)
         // richItemRenderer wraps the real renderer under `.content`.
-        : parseVideoRenderer(rendererKey === 'richItemRenderer' ? (r.content?.videoRenderer ?? r.content?.reelItemRenderer) : r)
-      if (v && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v); if (out.length >= limit) return out }
+        : parseVideoRenderer(key === 'richItemRenderer' ? (r.content?.videoRenderer ?? r.content?.reelItemRenderer) : r)
+      if (v && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v); if (out.length >= limit) return }
+    }
+    for (const k in node) {
+      walk(node[k])
+      if (out.length >= limit) return
     }
   }
+  walk(data)
   return out
 }
 
@@ -967,7 +984,36 @@ async function getVisitorData(): Promise<string | null> {
 export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; mime: string }
 export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[]; video: ItStreamFormat[] }
 
+// Short memo + inflight coalescing per videoId: prewarm, the real play, split-resolve and
+// storyboard-adjacent paths each POST /player for the same id within seconds of each
+// other. 60s is far inside the URLs' own multi-hour signed lifetime, so a memoized answer
+// is exactly what a fresh call would return. Errors and gated (null) results share the
+// inflight promise but only OK/gated results are memoized — a thrown failure retries.
+const STREAMS_TTL_MS = 60_000
+const streamsCache = new Map<string, { streams: ItStreams | null; expires: number }>()
+const streamsInflight = new Map<string, Promise<ItStreams | null>>()
+
 export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
+  const hit = streamsCache.get(videoId)
+  if (hit && hit.expires > Date.now()) return hit.streams
+  if (hit) streamsCache.delete(videoId)
+  const pending = streamsInflight.get(videoId)
+  if (pending) return pending
+  const p = (async () => {
+    const streams = await doInnertubePlayerStreams(videoId, timeout)
+    if (streamsCache.size > 200) {
+      const now = Date.now()
+      for (const [k, v] of streamsCache) if (v.expires <= now) streamsCache.delete(k)
+    }
+    streamsCache.set(videoId, { streams, expires: Date.now() + STREAMS_TTL_MS })
+    return streams
+  })()
+  streamsInflight.set(videoId, p)
+  void p.finally(() => { if (streamsInflight.get(videoId) === p) streamsInflight.delete(videoId) })
+  return p
+}
+
+async function doInnertubePlayerStreams(videoId: string, timeout: number): Promise<ItStreams | null> {
   const visitorData = await getVisitorData()
   const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
     method: 'POST',

@@ -308,9 +308,11 @@ export async function searchSongs(query: string, limit = 20, artist?: string): P
   // Deezer-first: fast, keyless, and its top track for a query is almost always the canonical
   // studio take (no live/remix/karaoke burial). Results carry no MBID; the player resolves by
   // title+artist. Deduped by base title + artist. MusicBrainz is the fallback only.
+  // Cached a day (catalog answers barely move); transient Deezer failures THROW inside the
+  // fetcher so nothing is cached and the MB fallback below takes over for this call only.
   try {
-    const rows = await deezerSearchTracks(q || a, a || undefined, Math.max(limit * 2, 30))
-    if (rows.length) {
+    const cached = await cachedLookup('deezer-song-search', `${q}|${a}:${limit}`, 24 * 60 * 60 * 1000, async () => {
+      const rows = await deezerSearchTracks(q || a, a || undefined, Math.max(limit * 2, 30))
       const seen = new Set<string>()
       const out: CatalogSong[] = []
       for (const r of rows) {
@@ -321,7 +323,8 @@ export async function searchSongs(query: string, limit = 20, artist?: string): P
         if (out.length >= limit) break
       }
       return out
-    }
+    })
+    if (cached.length) return cached
   } catch (err) {
     logger.debug(`[catalog] deezer searchSongs failed, falling back to MB: ${String(err)}`)
   }

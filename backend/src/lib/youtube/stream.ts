@@ -295,22 +295,39 @@ async function doResolveSplit(videoId: string, maxHeight: number, codec: SplitVi
     : maxHeight > 1080
       ? `${v('vp09')}/${v('vp9')}/${v('av01')}/${v('avc1')}`
       : `${v('avc1')}/bestvideo[ext=mp4][height<=${maxHeight}][height>720][protocol^=https]`
-  try {
-    const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
-      '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]`,
-      '-g', '--no-warnings', '--no-playlist', '--force-ipv4',
-      '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
-      `https://www.youtube.com/watch?v=${videoId}`,
-    ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
-    const [video, audio] = stdout.split('\n').map(l => l.trim()).filter(Boolean)
-    if (video && audio && isAllowedUpstream(video) && isAllowedUpstream(audio)) {
+  // Same transient-failure retry as doResolveStreamUrl: a cold burst of resolves can get
+  // rate-limited or time out, yet the identical video resolves fine a moment later.
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1200 * attempt))
+    try {
+      const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
+        '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]`,
+        '-g', '--no-warnings', '--no-playlist', '--force-ipv4',
+        '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
+        `https://www.youtube.com/watch?v=${videoId}`,
+      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
+      const [video, audio] = stdout.split('\n').map(l => l.trim()).filter(Boolean)
+      if (!video || !audio) { lastErr = 'empty output'; continue }   // transient — retry
+      if (!isAllowedUpstream(video) || !isAllowedUpstream(audio)) {  // permanent — don't retry
+        logger.warn(`[youtube/stream] refusing non-YouTube upstream host for ${videoId} (split)`)
+        return null
+      }
       const urls = { video, audio }
       cacheSplit(key, urls, now)
       return urls
+    } catch (err) {
+      // "Requested format is not available" is a permanent answer (no track above the
+      // progressive ceiling), not a transient failure — retrying only delays the caller's
+      // progressive fallback.
+      if (err instanceof Error && /requested format is not available/i.test(`${(err as { stderr?: string }).stderr ?? ''} ${err.message}`)) {
+        logger.warn(`[youtube/stream] yt-dlp split-resolve: no suitable track for ${videoId}`)
+        return null
+      }
+      lastErr = err
     }
-  } catch (err) {
-    logger.warn(`[youtube/stream] yt-dlp split-resolve failed for ${videoId}: ${err}`)
   }
+  logger.warn(`[youtube/stream] yt-dlp split-resolve failed for ${videoId} after retries: ${lastErr}`)
   return null
 }
 

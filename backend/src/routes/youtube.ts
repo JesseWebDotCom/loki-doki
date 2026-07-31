@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 import { readFile, stat, readdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { eq, ne, and, or, desc, inArray, notInArray } from 'drizzle-orm'
 import { db } from '@/db'
@@ -30,8 +31,8 @@ import { peekAsk, kickAsk } from '@/lib/youtube/askVideo'
 import { peekPopupFacts, kickPopupFacts } from '@/lib/youtube/popupFacts'
 import { peekWorth, kickWorth } from '@/lib/youtube/worthIt'
 import { getVotes } from '@/lib/youtube/returndislike'
-import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
-import { getOrFetchImage } from '@/lib/youtube/imageCache'
+import { getDeArrowBatch, getOrFetchDeArrowThumb, deArrowThumbKey } from '@/lib/youtube/dearrow'
+import { getOrFetchImageResized } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
 import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist } from '@/lib/youtube/hls'
 import { getTranscodePlan, getTranscodeSegment, getTranscodeInit, hevcMasterPlaylist, hevcMediaPlaylist, TRANSCODE_HEIGHTS, type SegmentResult } from '@/lib/youtube/hlsTranscode'
@@ -88,6 +89,7 @@ const itVideoResult = (v: ItVideo) => ({
   title: v.title, url: `https://www.youtube.com/watch?v=${v.videoId}`, videoId: v.videoId,
   snippet: v.author ?? '', embedUrl: `https://www.youtube.com/embed/${v.videoId}`,
   author: v.author ?? undefined, channelId: v.channelId ?? undefined, channelThumb: v.channelThumb,
+  thumbnailUrl: v.thumbnailUrl,
   durationSec: v.durationSec, publishedText: v.publishedText, views: v.views,
 })
 const itChannelResult = (ch: ItChannel) => ({
@@ -99,8 +101,10 @@ const itPlaylistResult = (p: ItPlaylist) => ({
   author: p.author, channelId: p.channelId, url: `https://www.youtube.com/playlist?list=${p.playlistId}`,
 })
 
-// Query autosuggest for the SmartSearch header dropdown — cheap, per-keystroke, no caching.
+// Query autosuggest for the SmartSearch header dropdown — per-keystroke, so it leans on
+// the lib's LRU cache; a short private browser cache dedupes retyped prefixes too.
 youtubeRoute.get('/suggest', async (c) => {
+  c.header('cache-control', 'private, max-age=60')
   const q = c.req.query('q')?.trim()
   if (!q) return c.json({ suggestions: [] })
   return c.json({ suggestions: await getYoutubeSuggestions(q) })
@@ -110,6 +114,7 @@ youtubeRoute.get('/suggest', async (c) => {
 
 youtubeRoute.get('/search', async (c) => {
   const user = c.get('user')
+  c.header('cache-control', 'private, max-age=60')
   const q = c.req.query('q')?.trim()
   const cursor = c.req.query('cursor')
 
@@ -118,9 +123,13 @@ youtubeRoute.get('/search', async (c) => {
   // Channels/Playlists-filtered search needs its type re-passed to keep collecting those.
   if (cursor) {
     const cursorType = c.req.query('type') as keyof typeof SEARCH_FILTERS | undefined
-    const page = await tryInnertube('searchMore',
+    // Cached like page 1 below (back/forward and both search surfaces replay the same
+    // token). Tokens run hundreds of chars and are case-sensitive base64, so hash them
+    // here — cachedLookup's own keying lowercases before hashing.
+    const cursorKey = createHash('sha256').update(`${cursorType ?? ''}:${cursor}`).digest('hex')
+    const page = await cachedLookup('youtube:searchMore', cursorKey, 10 * 60_000, () => tryInnertube('searchMore',
       () => innertubeSearchMore(cursor, 24, 8000, cursorType === 'channels' ? 24 : 0, cursorType === 'playlists' ? 30 : 0),
-      { videos: [], channels: [], playlists: [], continuation: null })
+      { videos: [], channels: [], playlists: [], continuation: null }))
     const videos = cursorType === 'shorts' ? page.videos.filter(v => v.durationSec == null || v.durationSec <= 90) : page.videos
     const safeVideos = await filterYtItemsForUser(user.id, videos)
     return c.json({ results: safeVideos.map(itVideoResult), channels: page.channels.map(itChannelResult), playlists: page.playlists.map(itPlaylistResult), continuation: page.continuation })
@@ -189,7 +198,27 @@ youtubeRoute.get('/img', async (c) => {
   try { url = new URL(u) } catch { return c.json({ error: 'bad url' }, 400) }
   const allowed = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtube\.com)$/i.test(url.hostname)
   if (url.protocol !== 'https:' || !allowed) return c.json({ error: 'forbidden host' }, 403)
-  const img = await getOrFetchImage(url.toString())
+  const w = c.req.query('w')
+
+  // Video thumbnails (i.ytimg.com/vi/<id>/…) are immutable per id, so they get the long
+  // immutable lifetime plus a strong ETag derived from the request (URL + width) — which
+  // lets a revalidating client 304 without us touching disk at all. Channel avatars and
+  // banners DO change, so they keep the 1-day lifetime.
+  const isVideoThumb = /(^|\.)ytimg\.com$/i.test(url.hostname) && url.pathname.startsWith('/vi/')
+  const cacheControl = isVideoThumb ? 'public, max-age=2592000, immutable' : 'public, max-age=86400'
+  if (isVideoThumb) {
+    const etag = `"${createHash('sha256').update(`${url}|w=${w ?? ''}`).digest('hex').slice(0, 32)}"`
+    if (c.req.header('if-none-match') === etag) {
+      return new Response(null, { status: 304, headers: { etag, 'cache-control': cacheControl } })
+    }
+    const img = await getOrFetchImageResized(url.toString(), w)
+    if (!img) return c.json({ error: 'upstream' }, 502)
+    return new Response(img.data as unknown as BodyInit, {
+      headers: { 'content-type': img.contentType, 'cache-control': cacheControl, etag },
+    })
+  }
+
+  const img = await getOrFetchImageResized(url.toString(), w)
   if (!img) return c.json({ error: 'upstream' }, 502)
   // Buffer is a valid body at runtime; the cast sidesteps a TS Buffer-generic mismatch.
   return new Response(img.data as unknown as BodyInit, {
@@ -197,7 +226,7 @@ youtubeRoute.get('/img', async (c) => {
       'content-type': img.contentType,
       // Server holds the canonical copy and revalidates/evicts it; let the browser
       // hold its own copy for a day too so repeat views don't even hit us.
-      'cache-control': 'public, max-age=86400',
+      'cache-control': cacheControl,
     },
   })
 })
@@ -1073,13 +1102,16 @@ youtubeRoute.get('/video/:videoId', async (c) => {
   // Play-time enrichment (fire-and-forget, idempotent): the player hits this when it
   // opens, so use it to download captions if they're missing and — when we have a
   // transcript but no cached summary yet — summarize in the background. Both calls
-  // no-op when the work is already done, so repeat plays are cheap.
-  void (async () => {
-    const firstName = await getUserFirstName(user.id)
-    await ensureTranscript(videoId, user.id, firstName)
-    await ensureSummary(videoId, user.id, firstName)
-    await ensureSmartDescription(videoId, user.id, firstName)
-  })().catch(() => { /* enrichment is best-effort */ })
+  // no-op when the work is already done, so repeat plays are cheap. Delayed ~15s so
+  // the LLM work isn't competing with segment proxying at the moment playback starts.
+  setTimeout(() => {
+    void (async () => {
+      const firstName = await getUserFirstName(user.id)
+      await ensureTranscript(videoId, user.id, firstName)
+      await ensureSummary(videoId, user.id, firstName)
+      await ensureSmartDescription(videoId, user.id, firstName)
+    })().catch(() => { /* enrichment is best-effort */ })
+  }, 15_000)
 
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
 
@@ -1168,7 +1200,8 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // theoretically still be live, but this fast path is dominated by long-finished feed/saved
     // videos, so defaulting false here (rather than always paying for an InnerTube call) is the
     // right tradeoff. The Record button re-verifies via getLiveStatus() before it ever records.
-    return c.json({ videoId, title, author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), subscribers: await subscribersFor(v.channelId), description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    const [channelThumb, subscribers] = await Promise.all([avatarFor(sub, v.channelId), subscribersFor(v.channelId)])
+    return c.json({ videoId, title, author, channelId: v.channelId, channelThumb, subscribers, description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
@@ -1190,9 +1223,10 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     }
     const channelId = it.channelId ?? v?.channelId ?? null
     const sub = await subFor(channelId)
+    const [channelThumb, subscribers] = await Promise.all([avatarFor(sub, channelId), subscribersFor(channelId)])
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
-      channelThumb: await avatarFor(sub, channelId), subscribers: await subscribersFor(channelId), description: it.description ?? v?.description ?? null,
+      channelThumb, subscribers, description: it.description ?? v?.description ?? null,
       descriptionClean: v?.descriptionClean ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
       views: it.views ?? v?.views ?? null,
@@ -1205,10 +1239,16 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`
     const json = await new Promise<string>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', url], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      // yt-dlp can hang indefinitely on a network stall; the pooled callers get a timeout
+      // from lib/ytdlp's execFile options, but this raw spawn needs its own kill switch.
+      const timer = setTimeout(() => {
+        try { proc.kill('SIGKILL') } catch { /* already gone */ }
+        reject(new Error('yt-dlp timed out'))
+      }, 30_000)
       let out = ''
       proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
-      proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
-      proc.on('error', reject)
+      proc.on('close', (code) => { clearTimeout(timer); code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)) })
+      proc.on('error', (err) => { clearTimeout(timer); reject(err) })
     })
     const m = JSON.parse(json) as { title?: string; channel?: string; uploader?: string; channel_id?: string; description?: string; duration?: number; is_live?: boolean; view_count?: number; timestamp?: number; upload_date?: string }
     const mViews = m.view_count != null ? String(m.view_count) : null
@@ -1838,13 +1878,18 @@ youtubeRoute.get('/dearrow-thumb/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
   const time = parseFloat(c.req.query('t') ?? '')
   if (!isValidVideoId(videoId) || !Number.isFinite(time)) return c.json({ error: 'bad request' }, 400)
-  const upstream = await fetchDeArrowThumb(videoId, time)
-  if (!upstream) return c.json({ error: 'upstream' }, 502)
-  return new Response(upstream.body, {
-    headers: {
-      'content-type': upstream.headers.get('content-type') ?? 'image/webp',
-      'cache-control': 'public, max-age=86400',
-    },
+  // Upstream renders a video frame on demand — expensive for them, slow for us — but the
+  // frame for a given id@time never changes. Disk-cached server-side (lib/youtube/dearrow),
+  // immutable + ETag'd client-side, so repeat views cost a 304 at most.
+  const cacheControl = 'public, max-age=604800, immutable'
+  const etag = `"${deArrowThumbKey(videoId, time).slice(0, 32)}"`
+  if (c.req.header('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers: { etag, 'cache-control': cacheControl } })
+  }
+  const img = await getOrFetchDeArrowThumb(videoId, time)
+  if (!img) return c.json({ error: 'upstream' }, 502)
+  return new Response(img.data as unknown as BodyInit, {
+    headers: { 'content-type': img.contentType, 'cache-control': cacheControl, etag },
   })
 })
 
@@ -2047,8 +2092,10 @@ function hlsQuery(c: Context<AppEnv>): string {
   return q === 'auto' ? '' : `?q=${q}`
 }
 
+// Playlists are static for the life of a cached presentation (TTL 3h), so let the player
+// keep them 10 min instead of re-fetching on every quality flip / player re-open.
 const hlsPlaylistResponse = (c: Context<AppEnv>, body: string) =>
-  c.body(body, 200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'private, max-age=0' })
+  c.body(body, 200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'private, max-age=600' })
 
 const hlsUnavailable = (c: Context<AppEnv>, videoId: string) =>
   c.json({ error: 'No HLS presentation for this video', fallback: `/api/youtube/stream/${videoId}?kind=video` }, 404)
@@ -2103,7 +2150,9 @@ async function serveHlsTrack(c: Context<AppEnv>, kind: StreamKind) {
     }
     headers.set('content-type', kind === 'audio' ? 'audio/mp4' : 'video/mp4')
     headers.set('accept-ranges', 'bytes')
-    headers.set('cache-control', 'private, max-age=0')
+    // A byte range of an immutable DASH file never changes — cache hard so a replayed
+    // segment (seek back, rebuffer) is served from the player's own cache, not upstream.
+    headers.set('cache-control', 'private, max-age=31536000, immutable')
     return new Response(upstream.body, { status: upstream.status, headers })
   } catch {
     if (ac.signal.aborted) return new Response(null, { status: 499 })   // client seeked/closed

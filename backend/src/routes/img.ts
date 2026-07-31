@@ -18,7 +18,9 @@ imgRoute.get('/', requireAuth, async (c) => {
   const img = await getOrFetchProxyImageResized(u, c.req.query('w'))
   if (!img) return c.json({ error: 'Image unavailable' }, 404)
 
-  return new Response(new Uint8Array(img.data), {
+  // Buffer is a valid body at runtime; the cast sidesteps a TS Buffer-generic mismatch
+  // without copying the bytes (new Uint8Array(buf) would clone the whole image).
+  return new Response(img.data as unknown as BodyInit, {
     headers: {
       'Content-Type': img.contentType,
       'Cache-Control': 'public, max-age=604800, immutable',

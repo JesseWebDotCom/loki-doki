@@ -83,7 +83,21 @@ function podcastFromTier(tier: MediaTier, ceiling: ContentDials): PodcastPolicy 
 
 interface ProfileRow { dials: ContentDials; videoJson: string | null; podcastJson: string | null; kidSafe: boolean }
 
+// Short-lived per-user memo, in the style of allowlistViewFor (lib/videos/allowlist.ts):
+// videoPolicyFor runs several times per search/list request (the route + the filter
+// chokepoints), each paying a slug lookup + profile read. Profile edits are rare — the
+// admin routes invalidate on write, and 30s staleness is fine for a policy tier anyway.
+const rowCache = new Map<string, { at: number; row: ProfileRow | null }>()
+const ROW_CACHE_MS = 30_000
+
+export function invalidatePolicyTierCache(userId?: string): void {
+  if (userId) rowCache.delete(userId)
+  else rowCache.clear()
+}
+
 async function loadProfileRow(userId: string): Promise<ProfileRow | null> {
+  const hit = rowCache.get(userId)
+  if (hit && Date.now() - hit.at < ROW_CACHE_MS) return hit.row
   const slug = await getUserProfileSlug(userId)
   const [row] = await db.select({
     dials: contentProfiles.dials,
@@ -91,11 +105,12 @@ async function loadProfileRow(userId: string): Promise<ProfileRow | null> {
     podcastJson: contentProfiles.podcastJson,
     kidSafe: contentProfiles.kidSafeMedia,
   }).from(contentProfiles).where(eq(contentProfiles.slug, slug)).limit(1)
-  if (!row) return null
-  return {
+  const parsed: ProfileRow | null = row ? {
     dials: normalizeDials(JSON.parse(row.dials) as Partial<Record<DialKey, unknown>>),
     videoJson: row.videoJson, podcastJson: row.podcastJson, kidSafe: !!row.kidSafe,
-  }
+  } : null
+  rowCache.set(userId, { at: Date.now(), row: parsed })
+  return parsed
 }
 
 /** Resolve the video policy for a user. An admin per-medium override (video_json) may relax
