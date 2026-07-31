@@ -16,7 +16,7 @@ import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
-import { serveYtRecommended } from '@/lib/interests/videos'
+import { serveYtRecommendedDeep } from '@/lib/interests/videos'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -1743,10 +1743,11 @@ youtubeRoute.get('/recommended', async (c) => {
   // Per-user "no suggestions" limit (kids): serve nothing rather than trust the UI to hide.
   if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ videos: [], building: false })
 
-  // Endless scroll on the TV's Suggested page grows the ask; the pool holds
-  // ~150 ranked candidates, so deeper pages keep serving real picks.
-  const limit = Math.min(120, Math.max(1, parseInt(c.req.query('limit') ?? '24', 10) || 24))
-  const suggested = await serveYtRecommended(user.id, limit)
+  // Endless scroll grows the ask. The ranked pool covers the first ~120;
+  // past that the bottomless extension fans out live related videos from the
+  // feed's own tail (web-YouTube's endless home), capped at 600 per session.
+  const limit = Math.min(600, Math.max(1, parseInt(c.req.query('limit') ?? '24', 10) || 24))
+  const suggested = await serveYtRecommendedDeep(user.id, limit)
   if (!suggested.building && suggested.videos.length) {
     return c.json({ videos: suggested.videos, seeded: true, building: false })
   }

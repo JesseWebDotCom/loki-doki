@@ -551,6 +551,55 @@ export async function serveYtRecommended(
   return { videos: explained, building: false }
 }
 
+// ── Bottomless feed ─────────────────────────────────────────────────────────────
+// Web-YouTube's home never runs out: past the ranked pool (~150 candidates),
+// the feed keeps going via live related fan-out seeded from its own tail. The
+// extension is cached per user so every deeper page APPENDS instead of
+// recomputing, and expires so a later session rebuilds from fresh rotation.
+const DEEP_MAX = 600
+const DEEP_TTL_MS = 30 * 60_000
+const deepFeeds = new Map<string, { at: number; videos: ItVideo[] }>()
+
+export async function serveYtRecommendedDeep(
+  userId: string,
+  target: number,
+): Promise<{ videos: ItVideo[]; building: boolean }> {
+  const base = await serveYtRecommended(userId, Math.min(target, 120))
+  if (base.building || !base.videos.length || base.videos.length >= target) return base
+
+  const cached = deepFeeds.get(userId)
+  const ext = cached && Date.now() - cached.at < DEEP_TTL_MS ? cached.videos : []
+  if (ext !== cached?.videos) deepFeeds.set(userId, { at: Date.now(), videos: ext })
+
+  const watched = await watchedVideoRefs(userId)
+  const seen = new Set([...base.videos.map((v) => v.videoId), ...ext.map((v) => v.videoId)])
+  const want = Math.min(target, DEEP_MAX)
+
+  // A few bounded fan-out rounds per request: each deeper page tops the
+  // extension up incrementally rather than building the whole tail at once.
+  let rounds = 0
+  while (base.videos.length + ext.length < want && rounds < 3) {
+    rounds++
+    const seeds = (ext.length ? ext : base.videos).slice(-5).map((v) => v.videoId)
+    if (!seeds.length) break
+    const batches = await Promise.all(seeds.map((id) =>
+      tryInnertube('deep-related', () => innertubeRelated(id, 20), [] as ItVideo[])))
+    const fresh = await filterYtItemsForUser(userId,
+      batches.flat().filter((v) => !seen.has(v.videoId) && !watched.has(ytRef(v.videoId))))
+    const kept = dedupeNearDuplicates(fresh)
+    if (!kept.length) break
+    await enrichChannelThumbs(kept)
+    for (const v of kept) {
+      if (seen.has(v.videoId)) continue
+      seen.add(v.videoId)
+      ext.push(v)
+      if (base.videos.length + ext.length >= want) break
+    }
+  }
+  const tail = ext.map((v) => ({ ...v, why: 'More like the rest of your feed' }))
+  return { videos: [...base.videos, ...tail].slice(0, target), building: false }
+}
+
 /** Human-readable provenance for a served suggestion (real request: viewers
  *  should be able to hold a card and see why it is there). */
 function whyServed(entry: RankedCandidate): string {
