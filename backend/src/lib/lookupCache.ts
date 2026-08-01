@@ -104,16 +104,16 @@ export async function cachedLookupPut(namespace: string, key: string, ttlMs: num
 export async function cachedLookupStale<T>(
   namespace: string,
   key: string,
-): Promise<{ value: T | undefined; fresh: boolean }> {
+): Promise<{ value: T | undefined; fresh: boolean; createdAt?: number }> {
   const [row] = await db
-    .select({ data: lookupCache.data, expiresAt: lookupCache.expiresAt })
+    .select({ data: lookupCache.data, expiresAt: lookupCache.expiresAt, createdAt: lookupCache.createdAt })
     .from(lookupCache)
     .where(eq(lookupCache.key, rowKey(namespace, key)))
     .limit(1)
 
   if (!row) return { value: undefined, fresh: false }
   try {
-    return { value: JSON.parse(row.data) as T, fresh: row.expiresAt > Date.now() }
+    return { value: JSON.parse(row.data) as T, fresh: row.expiresAt > Date.now(), createdAt: row.createdAt }
   } catch {
     return { value: undefined, fresh: false }
   }

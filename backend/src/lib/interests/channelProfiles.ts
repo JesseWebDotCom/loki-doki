@@ -13,7 +13,7 @@ import { db } from '@/db'
 import { ytSubscriptions, ytVideos } from '@/db/schema'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
-import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
+import { cachedLookup, cachedLookupStale, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { logger } from '@/lib/logger'
 
 // Recent upload titles sampled per channel (the LLM sees these plus the name).
@@ -76,8 +76,17 @@ function parseProfile(raw: string): { what: string; topics: string[] } | null {
  *  uploads that change the sample trigger a re-profile even inside the TTL. LLM
  *  transport failures throw out of the fetcher (nothing cached, retried next build)
  *  and surface here as null; unusable model output caches as null. */
-async function profileChannel(channelId: string, channelName: string, titles: string[]): Promise<ChannelProfile | null> {
+async function profileChannel(channelId: string, channelName: string, titles: string[], cachedOnly = false): Promise<ChannelProfile | null> {
   const sampleHash = createHash('sha256').update(titles.join('\n')).digest('hex').slice(0, 16)
+  // Cache-only mode (diagnostics): return whatever profile is stored, stale or
+  // not, and never invoke the LLM fetcher.
+  if (cachedOnly) {
+    const { value } = await cachedLookupStale<{ what: string; topics: string[] } | null>(
+      CACHE_NS,
+      `${channelId}:${sampleHash}`,
+    )
+    return value ? { channelId, channelName, ...value } : null
+  }
   const cached = await cachedLookup<{ what: string; topics: string[] } | null>(
     CACHE_NS,
     `${channelId}:${sampleHash}`,
@@ -103,7 +112,7 @@ async function profileChannel(channelId: string, channelName: string, titles: st
 /** All profiles for a user's subscribed channels, built lazily with a small
  *  concurrency cap (cache hits are free; only new/shifted channels pay an LLM
  *  call). Channels the model can't profile are simply absent. Never throws. */
-export async function buildChannelProfiles(userId: string): Promise<ChannelProfile[]> {
+export async function buildChannelProfiles(userId: string, cachedOnly = false): Promise<ChannelProfile[]> {
   try {
     const subs = await db
       .select({ id: ytSubscriptions.id, channelId: ytSubscriptions.externalId, title: ytSubscriptions.title })
@@ -138,7 +147,7 @@ export async function buildChannelProfiles(userId: string): Promise<ChannelProfi
       Array.from({ length: Math.min(PROFILE_CONCURRENCY, queue.length) }, async () => {
         while (next < queue.length) {
           const s = queue[next++]!
-          const p = await profileChannel(s.channelId, s.title || s.channelId, titlesBySub.get(s.id) ?? [])
+          const p = await profileChannel(s.channelId, s.title || s.channelId, titlesBySub.get(s.id) ?? [], cachedOnly)
           if (p) out.push(p)
         }
       }),
@@ -153,8 +162,8 @@ export async function buildChannelProfiles(userId: string): Promise<ChannelProfi
 /** Deduped topics across the user's subscriptions, each with the channel names
  *  that share it, ranked by how many channels do (two prank channels make "funny
  *  pranks" a stronger interest than one). Deterministic; empty on any failure. */
-export async function subscriptionTopics(userId: string): Promise<SubscriptionTopic[]> {
-  const profiles = await buildChannelProfiles(userId)
+export async function subscriptionTopics(userId: string, cachedOnly = false): Promise<SubscriptionTopic[]> {
+  const profiles = await buildChannelProfiles(userId, cachedOnly)
   const byTopic = new Map<string, SubscriptionTopic>()
   for (const p of profiles) {
     for (const t of p.topics) {

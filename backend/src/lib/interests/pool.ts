@@ -122,6 +122,21 @@ export async function servePool(userId: string, domain: InterestDomain, opts: Se
   return { entries: slice, building: false }
 }
 
+/** Read-only pool snapshot for diagnostics: the raw stored entries plus the age
+ *  of the row since its last build (null when no pool row exists). Never kicks a
+ *  build, never applies impressions, never records anything. */
+export async function peekPool(
+  userId: string,
+  domain: InterestDomain,
+  variant = '',
+): Promise<{ entries: RankedCandidate[]; ageMs: number | null }> {
+  const { value, createdAt } = await cachedLookupStale<RankedCandidate[]>(NAMESPACE, poolKey(userId, domain, variant))
+  return {
+    entries: Array.isArray(value) ? value : [],
+    ageMs: typeof createdAt === 'number' ? Date.now() - createdAt : null,
+  }
+}
+
 /** Box-Muller standard normal — good enough for serve-time dithering. */
 function gaussian(): number {
   const u = Math.max(Number.EPSILON, Math.random())

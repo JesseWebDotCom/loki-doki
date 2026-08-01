@@ -18,6 +18,8 @@ import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { serveYtRecommendedDeep } from '@/lib/interests/videos'
+import { peekPool } from '@/lib/interests/pool'
+import { buildChannelProfiles, subscriptionTopics } from '@/lib/interests/channelProfiles'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
@@ -864,6 +866,39 @@ youtubeRoute.put('/admin/limits/:userId', requireAdmin, async (c) => {
   // null clears the override (stored as null → treated as "follows global default").
   await setAppSetting(`youtube.save_max_height.${userId}`, height)
   return c.json({ ok: true })
+})
+
+// Interest-engine diagnostics for the recommended feed: what the channel profiler
+// thinks the admin's subscriptions are about, what the candidate pool holds per
+// bucket (and how old it is), and what a fresh serve actually returns with its
+// provenance. Read-only: channel profiles come from cache only (no LLM builds are
+// triggered), and the only side effect is the impression recording a normal serve
+// already performs.
+youtubeRoute.get('/admin/interests/debug', requireAdmin, async (c) => {
+  const user = c.get('user')
+  const [subTopics, profiles, pool] = await Promise.all([
+    subscriptionTopics(user.id, true),
+    buildChannelProfiles(user.id, true),
+    peekPool(user.id, 'videos'),
+  ])
+  const poolBuckets: Record<string, number> = {}
+  for (const e of pool.entries) {
+    if (!e.ref.startsWith('youtube:')) continue
+    poolBuckets[e.bucket] = (poolBuckets[e.bucket] ?? 0) + 1
+  }
+  const bucketByRef = new Map(pool.entries.map((e) => [e.ref, e.bucket]))
+  const served = await serveYtRecommendedDeep(user.id, 24)
+  return c.json({
+    subscriptionTopics: subTopics,
+    channelProfiles: profiles.map((p) => ({ channel: p.channelName, what: p.what, topics: p.topics })),
+    poolBuckets,
+    poolAge: pool.ageMs,
+    servedSample: served.videos.slice(0, 24).map((v) => ({
+      ref: `youtube:${v.videoId}`,
+      bucket: bucketByRef.get(`youtube:${v.videoId}`) ?? null,
+      why: v.why ?? null,
+    })),
+  })
 })
 
 // ── Download to device: list formats, run export, stream the file ───────────────

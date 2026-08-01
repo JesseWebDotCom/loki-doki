@@ -85,6 +85,13 @@ const SUBTOPIC_SEARCH_LIMIT = 10
 // Share of a served page reserved for sub-topic candidates (min 2 when any exist):
 // "you subscribe to guitar channels, here's guitar content from channels you don't".
 const SUBTOPIC_SERVE_SHARE = 0.15
+// Hard per-seed cap on "Because you just watched <seed>" items in any served page.
+// Both single-watch expanders (the live layer's hot pool and the deep related
+// fan-out) lack embedding vectors, so the semantic share cap cannot see them;
+// this absolute cap is the backstop that makes a single-seed flood structurally
+// impossible. Applies per seed in composeFeed (hot items) and in the deep
+// extension (fan-out items), independently of the share-based caps.
+const DEEP_SEED_CAP = 3
 
 const ytRef = (videoId: string) => `youtube:${videoId}`
 // Watch SECONDS, not just completion fraction, shape the signal (YouTube's
@@ -904,6 +911,13 @@ function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number,
   }
   const seen = new Set<string>()
   const perCreator = new Map<string, number>()
+  // Per-seed cap for the live layer's hot items: every item spawned by one seed
+  // watch carries the exact same why string, so counting by why is counting by
+  // seed. Without this, one seed's hot cluster (up to 24 items) can flood the
+  // page through the hot slots and their fallback chains.
+  const perSeed = new Map<string, number>()
+  const isSeedItem = (v: Suggested) => !!v.why?.startsWith('Because you just watched')
+  const seedOk = (v: Suggested) => !isSeedItem(v) || (perSeed.get(v.why!) ?? 0) < DEEP_SEED_CAP
   const out: Suggested[] = []
 
   const prefOk = (v: Suggested, pref?: 'short' | 'long' | 'evergreen') =>
@@ -913,12 +927,14 @@ function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number,
       !seen.has(v.videoId)
       && !watched.has(ytRef(v.videoId))
       && prefOk(v, pref)
+      && seedOk(v)
       && (perCreator.get((v.author ?? '').toLowerCase()) ?? 0) < SERVE_CHANNEL_CAP)
     if (i < 0) return null
     const [v] = arr.splice(i, 1)
     seen.add(v!.videoId)
     const creator = (v!.author ?? '').toLowerCase()
     if (creator) perCreator.set(creator, (perCreator.get(creator) ?? 0) + 1)
+    if (isSeedItem(v!)) perSeed.set(v!.why!, (perSeed.get(v!.why!) ?? 0) + 1)
     return v!
   }
 
@@ -985,7 +1001,7 @@ function semanticClusterIds(entries: RankedCandidate[]): Map<string, number> {
  *     (any channel), same swap mechanics.
  *  4. Exploration quota: items outside the page's dominant clusters likewise
  *     swap in, so part of every page looks past what the user already binges. */
-function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate>, target: number): ItVideo[] {
+function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, RankedCandidate>, target: number): V[] {
   const clusterCap = Math.max(2, Math.ceil(target * CLUSTER_SHARE_CAP))
   const semanticCap = Math.max(2, Math.ceil(target * SEMANTIC_SHARE_CAP))
   // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
@@ -1007,8 +1023,8 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
   const perCluster = new Map<string, number>()
   const perSemantic = new Map<number, number>()
   const servedIds = new Set<string>()
-  const served: ItVideo[] = []
-  const overflow: ItVideo[] = []
+  const served: V[] = []
+  const overflow: V[] = []
   let trendingServed = 0
 
   const bump = (v: ItVideo, dir: 1 | -1) => {
@@ -1024,7 +1040,7 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     const chan = chanOf(v)
     return !!chan && (perChannel.get(chan) ?? 0) >= SERVE_CHANNEL_CAP
   }
-  const admit = (v: ItVideo) => {
+  const admit = (v: V) => {
     bump(v, 1)
     servedIds.add(v.videoId)
     served.push(v)
@@ -1061,7 +1077,7 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
   // tail-most victim from the currently largest eligible cluster, so downstream
   // composition keeps the quota item instead of trimming it off the tail.
   const quotaIds = new Set<string>()
-  const swapIn = (v: ItVideo, victims?: ReadonlySet<string>): boolean => {
+  const swapIn = (v: V, victims?: ReadonlySet<string>): boolean => {
     let victim: string | null = null
     let max = 1
     for (const [cl, n] of perCluster) {
@@ -1087,7 +1103,7 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     }
     return false
   }
-  const admitOrSwap = (v: ItVideo, victims?: ReadonlySet<string>): boolean => {
+  const admitOrSwap = (v: V, victims?: ReadonlySet<string>): boolean => {
     if (channelFull(v)) return false
     if (served.length < target) {
       admit(v)
@@ -1142,10 +1158,19 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
   return served
 }
 
-export async function serveYtRecommended(
-  userId: string,
-  target = 24,
-): Promise<{ videos: ItVideo[]; building: boolean }> {
+/** Everything the deep path needs from a base serve, beyond the composed page:
+ *  the candidate index (for provenance-aware final assembly) and the quota-bucket
+ *  videos that survived policy filtering (so the deep path's own quota passes
+ *  always have subscription and sub-topic material to deliver, even when page
+ *  composition dropped them from the base). */
+interface ServedBase {
+  videos: Suggested[]
+  building: boolean
+  byRef: Map<string, RankedCandidate>
+  quotaCandidates: ItVideo[]
+}
+
+async function serveYtRecommendedCore(userId: string, target: number): Promise<ServedBase> {
   const watchedRefs = await watchedVideoRefs(userId)
   const build = () => buildVideoPool(userId)
   const { entries, building } = await servePool(userId, DOMAIN, {
@@ -1154,7 +1179,7 @@ export async function serveYtRecommended(
     build,
     entryFilter: (e) => e.ref.startsWith('youtube:'),
   })
-  if (building || !entries.length) return { videos: [], building }
+  if (building || !entries.length) return { videos: [], building, byRef: new Map(), quotaCandidates: [] }
 
   // Second, bucket-filtered pull backing the subscription quota: subscription
   // uploads rank on recency and a prior rather than the taste centroids, so a
@@ -1199,7 +1224,22 @@ export async function serveYtRecommended(
   // collections, topical trending and format quotas over the ranked base.
   const newestWatchId = (await recentYtWatches(userId, 1))[0]?.videoId ?? null
   const layer = peekLiveLayer(userId, newestWatchId)
-  return { videos: composeFeed(explained, layer, target, watchedRefs), building: false }
+  // Quota-bucket videos that passed the policy filter, whether or not the page
+  // kept them: the deep path re-runs the quota passes over base + extension and
+  // needs these as candidates.
+  const quotaCandidates = kept.filter((v) => {
+    const b = byRef.get(ytRef(v.videoId))?.bucket
+    return b === 'subscription' || b === 'sub-topic'
+  })
+  return { videos: composeFeed(explained, layer, target, watchedRefs), building: false, byRef, quotaCandidates }
+}
+
+export async function serveYtRecommended(
+  userId: string,
+  target = 24,
+): Promise<{ videos: ItVideo[]; building: boolean }> {
+  const { videos, building } = await serveYtRecommendedCore(userId, target)
+  return { videos, building }
 }
 
 // ── Bottomless feed ─────────────────────────────────────────────────────────────
@@ -1209,58 +1249,125 @@ export async function serveYtRecommended(
 // recomputing, and expires so a later session rebuilds from fresh rotation.
 const DEEP_MAX = 600
 const DEEP_TTL_MS = 30 * 60_000
-const deepFeeds = new Map<string, { at: number; videos: ItVideo[] }>()
+// Extension items keep the seed video id that earned them: the cache is
+// append-only and every served page is a prefix of base + cache, so enforcing
+// DEEP_SEED_CAP at insertion time guarantees the cap holds for every page.
+const deepFeeds = new Map<string, { at: number; items: Array<{ seed: string; video: Suggested }> }>()
+
+/** Synthetic candidate entry for a live related-extension item: bucket 'related'
+ *  with the seed id as the provenance topic, so assembleDiverseFeed's cluster
+ *  share cap sees one cluster per fan-out seed. These carry no embedding vector,
+ *  so the semantic cap cannot see them; DEEP_SEED_CAP is the hard backstop. */
+const extensionEntry = (v: ItVideo, seed: string): RankedCandidate => ({
+  ref: ytRef(v.videoId),
+  title: v.title,
+  creatorId: v.channelId ?? null,
+  creatorName: v.author ?? null,
+  topics: [seed],
+  publishedAt: null,
+  bucket: 'related',
+  payload: v,
+  score: 0,
+})
 
 export async function serveYtRecommendedDeep(
   userId: string,
   target: number,
-): Promise<{ videos: ItVideo[]; building: boolean }> {
-  const base = await serveYtRecommended(userId, Math.min(target, 120))
-  if (base.building || !base.videos.length || base.videos.length >= target) return base
+): Promise<{ videos: Array<ItVideo & { why?: string }>; building: boolean }> {
+  const want = Math.min(target, DEEP_MAX)
+  const base = await serveYtRecommendedCore(userId, Math.min(want, 120))
+  if (base.building || !base.videos.length) return { videos: base.videos, building: base.building }
 
   const cached = deepFeeds.get(userId)
-  const ext = cached && Date.now() - cached.at < DEEP_TTL_MS ? cached.videos : []
-  if (ext !== cached?.videos) deepFeeds.set(userId, { at: Date.now(), videos: ext })
+  const items = cached && Date.now() - cached.at < DEEP_TTL_MS ? cached.items : []
+  if (items !== cached?.items) deepFeeds.set(userId, { at: Date.now(), items })
 
   const watched = await watchedVideoRefs(userId)
-  const seen = new Set([...base.videos.map((v) => v.videoId), ...ext.map((v) => v.videoId)])
-  const want = Math.min(target, DEEP_MAX)
+  const seen = new Set([...base.videos.map((v) => v.videoId), ...items.map((i) => i.video.videoId)])
 
   // Per-channel cap across the whole deep feed too: related fan-out loves to hand
   // back ten more videos from the channel it was seeded with.
   const chanKey = (v: ItVideo) => v.channelId ?? (v.author ?? '').toLowerCase()
   const perChannel = new Map<string, number>()
-  for (const v of [...base.videos, ...ext]) {
+  for (const v of [...base.videos, ...items.map((i) => i.video)]) {
     const k = chanKey(v)
     if (k) perChannel.set(k, (perChannel.get(k) ?? 0) + 1)
   }
+  // Per-seed tallies backing the hard DEEP_SEED_CAP.
+  const perSeed = new Map<string, number>()
+  for (const i of items) perSeed.set(i.seed, (perSeed.get(i.seed) ?? 0) + 1)
 
   // A few bounded fan-out rounds per request: each deeper page tops the
   // extension up incrementally rather than building the whole tail at once.
   let rounds = 0
-  while (base.videos.length + ext.length < want && rounds < 3) {
+  while (base.videos.length + items.length < want && rounds < 3) {
     rounds++
-    const seeds = (ext.length ? ext : base.videos).slice(-5).map((v) => v.videoId)
+    const tailPool = items.length ? items.map((i) => i.video) : base.videos
+    const seeds = tailPool.slice(-5).map((v) => v.videoId)
+      .filter((id) => (perSeed.get(id) ?? 0) < DEEP_SEED_CAP)
     if (!seeds.length) break
-    const batches = await Promise.all(seeds.map((id) =>
-      tryInnertube('deep-related', () => innertubeRelated(id, 20), [] as ItVideo[])))
-    const fresh = await filterYtItemsForUser(userId,
-      batches.flat().filter((v) => !seen.has(v.videoId) && !watched.has(ytRef(v.videoId))))
-    const kept = dedupeNearDuplicates(fresh)
+    const batches = await Promise.all(seeds.map(async (id) => ({
+      seed: id,
+      videos: await tryInnertube('deep-related', () => innertubeRelated(id, 20), [] as ItVideo[]),
+    })))
+    // Remember which seed earned each new video before filtering flattens them.
+    const seedOf = new Map<string, string>()
+    const fresh: ItVideo[] = []
+    for (const b of batches) {
+      for (const v of b.videos) {
+        if (seen.has(v.videoId) || watched.has(ytRef(v.videoId)) || seedOf.has(v.videoId)) continue
+        seedOf.set(v.videoId, b.seed)
+        fresh.push(v)
+      }
+    }
+    const kept = dedupeNearDuplicates(await filterYtItemsForUser(userId, fresh))
     if (!kept.length) break
     await enrichChannelThumbs(kept)
     for (const v of kept) {
       if (seen.has(v.videoId)) continue
+      const seed = seedOf.get(v.videoId)
+      if (!seed || (perSeed.get(seed) ?? 0) >= DEEP_SEED_CAP) continue
       const k = chanKey(v)
       if (k && (perChannel.get(k) ?? 0) >= SERVE_CHANNEL_CAP) continue
       if (k) perChannel.set(k, (perChannel.get(k) ?? 0) + 1)
+      perSeed.set(seed, (perSeed.get(seed) ?? 0) + 1)
       seen.add(v.videoId)
-      ext.push(v)
-      if (base.videos.length + ext.length >= want) break
+      items.push({ seed, video: { ...v, why: 'More like the rest of your feed' } })
+      if (base.videos.length + items.length >= want) break
     }
   }
-  const tail = ext.map((v) => ({ ...v, why: 'More like the rest of your feed' }))
-  return { videos: [...base.videos, ...tail].slice(0, target), building: false }
+
+  // Final assembly over base + quota candidates + extension: the same semantic
+  // cap, provenance cluster cap, channel cap and subscription / sub-topic /
+  // exploration quota passes as the non-deep serve, applied to every page the
+  // deep path returns. Extension items enter with per-seed synthetic entries.
+  const byRef = new Map(base.byRef)
+  for (const { seed, video } of items) {
+    const ref = ytRef(video.videoId)
+    if (!byRef.has(ref)) byRef.set(ref, extensionEntry(video, seed))
+  }
+  // Subscription and sub-topic candidates the composed base dropped get another
+  // chance here, so the quota passes always have material to deliver.
+  const quotaExtras: Suggested[] = base.quotaCandidates.filter((v) => !seen.has(v.videoId))
+  const combined: Suggested[] = [...base.videos, ...quotaExtras, ...items.map((i) => i.video)]
+  const assembled = assembleDiverseFeed(combined, byRef, want)
+  const videos = assembled.map((v) => {
+    if (v.why) return v
+    const entry = byRef.get(ytRef(v.videoId))
+    return { ...v, why: entry ? whyServed(entry) : undefined }
+  })
+
+  // Quota extras that made the page: thumbs (base enriched only what it served)
+  // and impression recording, so rotation stays honest for them too.
+  const extraServed = new Set(quotaExtras.map((v) => v.videoId))
+  const servedExtras = videos.filter((v) => extraServed.has(v.videoId))
+  if (servedExtras.length) {
+    await enrichChannelThumbs(servedExtras)
+    await recordServed(userId, DOMAIN,
+      servedExtras.map((v) => byRef.get(ytRef(v.videoId))).filter((e): e is RankedCandidate => !!e))
+  }
+
+  return { videos: videos.slice(0, target), building: false }
 }
 
 /** Human-readable provenance for a served suggestion (real request: viewers
