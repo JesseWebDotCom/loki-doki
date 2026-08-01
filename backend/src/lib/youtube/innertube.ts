@@ -1043,35 +1043,56 @@ export async function innertubePlayerStreams(videoId: string, timeout = 6000): P
   return p
 }
 
-/** Caption track straight from the player response — the yt-dlp-free path for
- * transcripts. Prefers a human English track, then auto (asr) English, then
- * whatever leads the list. The returned URL serves WebVTT via &fmt=vtt. */
-export async function innertubeCaptionTrack(videoId: string, timeout = 6000): Promise<{ lang: string; url: string } | null> {
+/** Caption tracks straight from player responses — the yt-dlp-free path for
+ * transcripts. The VR client (our streams workhorse) often OMITS captions, so
+ * this asks several clients in turn and returns every distinct candidate;
+ * the caller fetches until one actually serves WebVTT (a timedtext URL can
+ * 200-empty when gated). Prefers human English, then auto English, then the
+ * list head, per client. */
+export async function innertubeCaptionTracks(videoId: string, timeout = 6000): Promise<{ lang: string; url: string }[]> {
   const visitorData = await getVisitorData()
-  const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': VR_UA,
-      'X-Youtube-Client-Name': '28',
-      'X-Youtube-Client-Version': VR_CLIENT.clientVersion,
-      Origin: 'https://www.youtube.com',
+  const clients: { headers: Record<string, string>; client: Record<string, unknown> }[] = [
+    {
+      headers: { 'User-Agent': VR_UA, 'X-Youtube-Client-Name': '28', 'X-Youtube-Client-Version': VR_CLIENT.clientVersion },
+      client: VR_CLIENT,
     },
-    body: JSON.stringify({ context: { client: { ...VR_CLIENT, ...(visitorData ? { visitorData } : {}) } }, videoId, contentCheckOk: true, racyCheckOk: true }),
-    signal: AbortSignal.timeout(timeout),
-  })
-  if (!res.ok) return null
-  const data: any = await res.json()
-  const tracks: any[] = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
-  if (!tracks.length) return null
-  const pick =
-    tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en') && t?.kind !== 'asr') ??
-    tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en')) ??
-    tracks[0]
-  const base = pick?.baseUrl
-  if (typeof base !== 'string' || !base) return null
-  const url = base.includes('fmt=') ? base : `${base}&fmt=vtt`
-  return { lang: (pick.languageCode as string | undefined) ?? 'en', url }
+    {
+      headers: { 'X-Youtube-Client-Name': '7', 'X-Youtube-Client-Version': '7.20250120.19.00' },
+      client: { clientName: 'TVHTML5', clientVersion: '7.20250120.19.00', hl: 'en', gl: 'US' },
+    },
+    {
+      headers: { 'X-Youtube-Client-Name': '1', 'X-Youtube-Client-Version': '2.20250620.00.00' },
+      client: { clientName: 'WEB', clientVersion: '2.20250620.00.00', hl: 'en', gl: 'US' },
+    },
+  ]
+  const out: { lang: string; url: string }[] = []
+  const seen = new Set<string>()
+  for (const { headers, client } of clients) {
+    try {
+      const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://www.youtube.com', ...headers },
+        body: JSON.stringify({ context: { client: { ...client, ...(visitorData ? { visitorData } : {}) } }, videoId, contentCheckOk: true, racyCheckOk: true }),
+        signal: AbortSignal.timeout(timeout),
+      })
+      if (!res.ok) continue
+      const data: any = await res.json()
+      const tracks: any[] = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
+      if (!tracks.length) continue
+      const pick =
+        tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en') && t?.kind !== 'asr') ??
+        tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en')) ??
+        tracks[0]
+      const base = pick?.baseUrl
+      if (typeof base !== 'string' || !base || seen.has(base)) continue
+      seen.add(base)
+      out.push({
+        lang: (pick.languageCode as string | undefined) ?? 'en',
+        url: base.includes('fmt=') ? base : `${base}&fmt=vtt`,
+      })
+    } catch { /* next client */ }
+  }
+  return out
 }
 
 async function doInnertubePlayerStreams(videoId: string, timeout: number): Promise<ItStreams | null> {
