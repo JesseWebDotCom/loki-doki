@@ -235,6 +235,17 @@ const hubToCandidate = (v: VideoItem, bucket: Candidate['bucket']): Candidate =>
   payload: v,
 })
 
+// Hard-news detection, shared by the serve gate AND seed selection: watching one
+// crime headline must never spawn a "Because you just watched" crime cluster.
+const NEWS_CHANNEL = /\b(news(hour)?|breaking|associated press|reuters|inside edition|sky news|bbc|cnn|msnbc|nbc|abc|cbs|fox news|newsmax|c-?span|telemundo|univision)\b/i
+// Two halves: word-bounded phrases, then patterns that end mid-word or at punctuation
+// (a trailing \b after "," or inside "assassination" never matches).
+const NEWS_TITLE =
+  /\b(breaking(\s+news)?|murder(ed)?|shooting|shot (dead|by)|stabb(ed|ing)|kill(s|ed)? (man|woman|teen|child|officer|suspect)|(planned|plott?ed|tried) to kill|found dead|dead after|dies after|death toll|manhunt|crackdown|indict(ed|ment)|arraign|verdict|press conference|sex offender|predator|pedophile|molest(ed|er|ing)?|groom(er|ing)|traffick(ing|er)?|rap(e|ist)|(sexual|child) abuse|assault(ed)?|arrest(ed)?|sentenc(ed|ing)|convict(ed|ion)|charged with|on trial|pleads? guilty|body ?cam)\b|\b(assassinat|(dead|dies)\s*[,:;])/i
+/** A watch signal that is itself hard news — consumed, not an interest. */
+const isNewsSignal = (s: InterestSignal) =>
+  NEWS_CHANNEL.test(s.creatorName ?? '') || NEWS_TITLE.test(s.title)
+
 /** Pick seeds across ERAS of watch history rather than tertiles of a recency-sorted
  *  list (tertiles of a mostly-recent list are still mostly recent). Buckets: this
  *  week, this month, this quarter, and the rest of the year. Every era that has
@@ -327,7 +338,9 @@ export async function buildVideoPool(userId: string): Promise<void> {
     : []
 
   // Fan-out, all best-effort: a failing source degrades its bucket, never the build.
-  const seeds = stratifiedSeeds(ytSignals, 3, 12)
+  // News watches never seed: one crime headline was spawning a whole related
+  // cluster plus "Because you just watched <crime story>" copy (real feedback).
+  const seeds = stratifiedSeeds(ytSignals.filter((s) => !isNewsSignal(s)), 3, 12)
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
@@ -438,11 +451,6 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // from "wants breaking crime news", so hard news needs the one signal that CAN: the
   // user actually watching that outlet (affinity threshold, uniform across buckets —
   // creator-latest candidates carry their channel's affinity after the stamping above).
-  const NEWS_CHANNEL = /\b(news(hour)?|breaking|associated press|reuters|inside edition|sky news|bbc|cnn|msnbc|nbc|abc|cbs|fox news|newsmax|c-?span|telemundo|univision)\b/i
-  // Two halves: word-bounded phrases, then patterns that end mid-word or at punctuation
-  // (a trailing \b after "," or inside "assassination" never matches).
-  const NEWS_TITLE =
-    /\b(breaking(\s+news)?|murder(ed)?|shooting|shot (dead|by)|stabb(ed|ing)|kill(s|ed)? (man|woman|teen|child|officer|suspect)|(planned|plott?ed|tried) to kill|found dead|dead after|dies after|death toll|manhunt|crackdown|indict(ed|ment)|arraign|verdict|press conference)\b|\b(assassinat|(dead|dies)\s*[,:;])/i
   const isHardNews = (e: RankedCandidate) => NEWS_CHANNEL.test(e.creatorName ?? '') || NEWS_TITLE.test(e.title)
   // Age gate: platform "related" on low-traffic sources (Vimeo especially) surfaces
   // decade-old shorts. Nobody's "suggested for you" should lead with 14-year-old videos
