@@ -10,13 +10,16 @@ import { readFile } from 'node:fs/promises'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { parseVttCues, segmentByEmbeddings, timedDigest } from '@/lib/youtube/aiChapters'
 import { ollamaChat } from '@/llm/ollama'
-import { getFastModel } from '@/lib/models'
+import { getModel } from '@/lib/models'
 import { cachedLookupStale, cachedLookupPut, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { logger } from '@/lib/logger'
 
 export interface PopupFact { t: number; text: string }
 
-const NAMESPACE = 'yt-popup-facts'
+// v2: main model instead of the fast tier (facts need world knowledge the
+// small model doesn't have — it obeyed "silence is better" with [] every
+// time). Namespace bump discards every cached empty at once.
+const NAMESPACE = 'yt-popup-facts-v2'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -85,16 +88,25 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   const numbered = segments
     .map((s, i) => `${i + 1}. ${s.text.slice(0, 500)}`)
     .join('\n\n')
-  const model = await getFastModel()
+  // Background job — latency is free, so use the MAIN model: trivia needs
+  // world knowledge, and the fast tier answered [] essentially always.
+  const model = await getModel()
   const result = await ollamaChat(model, [
     { role: 'system', content: FACTS_SYSTEM },
     { role: 'user', content: numbered },
-  ], undefined, { temperature: 0.3, num_predict: 700 })
+  ], undefined, { temperature: 0.3, num_predict: 900 })
 
-  const m = result.message.content.match(/\[[\s\S]*\]/)
-  if (!m) return null
+  const raw = result.message.content
+  const m = raw.match(/\[[\s\S]*\]/)
+  if (!m) {
+    logger.info({ len: raw.length, head: raw.slice(0, 120) }, 'yt popup facts: no JSON array in reply')
+    return null
+  }
   let parsed: unknown
-  try { parsed = JSON.parse(m[0]) } catch { return null }
+  try { parsed = JSON.parse(m[0]) } catch {
+    logger.info({ len: m[0].length, head: m[0].slice(0, 120) }, 'yt popup facts: JSON parse failed')
+    return null
+  }
   if (!Array.isArray(parsed)) return null
 
   const facts: PopupFact[] = []
