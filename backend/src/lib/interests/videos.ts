@@ -347,11 +347,15 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // Deterministic day-based rotation (no Math.random) walks the ranked topic list so
   // different builds explore different topics while one build stays reproducible.
   const allSubTopics = await subscriptionTopics(userId).catch(() => [] as SubscriptionTopic[])
-  const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000))
+  // Rotate per pool-build window (6h), STRIDED by the pick count: verified live
+  // that a user can carry 260 derived topics, and a 6-per-DAY walk takes six
+  // weeks to cycle - guitar never showed. Four windows a day x 6 topics covers
+  // the whole list in ~11 days, and the stride keeps windows disjoint.
+  const windowIndex = Math.floor(Date.now() / (6 * 60 * 60 * 1000))
   const subTopicPicks = allSubTopics.length
     ? Array.from(
         { length: Math.min(SUBTOPIC_QUERIES_PER_BUILD, allSubTopics.length) },
-        (_, i) => allSubTopics[(dayIndex + i) % allSubTopics.length]!,
+        (_, i) => allSubTopics[(windowIndex * SUBTOPIC_QUERIES_PER_BUILD + i) % allSubTopics.length]!,
       )
     : []
 
