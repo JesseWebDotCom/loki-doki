@@ -27,6 +27,10 @@ const BUCKET_PRIOR: Record<Candidate['bucket'], number> = {
   // scale), so its picks carry a strong prior and bring the variety users miss.
   'yt-home': 0.9,
   'topic-search': 0.85,
+  // A subscription is the strongest stated-intent signal the engine has: the user
+  // literally asked for this channel. High prior so ranking cannot bury the
+  // subscribed-but-unwatched channels the bucket exists to surface.
+  subscription: 0.9,
   'creator-latest': 0.8,
   trending: 0.5,
 }

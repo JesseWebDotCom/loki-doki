@@ -1,6 +1,6 @@
 // Videos domain for the interest engine: signals from YouTube + hub (reddit/tiktok/vimeo)
 // watch history, candidates fanned out across InnerTube related/search/channel, hub
-// provider related, and trending backfill. Replaces the old /recommended internals, which
+// provider related, recent subscription uploads, and trending backfill. Replaces the old /recommended internals, which
 // seeded only the newest 4-5 watches — this build samples seeds across the whole 90-day
 // window (stratified by recency tertile) and adds interest-topic searches, so suggestions
 // track what the user is INTO, not just what they watched last night.
@@ -37,6 +37,33 @@ const DOMAIN = 'videos' as const
 // trailers. Era-bucketed seeding below keeps recency from dominating.
 const WINDOW_MS = 365 * 24 * 60 * 60 * 1000
 const HUB_SOURCES: GenericVideoSource[] = ['reddit', 'tiktok', 'vimeo']
+
+// ── Diversity + subscription-bucket knobs (all tunable) ─────────────────────────
+// Hard cap: max videos from any one channel in a served page.
+const SERVE_CHANNEL_CAP = 3
+// Fixation damper: max share of a served page any one interest cluster may take.
+// A cluster is provenance (a related-fan-out seed, a topic query, or a bucket),
+// the engine's stand-in for explicit topic clustering.
+const CLUSTER_SHARE_CAP = 0.35
+// Exploration: share of every served page reserved for items outside the dominant
+// clusters (subscription uploads from unwatched channels count toward it).
+const EXPLORE_SHARE = 0.15
+// Share of every served page reserved for the subscription bucket, so
+// subscribed-but-unwatched interests (those learn-guitar channels) reliably land.
+const SUB_SERVE_SHARE = 0.12
+// Subscription bucket sampling: uploads no older than this, from rows the RSS
+// poller already keeps fresh in yt_videos (no extra InnerTube calls).
+const SUB_UPLOAD_WINDOW_MS = 60 * 24 * 60 * 60 * 1000
+// Per-channel candidate caps inside the bucket. Channels with zero recent watch
+// activity get the higher cap: surfacing them is the whole point of the bucket.
+const SUB_PER_CHANNEL_UNWATCHED = 2
+const SUB_PER_CHANNEL_WATCHED = 1
+// Total subscription candidates fed into ranking per pool build.
+const SUB_BUCKET_MAX = 40
+// How far back a play still counts as "the user actually watches this channel".
+const SUB_RECENT_WATCH_MS = 90 * 24 * 60 * 60 * 1000
+// Score boost for subscription uploads from channels with zero recent watches.
+const SUB_UNWATCHED_BOOST = 1.35
 
 const ytRef = (videoId: string) => `youtube:${videoId}`
 // Watch SECONDS, not just completion fraction, shape the signal (YouTube's
@@ -266,12 +293,21 @@ export async function buildVideoPool(userId: string): Promise<void> {
     ).map((s) => s.externalId),
   )
 
+  // Which subscribed channels does the user actually watch? Drives the per-channel
+  // caps and the unwatched boost of the subscription bucket below.
+  const watchCutoff = Date.now() - SUB_RECENT_WATCH_MS
+  const watchesByChannel = new Map<string, number>()
+  for (const s of ytSignals) {
+    if (s.creatorId && s.at >= watchCutoff)
+      watchesByChannel.set(s.creatorId, (watchesByChannel.get(s.creatorId) ?? 0) + 1)
+  }
+
   // Fan-out, all best-effort: a failing source degrades its bucket, never the build.
   const seeds = stratifiedSeeds(ytSignals, 3, 12)
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
-  const [relatedLists, topicLists, channelLists, popular, trending, hubRelated, followItems] = await Promise.all([
+  const [relatedLists, topicLists, channelLists, popular, trending, hubRelated, followItems, subUploads] = await Promise.all([
     Promise.all(
       seeds.map((id) => tryInnertube('interests related', () => innertubeRelated(id, 15, 8000, safe), [] as ItVideo[])),
     ),
@@ -297,6 +333,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     fetchTrending(24).catch(() => [] as ItVideo[]),
     collectHubRelated(signals),
     collectFollowItems(userId),
+    collectSubscriptionUploads(userId, watchesByChannel).catch(() => [] as Candidate[]),
   ])
 
   // The linked account's real YouTube home feed: Google's recommender as a
@@ -332,6 +369,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     ),
     ...hubRelated,
     ...followItems,
+    ...subUploads,
     ...homeFeed.map((v) => itToCandidate(v, 'yt-home')),
     ...popular.map((v) => itToCandidate(v, 'trending')),
     ...trending.map((v) => itToCandidate(v, 'trending')),
@@ -373,6 +411,11 @@ export async function buildVideoPool(userId: string): Promise<void> {
   const MAX_AGE_MS = 6 * 365 * 24 * 60 * 60 * 1000
   const builtAt = Date.now()
   const gated = ranked.filter((e) => {
+    // Subscription uploads skip the relevance gate entirely: subscribing IS the
+    // positive signal, and the cosine/creator terms below would veto exactly the
+    // subscribed-but-unwatched channels the bucket exists to surface (a guitar
+    // lesson scores nowhere near a retro-cartoon centroid).
+    if (e.bucket === 'subscription') return true
     const p = e.parts
     // A topic-search hit matches its own query by construction, so its `topic` part is
     // tautological — it can't independently vouch for relevance. Require real similarity
@@ -386,8 +429,17 @@ export async function buildVideoPool(userId: string): Promise<void> {
     return true
   })
   // Subscribed channels already own "Latest from your subscriptions" — nudge, don't ban.
+  // The subscription bucket is the deliberate exception: it exists to pull the user's
+  // subscribed-but-underwatched channels INTO suggestions, so instead of the demotion
+  // its uploads from channels with no recent watch activity get a boost.
   ranked = gated
-    .map((e): RankedCandidate => (e.creatorId && subs.has(e.creatorId) ? { ...e, score: e.score * 0.85 } : e))
+    .map((e): RankedCandidate => {
+      if (e.bucket === 'subscription') {
+        const unwatched = (watchesByChannel.get(e.creatorId ?? '') ?? 0) === 0
+        return unwatched ? { ...e, score: e.score * SUB_UNWATCHED_BOOST } : e
+      }
+      return e.creatorId && subs.has(e.creatorId) ? { ...e, score: e.score * 0.85 } : e
+    })
     .sort((a, b) => b.score - a.score)
 
   await savePool(userId, DOMAIN, ranked)
@@ -468,6 +520,71 @@ async function collectFollowItems(userId: string): Promise<Candidate[]> {
       'creator-latest',
     ),
   )
+}
+
+/** Recent uploads across the user's subscribed channels, sampled from the yt_videos
+ *  rows the RSS poller keeps fresh (no live fetches). Newest-first with a per-channel
+ *  cap, so a daily uploader can't crowd out the weekly ones; channels with zero
+ *  recent watch activity keep the higher cap because surfacing subscribed-but-
+ *  unwatched interests (the learn-guitar channels beside the retro binge) is the
+ *  bucket's entire purpose. */
+async function collectSubscriptionUploads(
+  userId: string,
+  watchesByChannel: ReadonlyMap<string, number>,
+): Promise<Candidate[]> {
+  const cutoff = Date.now() - SUB_UPLOAD_WINDOW_MS
+  const rows = await db
+    .select({
+      videoId: ytVideos.videoId,
+      title: ytVideos.title,
+      author: ytVideos.author,
+      channelId: ytVideos.channelId,
+      thumbnailUrl: ytVideos.thumbnailUrl,
+      publishedAt: ytVideos.publishedAt,
+      durationSec: ytVideos.durationSec,
+      views: ytVideos.views,
+      subExternalId: ytSubscriptions.externalId,
+      subTitle: ytSubscriptions.title,
+    })
+    .from(ytVideos)
+    .innerJoin(ytSubscriptions, eq(ytVideos.subscriptionId, ytSubscriptions.id))
+    .where(
+      and(
+        eq(ytSubscriptions.userId, userId),
+        eq(ytSubscriptions.kind, 'channel'),
+        gt(ytVideos.publishedAt, cutoff),
+      ),
+    )
+    .orderBy(desc(ytVideos.publishedAt))
+    .limit(400)
+
+  const perChannel = new Map<string, number>()
+  const out: Candidate[] = []
+  for (const r of rows) {
+    if (!r.title || r.title === r.videoId) continue
+    const channel = r.channelId ?? r.subExternalId
+    const cap = (watchesByChannel.get(channel) ?? 0) === 0 ? SUB_PER_CHANNEL_UNWATCHED : SUB_PER_CHANNEL_WATCHED
+    const n = perChannel.get(channel) ?? 0
+    if (n >= cap) continue
+    perChannel.set(channel, n + 1)
+    const v: ItVideo = {
+      videoId: r.videoId,
+      title: r.title,
+      author: r.author || r.subTitle || null,
+      channelId: channel,
+      channelThumb: null,
+      thumbnailUrl: r.thumbnailUrl,
+      durationSec: r.durationSec,
+      publishedText: null,
+      publishedAt: r.publishedAt,
+      views: r.views,
+    }
+    // RSS rows can miss channelId; stamp the subscription's identity so affinity
+    // scoring and the card byline survive (same trick as creator-latest above).
+    out.push({ ...itToCandidate(v, 'subscription'), creatorId: channel, creatorName: v.author })
+    if (out.length >= SUB_BUCKET_MAX) break
+  }
+  return out
 }
 
 // ── Serving ─────────────────────────────────────────────────────────────────────
@@ -725,7 +842,7 @@ function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number,
       !seen.has(v.videoId)
       && !watched.has(ytRef(v.videoId))
       && prefOk(v, pref)
-      && (perCreator.get((v.author ?? '').toLowerCase()) ?? 0) < 3)
+      && (perCreator.get((v.author ?? '').toLowerCase()) ?? 0) < SERVE_CHANNEL_CAP)
     if (i < 0) return null
     const [v] = arr.splice(i, 1)
     seen.add(v!.videoId)
@@ -751,35 +868,179 @@ function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number,
   return out
 }
 
+// ── Diverse page assembly ──────────────────────────────────────────────────────
+
+/** Provenance cluster of a pool entry, the engine's stand-in for a topic cluster:
+ *  related fan-outs group by their seed watch, topic searches by their query,
+ *  everything else by bucket. One He-Man seed spawning 15 related hits is one
+ *  cluster, and the share cap keeps it from owning the page. */
+const clusterKey = (e: RankedCandidate): string =>
+  e.bucket === 'related' || e.bucket === 'topic-search'
+    ? `${e.bucket}:${(e.topics[0] ?? '').toLowerCase()}`
+    : e.bucket
+
+/** Rank-ordered greedy fill with diversity caps, then two quota passes. Fully
+ *  deterministic over its inputs (no fresh randomness), so one serve stays stable
+ *  for pagination; variety BETWEEN serves comes from the pool's own dithering.
+ *  1. Fill: hard per-channel cap, per-cluster share cap, trending cap. Cluster
+ *     overflow only backfills at the tail if the page would otherwise run short.
+ *  2. Subscription quota: recent uploads from subscribed channels swap in over
+ *     tail items of the largest clusters until the quota is met.
+ *  3. Exploration quota: items outside the page's dominant clusters likewise
+ *     swap in, so part of every page looks past what the user already binges. */
+function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate>, target: number): ItVideo[] {
+  const clusterCap = Math.max(2, Math.ceil(target * CLUSTER_SHARE_CAP))
+  // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
+  // rotation demotes the personalized picks.
+  const trendingCap = Math.max(3, Math.floor(target / 3))
+  const entryOf = (v: ItVideo) => byRef.get(ytRef(v.videoId))
+  const chanOf = (v: ItVideo) => entryOf(v)?.creatorId ?? v.channelId ?? (v.author ?? '').toLowerCase()
+  const clusterOf = (v: ItVideo) => {
+    const e = entryOf(v)
+    return e ? clusterKey(e) : 'unknown'
+  }
+
+  const perChannel = new Map<string, number>()
+  const perCluster = new Map<string, number>()
+  const servedIds = new Set<string>()
+  const served: ItVideo[] = []
+  const overflow: ItVideo[] = []
+  let trendingServed = 0
+
+  const bump = (v: ItVideo, dir: 1 | -1) => {
+    const chan = chanOf(v)
+    if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + dir)
+    perCluster.set(clusterOf(v), (perCluster.get(clusterOf(v)) ?? 0) + dir)
+  }
+  const channelFull = (v: ItVideo) => {
+    const chan = chanOf(v)
+    return !!chan && (perChannel.get(chan) ?? 0) >= SERVE_CHANNEL_CAP
+  }
+  const admit = (v: ItVideo) => {
+    bump(v, 1)
+    servedIds.add(v.videoId)
+    served.push(v)
+  }
+
+  // 1. Greedy fill under the caps.
+  for (const v of kept) {
+    if (served.length >= target) break
+    if (channelFull(v)) continue
+    const isTrending = entryOf(v)?.bucket === 'trending'
+    if (isTrending && trendingServed >= trendingCap) continue
+    if ((perCluster.get(clusterOf(v)) ?? 0) >= clusterCap) {
+      overflow.push(v)
+      continue
+    }
+    if (isTrending) trendingServed++
+    admit(v)
+  }
+  // Short page: cluster overflow beats empty slots (channel cap stays hard).
+  for (const v of overflow) {
+    if (served.length >= target) break
+    if (!channelFull(v)) admit(v)
+  }
+
+  // Quota swaps replace an item IN PLACE (position preserved), taking the
+  // tail-most victim from the currently largest eligible cluster, so downstream
+  // composition keeps the quota item instead of trimming it off the tail.
+  const quotaIds = new Set<string>()
+  const swapIn = (v: ItVideo, victims?: ReadonlySet<string>): boolean => {
+    let victim: string | null = null
+    let max = 1
+    for (const [cl, n] of perCluster) {
+      if (cl === 'subscription' || (victims && !victims.has(cl))) continue
+      if (n > max) {
+        max = n
+        victim = cl
+      }
+    }
+    if (!victim) return false
+    for (let i = served.length - 1; i >= 0; i--) {
+      const cur = served[i]!
+      if (quotaIds.has(cur.videoId) || clusterOf(cur) !== victim) continue
+      bump(cur, -1)
+      servedIds.delete(cur.videoId)
+      served[i] = v
+      bump(v, 1)
+      servedIds.add(v.videoId)
+      quotaIds.add(v.videoId)
+      return true
+    }
+    return false
+  }
+  const admitOrSwap = (v: ItVideo, victims?: ReadonlySet<string>): boolean => {
+    if (channelFull(v)) return false
+    if (served.length < target) {
+      admit(v)
+      quotaIds.add(v.videoId)
+      return true
+    }
+    return swapIn(v, victims)
+  }
+
+  // 2. Subscription quota.
+  const isSub = (v: ItVideo) => entryOf(v)?.bucket === 'subscription'
+  const subWant = Math.max(2, Math.round(target * SUB_SERVE_SHARE))
+  let subHave = served.filter(isSub).length
+  for (const v of kept) {
+    if (subHave >= subWant) break
+    if (!isSub(v) || servedIds.has(v.videoId)) continue
+    if (admitOrSwap(v)) subHave++
+  }
+
+  // 3. Exploration quota. Dominant clusters are the biggest ones on the page
+  // right now; anything outside them (including subscription items) counts.
+  const dominant = new Set(
+    [...perCluster.entries()]
+      .filter(([cl, n]) => n >= 3 && cl !== 'subscription')
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([cl]) => cl),
+  )
+  if (dominant.size) {
+    const exploreWant = Math.ceil(Math.min(target, served.length) * EXPLORE_SHARE)
+    let exploreHave = served.filter((v) => !dominant.has(clusterOf(v))).length
+    for (const v of kept) {
+      if (exploreHave >= exploreWant) break
+      if (servedIds.has(v.videoId) || dominant.has(clusterOf(v))) continue
+      if (admitOrSwap(v, dominant)) exploreHave++
+    }
+  }
+  return served
+}
+
 export async function serveYtRecommended(
   userId: string,
   target = 24,
 ): Promise<{ videos: ItVideo[]; building: boolean }> {
   const watchedRefs = await watchedVideoRefs(userId)
+  const build = () => buildVideoPool(userId)
   const { entries, building } = await servePool(userId, DOMAIN, {
     limit: target * 2,
     watchedRefs,
-    build: () => buildVideoPool(userId),
+    build,
     entryFilter: (e) => e.ref.startsWith('youtube:'),
   })
   if (building || !entries.length) return { videos: [], building }
 
-  const byRef = new Map(entries.map((e) => [e.ref, e]))
+  // Second, bucket-filtered pull backing the subscription quota: subscription
+  // uploads rank on recency and a prior rather than the taste centroids, so a
+  // plain top-N slice can leave every one of them behind the fixation clusters.
+  const subWant = Math.max(2, Math.round(target * SUB_SERVE_SHARE))
+  const subPull = await servePool(userId, DOMAIN, {
+    limit: subWant * 2,
+    watchedRefs,
+    build,
+    entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'subscription',
+  })
+  const haveRefs = new Set(entries.map((e) => e.ref))
+  const merged = [...entries, ...subPull.entries.filter((e) => !haveRefs.has(e.ref))]
+
+  const byRef = new Map(merged.map((e) => [e.ref, e]))
   const kept = dedupeNearDuplicates(
-    await filterYtItemsForUser(userId, entries.map((e) => e.payload as ItVideo)))
-  // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
-  // rotation demotes the personalized picks.
-  const trendingCap = Math.max(3, Math.floor(target / 3))
-  let trendingServed = 0
-  const served: ItVideo[] = []
-  for (const v of kept) {
-    if (byRef.get(ytRef(v.videoId))?.bucket === 'trending') {
-      if (trendingServed >= trendingCap) continue
-      trendingServed++
-    }
-    served.push(v)
-    if (served.length >= target) break
-  }
+    await filterYtItemsForUser(userId, merged.map((e) => e.payload as ItVideo)))
+  const served = assembleDiverseFeed(kept, byRef, target)
   await enrichChannelThumbs(served)
   await recordServed(userId, DOMAIN, served.map((v) => byRef.get(ytRef(v.videoId))!).filter(Boolean))
   // Explain every recommendation: each card carries where it came from.
@@ -819,6 +1080,15 @@ export async function serveYtRecommendedDeep(
   const seen = new Set([...base.videos.map((v) => v.videoId), ...ext.map((v) => v.videoId)])
   const want = Math.min(target, DEEP_MAX)
 
+  // Per-channel cap across the whole deep feed too: related fan-out loves to hand
+  // back ten more videos from the channel it was seeded with.
+  const chanKey = (v: ItVideo) => v.channelId ?? (v.author ?? '').toLowerCase()
+  const perChannel = new Map<string, number>()
+  for (const v of [...base.videos, ...ext]) {
+    const k = chanKey(v)
+    if (k) perChannel.set(k, (perChannel.get(k) ?? 0) + 1)
+  }
+
   // A few bounded fan-out rounds per request: each deeper page tops the
   // extension up incrementally rather than building the whole tail at once.
   let rounds = 0
@@ -835,6 +1105,9 @@ export async function serveYtRecommendedDeep(
     await enrichChannelThumbs(kept)
     for (const v of kept) {
       if (seen.has(v.videoId)) continue
+      const k = chanKey(v)
+      if (k && (perChannel.get(k) ?? 0) >= SERVE_CHANNEL_CAP) continue
+      if (k) perChannel.set(k, (perChannel.get(k) ?? 0) + 1)
       seen.add(v.videoId)
       ext.push(v)
       if (base.videos.length + ext.length >= want) break
@@ -854,6 +1127,8 @@ function whyServed(entry: RankedCandidate): string {
       return entry.topics[0] ? `Because you're into ${entry.topics[0]}` : 'Matches your interests'
     case 'creator-latest':
       return entry.creatorName ? `New from ${entry.creatorName}, a channel you keep coming back to` : 'From a creator you watch'
+    case 'subscription':
+      return entry.creatorName ? `Fresh from ${entry.creatorName}, one of your subscriptions` : 'Fresh from a channel you subscribed to'
     case 'yt-home':
       return 'Picked for you by YouTube\'s recommendations'
     case 'similar':
