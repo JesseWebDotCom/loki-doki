@@ -46,6 +46,10 @@ export type CandidateBucket =
   | 'creator-latest'
   /** Recent uploads from channels the user explicitly subscribed to. */
   | 'subscription'
+  /** Broad searches for the KIND of content subscribed channels make ("guitar
+   *  lessons", "funny pranks", from the channel profiler), so similar videos
+   *  from any channel surface, not just the subscriptions' own uploads. */
+  | 'sub-topic'
   | 'similar'
   | 'trending'
   | 'yt-home'

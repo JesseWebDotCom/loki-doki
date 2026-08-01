@@ -26,6 +26,7 @@ import { getEnabledSources, getProvider } from '@/lib/videos/registry'
 import { logger } from '@/lib/logger'
 import type { GenericVideoSource, VideoItem } from '@/lib/videos/types'
 import { buildAndSaveProfile, getProfileStale } from './profile'
+import { subscriptionTopics, type SubscriptionTopic } from './channelProfiles'
 import { dismissedCreatorCounts, getImpressions } from './impressions'
 import { rankCandidates } from './rank'
 import { EMPTY_POOL_TTL_MS, recordServed, savePool, servePool } from './pool'
@@ -64,6 +65,15 @@ const SUB_BUCKET_MAX = 40
 const SUB_RECENT_WATCH_MS = 90 * 24 * 60 * 60 * 1000
 // Score boost for subscription uploads from channels with zero recent watches.
 const SUB_UNWATCHED_BOOST = 1.35
+// ── Sub-topic bucket knobs (channel profiler → broad searches) ─────────────────
+// Subscription-derived topics searched per pool build. The full topic list rotates
+// deterministically by day, so successive builds explore different topics.
+const SUBTOPIC_QUERIES_PER_BUILD = 6
+// InnerTube results fetched per sub-topic query.
+const SUBTOPIC_SEARCH_LIMIT = 10
+// Share of a served page reserved for sub-topic candidates (min 2 when any exist):
+// "you subscribe to guitar channels, here's guitar content from channels you don't".
+const SUBTOPIC_SERVE_SHARE = 0.15
 
 const ytRef = (videoId: string) => `youtube:${videoId}`
 // Watch SECONDS, not just completion fraction, shape the signal (YouTube's
@@ -302,12 +312,26 @@ export async function buildVideoPool(userId: string): Promise<void> {
       watchesByChannel.set(s.creatorId, (watchesByChannel.get(s.creatorId) ?? 0) + 1)
   }
 
+  // What the user's subscriptions are ABOUT (channel profiler): the answer to "the
+  // algorithm only matches what I've seen": a guitar-instruction subscription earns
+  // broad "guitar lessons" searches, surfacing similar videos from ANY channel.
+  // Deterministic day-based rotation (no Math.random) walks the ranked topic list so
+  // different builds explore different topics while one build stays reproducible.
+  const allSubTopics = await subscriptionTopics(userId).catch(() => [] as SubscriptionTopic[])
+  const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000))
+  const subTopicPicks = allSubTopics.length
+    ? Array.from(
+        { length: Math.min(SUBTOPIC_QUERIES_PER_BUILD, allSubTopics.length) },
+        (_, i) => allSubTopics[(dayIndex + i) % allSubTopics.length]!,
+      )
+    : []
+
   // Fan-out, all best-effort: a failing source degrades its bucket, never the build.
   const seeds = stratifiedSeeds(ytSignals, 3, 12)
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
-  const [relatedLists, topicLists, channelLists, popular, trending, hubRelated, followItems, subUploads] = await Promise.all([
+  const [relatedLists, topicLists, subTopicLists, channelLists, popular, trending, hubRelated, followItems, subUploads] = await Promise.all([
     Promise.all(
       seeds.map((id) => tryInnertube('interests related', () => innertubeRelated(id, 15, 8000, safe), [] as ItVideo[])),
     ),
@@ -318,6 +342,15 @@ export async function buildVideoPool(userId: string): Promise<void> {
           async () => (await innertubeSearch(t.text, 10, 0, 8000, 0, SEARCH_FILTERS.videos, safe)).videos,
           [] as ItVideo[],
         ).then((videos) => ({ query: t.text, videos })),
+      ),
+    ),
+    Promise.all(
+      subTopicPicks.map((t) =>
+        tryInnertube(
+          'interests sub-topic search',
+          async () => (await innertubeSearch(t.topic, SUBTOPIC_SEARCH_LIMIT, 0, 8000, 0, SEARCH_FILTERS.videos, safe)).videos,
+          [] as ItVideo[],
+        ).then((videos) => ({ pick: t, videos })),
       ),
     ),
     Promise.all(
@@ -358,6 +391,12 @@ export async function buildVideoPool(userId: string): Promise<void> {
       return videos.map((v) => itToCandidate(v, 'related', from ? [from] : []))
     }),
     ...topicLists.flatMap(({ query, videos }) => videos.map((v) => itToCandidate(v, 'topic-search', [query]))),
+    // topics[0] = the searched topic, topics[1..] = the subscribed channels that
+    // earned it. whyServed reads both ("More funny pranks - because you subscribe
+    // to Vlog Creations"), and clusterKey groups by the topic.
+    ...subTopicLists.flatMap(({ pick, videos }) =>
+      videos.map((v) => itToCandidate(v, 'sub-topic', [pick.topic, ...pick.channels])),
+    ),
     // Channel-tab videos don't repeat their own channel's name/id — stamp the fetched
     // channel's identity so affinity scoring (and the card's byline) survive.
     ...channelLists.flatMap((videos, i) =>
@@ -423,7 +462,11 @@ export async function buildVideoPool(userId: string): Promise<void> {
     // hallucinated interest topic (e.g. "Fable 5", the Claude model, misread as the Xbox
     // game) coasts past the gate on the very topic that spawned it.
     const topicVouch = e.bucket === 'topic-search' ? 0 : (p?.topic ?? 0)
-    if (p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
+    // Sub-topic candidates skip the cosine veto too (age and news gates still apply):
+    // they derive from subscriptions, not watch history, so the watch centroid would
+    // veto exactly the exploration they exist for, the guitar lessons that score
+    // nowhere near a retro-cartoon binge. Subscribing to guitar channels IS the signal.
+    if (e.bucket !== 'sub-topic' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
     if (isHardNews(e) && (p?.creator ?? 0) < 0.15) return false
     return true
@@ -449,6 +492,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
       signals: signals.length,
       seeds: seeds.length,
       topics: topicQueries.length,
+      subTopics: subTopicPicks.length,
       candidates: fresh.length,
       kept: Math.min(ranked.length, 150),
     },
@@ -875,18 +919,20 @@ function composeFeed(base: Suggested[], layer: LiveLayer | null, target: number,
  *  everything else by bucket. One He-Man seed spawning 15 related hits is one
  *  cluster, and the share cap keeps it from owning the page. */
 const clusterKey = (e: RankedCandidate): string =>
-  e.bucket === 'related' || e.bucket === 'topic-search'
+  e.bucket === 'related' || e.bucket === 'topic-search' || e.bucket === 'sub-topic'
     ? `${e.bucket}:${(e.topics[0] ?? '').toLowerCase()}`
     : e.bucket
 
-/** Rank-ordered greedy fill with diversity caps, then two quota passes. Fully
+/** Rank-ordered greedy fill with diversity caps, then three quota passes. Fully
  *  deterministic over its inputs (no fresh randomness), so one serve stays stable
  *  for pagination; variety BETWEEN serves comes from the pool's own dithering.
  *  1. Fill: hard per-channel cap, per-cluster share cap, trending cap. Cluster
  *     overflow only backfills at the tail if the page would otherwise run short.
  *  2. Subscription quota: recent uploads from subscribed channels swap in over
  *     tail items of the largest clusters until the quota is met.
- *  3. Exploration quota: items outside the page's dominant clusters likewise
+ *  3. Sub-topic quota: broad searches for what those subscriptions are ABOUT
+ *     (any channel), same swap mechanics.
+ *  4. Exploration quota: items outside the page's dominant clusters likewise
  *     swap in, so part of every page looks past what the user already binges. */
 function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate>, target: number): ItVideo[] {
   const clusterCap = Math.max(2, Math.ceil(target * CLUSTER_SHARE_CAP))
@@ -949,7 +995,9 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     let victim: string | null = null
     let max = 1
     for (const [cl, n] of perCluster) {
-      if (cl === 'subscription' || (victims && !victims.has(cl))) continue
+      // Quota-backed clusters are never victims: one quota pass must not evict
+      // what another (or the greedy fill) admitted for the same purpose.
+      if (cl === 'subscription' || cl.startsWith('sub-topic:') || (victims && !victims.has(cl))) continue
       if (n > max) {
         max = n
         victim = cl
@@ -989,11 +1037,25 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     if (admitOrSwap(v)) subHave++
   }
 
-  // 3. Exploration quota. Dominant clusters are the biggest ones on the page
-  // right now; anything outside them (including subscription items) counts.
+  // 3. Sub-topic quota: subscription-derived broad searches (the "more of what
+  // your subscriptions are ABOUT, from any channel" slice), same in-place swap
+  // mechanics as the subscription quota above.
+  const isSubTopic = (v: ItVideo) => entryOf(v)?.bucket === 'sub-topic'
+  const subTopicWant = kept.some(isSubTopic) ? Math.max(2, Math.round(target * SUBTOPIC_SERVE_SHARE)) : 0
+  let subTopicHave = served.filter(isSubTopic).length
+  for (const v of kept) {
+    if (subTopicHave >= subTopicWant) break
+    if (!isSubTopic(v) || servedIds.has(v.videoId)) continue
+    if (admitOrSwap(v)) subTopicHave++
+  }
+
+  // 4. Exploration quota. Dominant clusters are the biggest ones on the page
+  // right now; anything outside them (including subscription and sub-topic
+  // items: sub-topic clusters are exploration by construction, so they are
+  // never counted as dominant) counts.
   const dominant = new Set(
     [...perCluster.entries()]
-      .filter(([cl, n]) => n >= 3 && cl !== 'subscription')
+      .filter(([cl, n]) => n >= 3 && cl !== 'subscription' && !cl.startsWith('sub-topic:'))
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([cl]) => cl),
@@ -1034,8 +1096,22 @@ export async function serveYtRecommended(
     build,
     entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'subscription',
   })
+  // Same deal for the sub-topic quota: those candidates score without watch-history
+  // backing (deliberately), so the plain top-N slice can miss them entirely.
+  const subTopicWant = Math.max(2, Math.round(target * SUBTOPIC_SERVE_SHARE))
+  const subTopicPull = await servePool(userId, DOMAIN, {
+    limit: subTopicWant * 2,
+    watchedRefs,
+    build,
+    entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'sub-topic',
+  })
   const haveRefs = new Set(entries.map((e) => e.ref))
-  const merged = [...entries, ...subPull.entries.filter((e) => !haveRefs.has(e.ref))]
+  const merged = [...entries]
+  for (const e of [...subPull.entries, ...subTopicPull.entries]) {
+    if (haveRefs.has(e.ref)) continue
+    haveRefs.add(e.ref)
+    merged.push(e)
+  }
 
   const byRef = new Map(merged.map((e) => [e.ref, e]))
   const kept = dedupeNearDuplicates(
@@ -1129,6 +1205,14 @@ function whyServed(entry: RankedCandidate): string {
       return entry.creatorName ? `New from ${entry.creatorName}, a channel you keep coming back to` : 'From a creator you watch'
     case 'subscription':
       return entry.creatorName ? `Fresh from ${entry.creatorName}, one of your subscriptions` : 'Fresh from a channel you subscribed to'
+    case 'sub-topic':
+      // topics[0] = the searched topic, topics[1] = the first subscribed channel
+      // that earned it (stamped at candidate generation).
+      return entry.topics[1]
+        ? `More ${entry.topics[0]} - because you subscribe to ${entry.topics[1]}`
+        : entry.topics[0]
+          ? `More ${entry.topics[0]}, the kind of thing you subscribe to`
+          : 'Similar to channels you subscribe to'
     case 'yt-home':
       return 'Picked for you by YouTube\'s recommendations'
     case 'similar':

@@ -31,6 +31,10 @@ const BUCKET_PRIOR: Record<Candidate['bucket'], number> = {
   // literally asked for this channel. High prior so ranking cannot bury the
   // subscribed-but-unwatched channels the bucket exists to surface.
   subscription: 0.9,
+  // Searches for the KIND of content subscribed channels make (channel profiler):
+  // one step removed from the stated intent of the subscription itself, so a
+  // notch below it, on par with the profile's own topic searches.
+  'sub-topic': 0.85,
   'creator-latest': 0.8,
   trending: 0.5,
 }
