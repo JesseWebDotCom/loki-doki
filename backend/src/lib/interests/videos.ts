@@ -448,6 +448,8 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // decade-old shorts. Nobody's "suggested for you" should lead with 14-year-old videos
   // unless they're from a creator the user actually watches.
   const MAX_AGE_MS = 6 * 365 * 24 * 60 * 60 * 1000
+  // Hard-news candidates must be recent to serve at all (see the gate below).
+  const NEWS_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
   const builtAt = Date.now()
   const gated = ranked.filter((e) => {
     // Subscription uploads skip the relevance gate entirely: subscribing IS the
@@ -468,7 +470,13 @@ export async function buildVideoPool(userId: string): Promise<void> {
     // nowhere near a retro-cartoon binge. Subscribing to guitar channels IS the signal.
     if (e.bucket !== 'sub-topic' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
-    if (isHardNews(e) && (p?.creator ?? 0) < 0.15) return false
+    if (isHardNews(e)) {
+      if ((p?.creator ?? 0) < 0.15) return false
+      // News is only news while it's FRESH: a months-old headline video is
+      // worthless no matter how much the user watches that channel (real
+      // feedback). Undated news can't prove freshness, so it drops too.
+      if (!e.publishedAt || builtAt - e.publishedAt > NEWS_MAX_AGE_MS) return false
+    }
     return true
   })
   // Subscribed channels already own "Latest from your subscriptions" — nudge, don't ban.
