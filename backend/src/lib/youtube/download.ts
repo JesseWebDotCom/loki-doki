@@ -3,13 +3,14 @@
 
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { db } from '@/db'
 import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
+import { innertubeCaptionTrack } from '@/lib/youtube/innertube'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
@@ -336,7 +337,9 @@ export async function ensureTranscript(
     await withYtDlpSlot(() => new Promise<void>((resolve, reject) => {
       const proc = spawn(ytDlpBin(), [
         '--write-auto-subs', '--write-subs',
-        '--sub-lang', subLang,
+        // Broadened: YouTube/yt-dlp drifted auto-caption naming (en vs
+        // en-orig vs en-US), and an exact miss silently produced no file.
+        '--sub-lang', `${subLang},${subLang}-orig,en,en-orig`,
         '--sub-format', 'vtt',
         '--skip-download',
         '--output', join(outDir, `${videoId}.%(ext)s`),
@@ -351,7 +354,31 @@ export async function ensureTranscript(
     }))
   } catch { /* transcript is optional */ }
 
-  return existsSync(absPath) ? absPath : null
+  if (existsSync(absPath)) return absPath
+
+  // Lang-name drift: accept whatever .vtt yt-dlp actually wrote for this video
+  // (en-orig, en-US, ...) instead of demanding the exact predicted name.
+  const anyVtt = (await readdir(outDir).catch(() => [] as string[]))
+    .find(f => f.startsWith(`${videoId}.`) && f.endsWith('.vtt'))
+  if (anyVtt) return join(outDir, anyVtt)
+
+  // Last resort: fetch the caption track straight off the InnerTube player
+  // response — survives yt-dlp subtitle breakage entirely.
+  try {
+    const track = await innertubeCaptionTrack(videoId)
+    if (track) {
+      const res = await fetch(track.url, { signal: AbortSignal.timeout(15_000) })
+      if (res.ok) {
+        const vtt = await res.text()
+        if (vtt.includes('WEBVTT')) {
+          await writeFile(absPath, vtt, 'utf-8')
+          return absPath
+        }
+      }
+    }
+  } catch { /* still optional */ }
+
+  return null
 }
 
 async function fetchTranscript(

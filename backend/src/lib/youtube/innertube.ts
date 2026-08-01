@@ -1043,6 +1043,37 @@ export async function innertubePlayerStreams(videoId: string, timeout = 6000): P
   return p
 }
 
+/** Caption track straight from the player response — the yt-dlp-free path for
+ * transcripts. Prefers a human English track, then auto (asr) English, then
+ * whatever leads the list. The returned URL serves WebVTT via &fmt=vtt. */
+export async function innertubeCaptionTrack(videoId: string, timeout = 6000): Promise<{ lang: string; url: string } | null> {
+  const visitorData = await getVisitorData()
+  const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': VR_UA,
+      'X-Youtube-Client-Name': '28',
+      'X-Youtube-Client-Version': VR_CLIENT.clientVersion,
+      Origin: 'https://www.youtube.com',
+    },
+    body: JSON.stringify({ context: { client: { ...VR_CLIENT, ...(visitorData ? { visitorData } : {}) } }, videoId, contentCheckOk: true, racyCheckOk: true }),
+    signal: AbortSignal.timeout(timeout),
+  })
+  if (!res.ok) return null
+  const data: any = await res.json()
+  const tracks: any[] = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
+  if (!tracks.length) return null
+  const pick =
+    tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en') && t?.kind !== 'asr') ??
+    tracks.find(t => typeof t?.languageCode === 'string' && t.languageCode.startsWith('en')) ??
+    tracks[0]
+  const base = pick?.baseUrl
+  if (typeof base !== 'string' || !base) return null
+  const url = base.includes('fmt=') ? base : `${base}&fmt=vtt`
+  return { lang: (pick.languageCode as string | undefined) ?? 'en', url }
+}
+
 async function doInnertubePlayerStreams(videoId: string, timeout: number): Promise<ItStreams | null> {
   const visitorData = await getVisitorData()
   const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
