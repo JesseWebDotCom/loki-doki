@@ -20,7 +20,8 @@ import {
 } from '@/lib/youtube/innertube'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { getValidAccessToken } from '@/lib/youtube/account'
-import { fetchHomeFeed } from '@/lib/youtube/tvClient'
+import { fetchHomeFeed, fetchWatchHistory } from '@/lib/youtube/tvClient'
+import { cachedLookup } from '@/lib/lookupCache'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { filterVideosForUser, filterYtItemsForUser } from '@/lib/videos/policy'
 import { getEnabledSources, getProvider } from '@/lib/videos/registry'
@@ -186,6 +187,35 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
     .limit(100)
 
   const signals: InterestSignal[] = []
+
+  // Linked YouTube ACCOUNT history: what the user actually watches on YouTube
+  // itself. Verified live: the account history was all guitar tutorials while
+  // local watch-state was family viewing - without this, the taste centroid
+  // only ever learns the in-app half. Engagement is unknown (no positions),
+  // so a solid mid weight; timestamps synthesized recent-descending so the
+  // era-stratified seed picker treats them as current interests. Same 5-min
+  // cache key as the history route, so no extra upstream fetches.
+  try {
+    const token = await getValidAccessToken(userId)
+    if (token) {
+      const acct = await cachedLookup('yt-account-history', userId, 5 * 60_000, () => fetchWatchHistory(token, 60))
+      // Local rows win on overlap: they carry real positions/completion.
+      const localRefs = new Set(yt.map((w) => ytRef(w.videoId)))
+      acct.forEach((v, i) => {
+        if (!v.videoId || !v.title || localRefs.has(ytRef(v.videoId))) return
+        signals.push({
+          ref: ytRef(v.videoId),
+          title: v.title,
+          creatorId: v.channelId ?? null,
+          creatorName: v.author ?? null,
+          topics: [],
+          engagement: 0.6,
+          at: Date.now() - i * 3 * 60 * 60 * 1000,
+        })
+      })
+    }
+  } catch { /* unlinked account or fetch failure - local signals stand alone */ }
+
   for (const w of yt) {
     if (!w.title || w.title === w.videoId) continue
     signals.push({
