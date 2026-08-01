@@ -19,16 +19,22 @@ export interface PopupFact { t: number; text: string }
 // v2: main model instead of the fast tier (facts need world knowledge the
 // small model doesn't have — it obeyed "silence is better" with [] every
 // time). Namespace bump discards every cached empty at once.
-const NAMESPACE = 'yt-popup-facts-v2'
+// v3: full-sentence VH1-style trivia (v2's model upgrade still produced
+// fragments like "VR gaming session" — worthless as bubbles).
+const NAMESPACE = 'yt-popup-facts-v3'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
 
 const FACTS_SYSTEM =
-  'You write Pop-Up Video style trivia bubbles for a video, from its transcript split into ' +
-  'numbered sections. For each section you may contribute 0, 1 or 2 SHORT facts (under 140 ' +
-  'characters each) that would delight a viewer watching that exact part: background on the ' +
-  'products, people, places, works or events being discussed, origins, numbers, connections. ' +
+  'You write VH1 Pop-Up Video style trivia bubbles for a video, from its transcript split ' +
+  'into numbered sections. For each section you may contribute 0 or 1 fact that would ' +
+  'delight a viewer watching that exact part: surprising background on the people, products, ' +
+  'places, works or events being discussed - origins, behind-the-scenes details, numbers, ' +
+  'connections to other works. Every fact MUST be a COMPLETE SENTENCE of 15-30 words with a ' +
+  'specific, checkable detail. Example of the style: "The white streak in Nancy\'s hair is ' +
+  'on her right side here, but it was on her left in A Nightmare on Elm Street (1984)." ' +
+  'NEVER a bare phrase or fragment, NEVER a summary of what is on screen. ' +
   'Only include facts you are HIGHLY confident are true and verifiable general knowledge; if ' +
   'you are not sure, contribute nothing for that section - silence is always better than a ' +
   'wrong fact. Never restate what the video itself just said, never speculate about the ' +
@@ -114,7 +120,10 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     const s = Number((item as any)?.s)
     const text = String((item as any)?.text ?? '').trim()
     if (!Number.isInteger(s) || s < 1 || s > segments.length) continue
-    if (text.length < 15 || text.length > 200) continue
+    // Sentences, not fragments: a real fact has length AND multiple words AND
+    // sentence punctuation somewhere.
+    if (text.length < 40 || text.length > 220) continue
+    if (text.split(/\s+/).length < 7) continue
     // Land the bubble a beat into its section, so the topic is on screen first.
     facts.push({ t: Math.round(segments[s - 1]!.start + 6), text })
   }
