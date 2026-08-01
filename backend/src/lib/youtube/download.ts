@@ -11,6 +11,7 @@ import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { innertubeCaptionTracks } from '@/lib/youtube/innertube'
+import { logger } from '@/lib/logger'
 import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
 import { getContentTypeStorageLocationId } from '@/lib/storage/contentRoots'
 import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
@@ -352,7 +353,9 @@ export async function ensureTranscript(
       proc.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`code ${code}`)) })
       proc.on('error', (err) => { clearTimeout(timer); reject(err) })
     }))
-  } catch { /* transcript is optional */ }
+  } catch (err) {
+    logger.info({ videoId, err: String(err) }, 'transcript: yt-dlp subtitle run failed')
+  }
 
   if (existsSync(absPath)) return absPath
 
@@ -376,16 +379,20 @@ export async function ensureTranscript(
   // (several clients — the VR client often omits captions). A timedtext URL
   // can 200-empty when gated, so keep trying candidates until real WebVTT.
   try {
-    for (const track of await innertubeCaptionTracks(videoId)) {
+    const tracks = await innertubeCaptionTracks(videoId)
+    logger.info({ videoId, wrote: written, candidates: tracks.length }, 'transcript: falling back to innertube captions')
+    for (const track of tracks) {
       const res = await fetch(track.url, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
-      if (!res?.ok) continue
-      const vtt = await res.text()
+      const vtt = res?.ok ? await res.text() : ''
+      logger.info({ videoId, lang: track.lang, status: res?.status ?? 0, bytes: vtt.length }, 'transcript: innertube caption fetch')
       if (vtt.includes('WEBVTT') && vtt.trim().length > 40) {
         await writeFile(absPath, vtt, 'utf-8')
         return absPath
       }
     }
-  } catch { /* still optional */ }
+  } catch (err) {
+    logger.info({ videoId, err: String(err) }, 'transcript: innertube fallback failed')
+  }
 
   return null
 }
