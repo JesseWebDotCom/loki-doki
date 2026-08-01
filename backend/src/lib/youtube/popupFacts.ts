@@ -25,7 +25,7 @@ export interface PopupFact { t: number; text: string }
 // facts are anchored in live Wikipedia/web snippets for the entities each
 // section discusses (v3 fixed sentence form; v4 gives it something true and
 // interesting to say).
-const NAMESPACE = 'yt-popup-facts-v4'
+const NAMESPACE = 'yt-popup-facts-v5'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -39,6 +39,10 @@ const FACTS_SYSTEM =
   'specific, checkable detail. Example of the style: "The white streak in Nancy\'s hair is ' +
   'on her right side here, but it was on her left in A Nightmare on Elm Street (1984)." ' +
   'NEVER a bare phrase or fragment, NEVER a summary of what is on screen. ' +
+  'A SOURCE may describe the WRONG thing (same name, different subject) - if a source does ' +
+  'not clearly match what the section is actually discussing, IGNORE it entirely. Skip ' +
+  'dictionary definitions and anything an average viewer already knows; a bubble must ' +
+  'surprise. ' +
   'Only include facts you are HIGHLY confident are true and verifiable general knowledge; if ' +
   'you are not sure, contribute nothing for that section - silence is always better than a ' +
   'wrong fact. Never restate what the video itself just said, never speculate about the ' +
