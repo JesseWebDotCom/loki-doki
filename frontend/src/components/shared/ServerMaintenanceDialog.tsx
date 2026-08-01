@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, AlertCircle, PowerOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -40,13 +40,35 @@ export interface ServerMaintenanceDialogProps {
 export function ServerMaintenanceDialog({ flow, steps, logLines, error, onDismissError }: ServerMaintenanceDialogProps) {
   const logRef = useRef<HTMLPreElement | null>(null)
   const busy = flow !== 'idle'
+  // "You can close this page" used to be a lie inside the app: the modal had no
+  // close affordance at all. Hide collapses it to a floating progress pill;
+  // terminal states (error, gone, off) always resurface the dialog.
+  const [hidden, setHidden] = useState(false)
+  const hideable = flow === 'updating' || flow === 'restarting' || flow === 'waiting'
+
+  useEffect(() => {
+    if (!hideable || error) setHidden(false)
+  }, [hideable, error])
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
   }, [logLines])
 
+  if (busy && hidden && hideable) {
+    return (
+      <button
+        type="button"
+        onClick={() => setHidden(false)}
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-border/60 bg-background/95 px-4 py-2 text-xs font-medium shadow-lg backdrop-blur"
+      >
+        <Spinner className="size-3.5 text-brand" />
+        {flow === 'waiting' ? 'Waiting for the server…' : flow === 'updating' ? 'Updating the server…' : 'Restarting…'}
+      </button>
+    )
+  }
+
   return (
-    <Dialog open={busy} onOpenChange={() => {}}>
+    <Dialog open={busy} onOpenChange={(open) => { if (!open && hideable) setHidden(true) }}>
       <DialogContent className="max-w-lg space-y-4 [&>button:last-child]:hidden">
         {(flow === 'updating' || flow === 'restarting' || flow === 'shuttingdown') && (
           <>
@@ -60,12 +82,17 @@ export function ServerMaintenanceDialog({ flow, steps, logLines, error, onDismis
               <DialogDescription className="text-xs">
                 {flow === 'shuttingdown'
                   ? 'The server stops in a moment.'
-                  : <>You can close this page; the {flow === 'updating' ? 'update' : 'restart'} continues on the server.</>}
+                  : <>The {flow === 'updating' ? 'update' : 'restart'} continues on the server even if you hide this or close the page.</>}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               {steps.map((s) => <StepRow key={s.key} step={s} />)}
             </div>
+            {flow !== 'shuttingdown' && (
+              <div className="flex justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setHidden(true)}>Hide</Button>
+              </div>
+            )}
             {logLines.length > 0 && (
               <pre
                 ref={logRef}
