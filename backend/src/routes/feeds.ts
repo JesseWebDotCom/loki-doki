@@ -26,7 +26,10 @@ function visibleWhere(userId: string) {
 
 feedsRouter.get('/', async (c) => {
   const user = c.get('user')
-  const rows = await db.select().from(feeds).where(visibleWhere(user.id)).orderBy(desc(feeds.isSystem), feeds.sortOrder)
+  const rows = (await db.select().from(feeds).where(visibleWhere(user.id)).orderBy(desc(feeds.isSystem), feeds.sortOrder))
+    // Marker feeds ('system:' urls, e.g. the Local news history store) are internal
+    // storage, not subscribable sources - keep them out of the Feeds app entirely.
+    .filter((f) => !f.url?.startsWith('system:'))
   const ids = rows.map((f) => f.id)
 
   const unread = new Map<string, number>()

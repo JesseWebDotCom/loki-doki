@@ -113,11 +113,15 @@ export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; c
     // YouTube has no maxresdefault/hq720 for many videos, but i.ytimg.com answers those
     // with HTTP 200 + a ~1.1KB grey placeholder (see lib/youtube/thumbnail.ts) — which
     // would get cached and served as a grey hero forever. Detect it (or a plain 404) and
-    // transparently fall back to hqdefault (exists for every video), cached under the
-    // ORIGINAL requested key so every later request stays a plain hit.
+    // transparently fall back to mqdefault (exists for every video AND is true 16:9 —
+    // hqdefault is 4:3 with the letterbox bars baked into the jpeg, which put black
+    // bars on covers and cards), cached under the ORIGINAL requested key so every
+    // later request stays a plain hit.
+    // (oar2 deliberately excluded: a missing shorts vertical should 404 so the
+    // client's sharper 16:9 fallback fires instead of a substituted mqdefault.)
     const variant = /^https:\/\/i\.ytimg\.com\/vi\/([\w-]{11})\/(maxresdefault|hq720)\.jpg$/.exec(rawUrl)
     if (variant && (fetched === null || (fetched !== 'not-modified' && fetched.data.byteLength <= PLACEHOLDER_MAX_BYTES))) {
-      const fallback = await fetchUpstream(`https://i.ytimg.com/vi/${variant[1]}/hqdefault.jpg`)
+      const fallback = await fetchUpstream(`https://i.ytimg.com/vi/${variant[1]}/mqdefault.jpg`)
       if (fallback && fallback !== 'not-modified') fetched = fallback
     }
     if (!fetched || fetched === 'not-modified') return null

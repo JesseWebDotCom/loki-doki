@@ -8,7 +8,8 @@ import { db } from '@/db'
 import { feedItems } from '@/db/schema'
 import { getFastModel } from '@/lib/models'
 import { structuredCall } from '@/llm/structured'
-import { extractArticle, stripHtml } from '@/lib/content/extract'
+import { stripHtml } from '@/lib/content/extract'
+import { cachedExtractArticle } from '@/lib/content/extractCache'
 import { ensureFullContent } from '@/lib/feeds/contentQuality'
 
 const MAX_CHARS = 6000
@@ -98,7 +99,8 @@ export function ensureUrlSummary(url: string): Promise<ArticleSummary | null> {
 async function generateUrlSummary(url: string): Promise<ArticleSummary | null> {
   let summary: ArticleSummary | null = null
   try {
-    const a = await extractArticle(url)
+    // Shared LRU with the /article endpoint, so a reader open + summary is one extraction.
+    const a = await cachedExtractArticle(url)
     const text = a.contentHtml ? stripHtml(a.contentHtml) : null
     if (text && text.length >= MIN_TEXT_CHARS) summary = await summarizeText(a.title, text)
   } catch { /* leave summary null - extraction failed (paywall, bot-blocked, etc.) */ }

@@ -10,8 +10,11 @@ import { blendedLocalNews } from '@/lib/briefing/localNews'
 import { getBriefingSettings } from '@/lib/briefing/settings'
 import { resolvePatchSlug } from '@/lib/briefing/resolveSlug'
 import { enrichOgImages } from '@/lib/ogImage'
-import { extractArticle, OBITUARY_RE } from '@/lib/content/extract'
+import { OBITUARY_RE } from '@/lib/content/extract'
+import { cachedExtractArticle } from '@/lib/content/extractCache'
+import { stripHtml } from '@/lib/htmlText'
 import { ensureUrlSummary } from '@/lib/news/summarize'
+import { persistLocalItems, recentLocalItems } from '@/lib/news/localStore'
 
 const news = new Hono<AppEnv>()
 
@@ -136,16 +139,42 @@ async function itemsFromFolder(folderId: string, limit: number): Promise<NewsIte
   return items
 }
 
-// Town-aware local news — Patch + Daily Voice + Google News RSS blend (no feed rows — fetched live).
+// Town-aware local news — Patch + Daily Voice + Bing News RSS blend, fetched live and
+// persisted into a hidden history feed (lib/news/localStore.ts) so the Local tab covers
+// weeks, not just each source's current front page. Served as live items merged with the
+// stored history, deduped, newest first.
 async function localItems(limit: number): Promise<NewsItem[]> {
   const s = await getBriefingSettings()
   const slug = s.patchSlug ?? (await resolvePatchSlug(s.defaultLocation))
   const townLabel = s.defaultLocation
-  const { news } = await blendedLocalNews({ patchSlug: slug, townLabel, limit })
-  return news.map((r) => ({
-    title: r.title, url: r.url, detail: r.detail,
+  // Over-ask the blend so the history store accumulates faster than any one page size;
+  // the final slice below still honors the caller's limit.
+  const { news } = await blendedLocalNews({ patchSlug: slug, townLabel, limit: Math.max(limit, 30) })
+  await persistLocalItems(news)
+
+  const live: NewsItem[] = news.map((r) => ({
+    title: r.title, url: r.url, source: r.detail, detail: r.detail,
     summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt,
   }))
+  const stored: NewsItem[] = (await recentLocalItems())
+    .filter((r) => r.title)
+    .map((r) => ({
+      title: r.title!, url: r.url ?? undefined, source: r.author ?? undefined, detail: r.author ?? undefined,
+      summary: r.summary ?? undefined, imageUrl: r.imageUrl ?? undefined, publishedAt: r.publishedAt ?? undefined,
+    }))
+
+  // Merge live-first (fresher fields win the dedupe), by url and by normalized title.
+  const merged: NewsItem[] = []
+  const seen = new Set<string>()
+  for (const it of [...live, ...stored]) {
+    const keys = [it.url, it.title.toLowerCase().slice(0, 60)].filter((k): k is string => !!k)
+    if (keys.some((k) => seen.has(k))) continue
+    for (const k of keys) seen.add(k)
+    merged.push(it)
+  }
+  // Newest first; items with no date sink to the bottom.
+  merged.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+  return merged.slice(0, limit)
 }
 
 // Resolve items for any category. Built-in 'local' → Patch; built-in 'global' falls back to a
@@ -194,7 +223,7 @@ news.get('/categories', requireAuth, async (c) => {
 news.get('/categories/:id/items', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const limit = Math.min(Number(c.req.query('limit') ?? 20), 30)
+  const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
 
   const cat = await db.select().from(feedFolders)
     .where(and(eq(feedFolders.id, id), or(isNull(feedFolders.userId), eq(feedFolders.userId, user.id)))).then((r) => r[0])
@@ -216,14 +245,47 @@ news.get('/categories/:id/items', requireAuth, async (c) => {
   }
 })
 
+// Split sanitized reader HTML into clean plain-text paragraphs for clients that render
+// text natively instead of HTML (the tvOS app). Block-element closers become breaks, tags
+// are stripped and entities decoded (stripHtml), and empty/boilerplate-short fragments
+// (stray credits, orphaned labels) are dropped.
+function htmlToParagraphs(html: string): string[] {
+  const broken = html
+    .replace(/<\/(p|h[1-6]|li|blockquote|figcaption|pre|div|section|td|dt|dd)>/gi, '\n')
+    .replace(/<(?:br|hr)\s*\/?>/gi, '\n')
+  const out: string[] = []
+  for (const raw of broken.split('\n')) {
+    const text = stripHtml(raw)
+    if (text.length < 12) continue
+    out.push(text)
+  }
+  return out
+}
+
 // GET /api/news/article?url= — in-app reader content for headline items that have no
-// feedItems row (local/global fallback headlines). Extracted on the spot, not cached or
-// persisted anywhere - these items aren't "yours" the way a subscribed feed item is.
+// feedItems row (local/global fallback headlines). Extraction goes through a small
+// in-memory LRU (extractCache.ts) so the web reader, the TV client, and the summary
+// endpoint share one extraction per url; nothing is persisted - these items aren't
+// "yours" the way a subscribed feed item is.
+//
+// `?format=text` returns the same article as plain-text paragraphs (for the tvOS app,
+// which renders text natively); the default HTML response is unchanged.
 news.get('/article', requireAuth, async (c) => {
   const url = c.req.query('url')
   if (!url) return c.json({ error: 'Missing url' }, 400)
+  const asText = c.req.query('format') === 'text'
   try {
-    const a = await extractArticle(url)
+    const a = await cachedExtractArticle(url)
+    if (asText) {
+      return c.json({
+        title: a.title,
+        byline: a.byline,
+        siteName: a.siteName,
+        readingMins: a.readingMins,
+        source: a.source,
+        paragraphs: a.contentHtml ? htmlToParagraphs(a.contentHtml) : [],
+      })
+    }
     return c.json({
       id: url,
       title: a.title,
@@ -237,6 +299,9 @@ news.get('/article', requireAuth, async (c) => {
       archiveUrl: a.archiveUrl,
     })
   } catch {
+    if (asText) {
+      return c.json({ title: null, byline: null, siteName: null, readingMins: 0, source: null, paragraphs: [] })
+    }
     return c.json({ id: url, title: null, url, author: null, contentHtml: null, readingMins: 0, isObituary: OBITUARY_RE.test(url), readerSource: null, archiveUrl: null })
   }
 })
@@ -275,7 +340,7 @@ news.post('/categories/:id/unhide', requireAuth, async (c) => {
 news.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const type = c.req.query('type') === 'local' ? 'local' : 'world'
-  const limit = Math.min(Number(c.req.query('limit') ?? 10), 20)
+  const limit = Math.min(Number(c.req.query('limit') ?? 10), 60)
 
   if (await isOffline(user.id)) return c.json({ items: [], type, offline: true })
 

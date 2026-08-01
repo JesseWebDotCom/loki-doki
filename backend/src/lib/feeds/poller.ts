@@ -88,6 +88,10 @@ async function prune(feedId: string): Promise<void> {
 export async function fetchAndUpsertFeed(feed: Feed): Promise<number> {
   const now = new Date()
 
+  // Marker feeds ('system:' urls) are written by app code, never fetched here - e.g. the
+  // Local blend history feed (lib/news/localStore.ts), which routes/news.ts fills itself.
+  if (feed.url?.startsWith('system:')) return 0
+
   // Saved-search feeds resolve through Google News rather than a stored URL.
   if (feed.kind === 'search') {
     if (!feed.query) return 0

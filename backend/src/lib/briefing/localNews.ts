@@ -55,10 +55,15 @@ export async function blendedLocalNews(opts: {
 }): Promise<BlendedLocalNews> {
   const { patchSlug, townLabel, limit } = opts
   const dvSlug = deriveDailyVoiceSlug(townLabel)
+  // Over-ask each source: the round-robin merge dedupes across sources, and callers that
+  // persist the blend (the News app's Local history store) accumulate faster when every
+  // fetch surfaces a source's full front page rather than just the top `limit` slice.
+  // The final merge below still honors the caller's `limit`.
+  const perSource = Math.max(limit, 30)
   const [patchResult, dvNews, bnNews] = await Promise.all([
-    patchLocal({ slug: patchSlug, townLabel, limit }),
-    dvSlug ? dailyVoiceLocal(dvSlug, limit) : Promise.resolve<BriefingItem[]>([]),
-    bingNewsSearch(`${townLabel} news`, limit, 7000)
+    patchLocal({ slug: patchSlug, townLabel, limit: perSource }),
+    dvSlug ? dailyVoiceLocal(dvSlug, perSource) : Promise.resolve<BriefingItem[]>([]),
+    bingNewsSearch(`${townLabel} news`, perSource, 7000)
       .then((items) => items.map((i): BriefingItem => ({ title: i.title, detail: i.source || undefined, url: i.url || undefined, imageUrl: i.imageUrl })))
       .catch(() => [] as BriefingItem[]),
   ])

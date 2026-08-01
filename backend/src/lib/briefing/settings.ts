@@ -35,7 +35,7 @@ const DEFAULTS: BriefingSettings = {
   cadenceMinutes: 150, // 2.5h
   patchSlug: null,
   defaultLocation: 'Milford, CT',
-  maxItems: { localNews: 3, localEvents: 3, worldNews: 2, sports: 3 },
+  maxItems: { localNews: 6, localEvents: 3, worldNews: 4, sports: 3 },
 }
 
 function parse<T>(raw: string | undefined, fallback: T): T {
