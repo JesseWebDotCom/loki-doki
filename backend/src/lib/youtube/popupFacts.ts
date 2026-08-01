@@ -10,7 +10,9 @@ import { readFile } from 'node:fs/promises'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { parseVttCues, segmentByEmbeddings, timedDigest } from '@/lib/youtube/aiChapters'
 import { ollamaChat } from '@/llm/ollama'
-import { getModel } from '@/lib/models'
+import { getModel, getFastModel } from '@/lib/models'
+import { wikipediaSearch } from '@/lib/wikipediaSearch'
+import { webSearch } from '@/lib/webSearch'
 import { cachedLookupStale, cachedLookupPut, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { logger } from '@/lib/logger'
 
@@ -19,9 +21,11 @@ export interface PopupFact { t: number; text: string }
 // v2: main model instead of the fast tier (facts need world knowledge the
 // small model doesn't have — it obeyed "silence is better" with [] every
 // time). Namespace bump discards every cached empty at once.
-// v3: full-sentence VH1-style trivia (v2's model upgrade still produced
-// fragments like "VR gaming session" — worthless as bubbles).
-const NAMESPACE = 'yt-popup-facts-v3'
+// v4: retrieval-grounded. The local model's own trivia memory is thin, so
+// facts are anchored in live Wikipedia/web snippets for the entities each
+// section discusses (v3 fixed sentence form; v4 gives it something true and
+// interesting to say).
+const NAMESPACE = 'yt-popup-facts-v4'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -40,6 +44,51 @@ const FACTS_SYSTEM =
   'wrong fact. Never restate what the video itself just said, never speculate about the ' +
   'creator, no opinions. Respond with ONLY a JSON array, no prose, no code fences: ' +
   '[{"s": <section number>, "text": "<the fact>"}, ...]. An empty array is a fine answer.'
+
+const ENTITY_SYSTEM =
+  'From the numbered transcript sections, list the notable named things worth trivia: ' +
+  'people, movies/shows/games/works, products, companies, places, events. Up to 8, most ' +
+  'interesting first, each tied to the section where it is discussed. Respond with ONLY a ' +
+  'JSON array, no prose: [{"s": <section number>, "entity": "<name>"}, ...]'
+
+/** Wikipedia-first (web-search fallback, steered at trivia/IMDb pages) source
+ * snippets for the entities each section discusses. Returns a text block for
+ * the facts prompt, or '' when nothing useful was retrievable. Never throws. */
+async function gatherSources(numbered: string): Promise<string> {
+  try {
+    const fast = await getFastModel()
+    const r = await ollamaChat(fast, [
+      { role: 'system', content: ENTITY_SYSTEM },
+      { role: 'user', content: numbered },
+    ], undefined, { temperature: 0.1, num_predict: 300 })
+    const m = r.message.content.match(/\[[\s\S]*\]/)
+    if (!m) return ''
+    const seen = new Set<string>()
+    const picked: { s: number; name: string }[] = []
+    for (const e of JSON.parse(m[0]) as unknown[]) {
+      const s = Number((e as any)?.s)
+      const name = String((e as any)?.entity ?? '').trim()
+      if (!Number.isInteger(s) || name.length < 2 || name.length > 80) continue
+      const key = name.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      picked.push({ s, name })
+      if (picked.length >= 6) break
+    }
+    const blocks = await Promise.all(picked.map(async e => {
+      let text = (await wikipediaSearch(e.name, 1))[0]?.snippet ?? ''
+      if (text.length < 60) {
+        const web = await webSearch(`"${e.name}" trivia imdb`, 2)
+        text = web.map(w => w.snippet).join(' ')
+      }
+      text = text.replace(/\s+/g, ' ').trim().slice(0, 450)
+      return text ? `SOURCE for section ${e.s} — ${e.name}: ${text}` : ''
+    }))
+    return blocks.filter(Boolean).join('\n\n')
+  } catch {
+    return ''
+  }
+}
 
 /** Cached facts if a build already ran; undefined when no attempt is recorded yet. */
 export async function peekPopupFacts(videoId: string): Promise<PopupFact[] | null | undefined> {
@@ -94,12 +143,20 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   const numbered = segments
     .map((s, i) => `${i + 1}. ${s.text.slice(0, 500)}`)
     .join('\n\n')
+
+  // Ground the trivia: pull Wikipedia/web snippets for the entities each
+  // section discusses so the writer works from real sources, not model memory.
+  const sources = await gatherSources(numbered)
+
   // Background job — latency is free, so use the MAIN model: trivia needs
   // world knowledge, and the fast tier answered [] essentially always.
   const model = await getModel()
+  const user = sources
+    ? `${numbered}\n\nVERIFIED SOURCES — ground your facts in details from these that the video itself does not mention:\n\n${sources}`
+    : numbered
   const result = await ollamaChat(model, [
     { role: 'system', content: FACTS_SYSTEM },
-    { role: 'user', content: numbered },
+    { role: 'user', content: user },
   ], undefined, { temperature: 0.3, num_predict: 900 })
 
   const raw = result.message.content
