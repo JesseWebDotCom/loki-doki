@@ -274,6 +274,30 @@ news.get('/article', requireAuth, async (c) => {
   const url = c.req.query('url')
   if (!url) return c.json({ error: 'Missing url' }, 400)
   const asText = c.req.query('format') === 'text'
+
+  // DB first: the poller pre-extracts full text into feed_items (and did so
+  // from a fetch that succeeded) — live re-extraction can fail on sources that
+  // block bots, which made the TV say "unavailable" for articles the web app
+  // showed fine from this very column.
+  const [stored] = await db
+    .select({ title: feedItems.title, author: feedItems.author, contentHtml: feedItems.contentHtml })
+    .from(feedItems).where(eq(feedItems.url, url)).limit(1)
+  if (stored?.contentHtml) {
+    const paragraphs = htmlToParagraphs(stored.contentHtml)
+    const readingMins = Math.max(1, Math.round(paragraphs.join(' ').split(/\s+/).length / 200))
+    if (asText) {
+      return c.json({
+        title: stored.title, byline: stored.author, siteName: null,
+        readingMins, source: 'feed-store', paragraphs,
+      })
+    }
+    return c.json({
+      id: url, title: stored.title, url, author: stored.author, siteName: null,
+      contentHtml: stored.contentHtml, readingMins, isObituary: OBITUARY_RE.test(url),
+      readerSource: 'feed-store', archiveUrl: null,
+    })
+  }
+
   try {
     const a = await cachedExtractArticle(url)
     if (asText) {
