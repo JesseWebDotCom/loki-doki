@@ -7,6 +7,7 @@
 
 import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/db'
+import { cosineSimilarity } from '@/llm/embed'
 import { users, videoFollows, videoItems, videoWatchState, ytSubscriptions, ytVideos, ytWatchState } from '@/db/schema'
 import { enrichChannelThumbs, fetchPopular, fetchTrending } from '@/lib/youtube/discovery'
 import {
@@ -46,6 +47,16 @@ const SERVE_CHANNEL_CAP = 3
 // A cluster is provenance (a related-fan-out seed, a topic query, or a bucket),
 // the engine's stand-in for explicit topic clustering.
 const CLUSTER_SHARE_CAP = 0.35
+// Semantic fixation damper, applied ON TOP of the provenance caps: twenty cartoon
+// compilation channels fed by ten different seed watches look like ten small
+// provenance clusters, each under CLUSTER_SHARE_CAP, all the same topic. Candidates
+// are leader-clustered by title embedding at serve time; no semantic cluster may
+// exceed this share of a served page.
+const SEMANTIC_SHARE_CAP = 0.25
+// Leader-clustering threshold: a candidate joins the first existing cluster whose
+// leader vector clears this cosine. 0.80 on nomic-embed groups same-topic titles
+// (retro cartoon compilations across channels) without merging distinct topics.
+const SEMANTIC_COS = 0.8
 // Exploration: share of every served page reserved for items outside the dominant
 // clusters (subscription uploads from unwatched channels count toward it).
 const EXPLORE_SHARE = 0.15
@@ -939,11 +950,35 @@ const clusterKey = (e: RankedCandidate): string =>
     ? `${e.bucket}:${(e.topics[0] ?? '').toLowerCase()}`
     : e.bucket
 
+/** Deterministic leader clustering by title embedding, the semantic complement to
+ *  clusterKey's provenance grouping: walking the entries in rank order, each one
+ *  with a retained vector joins the first existing cluster whose LEADER vector
+ *  clears SEMANTIC_COS, or starts a new cluster with itself as leader. A pure
+ *  function of the given order (no randomness), so one serve stays stable.
+ *  Entries without a vector (embed failure) get no cluster and are exempt from
+ *  the semantic share cap. Returns ref -> cluster id. */
+function semanticClusterIds(entries: RankedCandidate[]): Map<string, number> {
+  const leaders: number[][] = []
+  const ids = new Map<string, number>()
+  for (const e of entries) {
+    if (!e.vec?.length || ids.has(e.ref)) continue
+    let id = leaders.findIndex((leader) => cosineSimilarity(leader, e.vec!) > SEMANTIC_COS)
+    if (id < 0) {
+      id = leaders.length
+      leaders.push(e.vec)
+    }
+    ids.set(e.ref, id)
+  }
+  return ids
+}
+
 /** Rank-ordered greedy fill with diversity caps, then three quota passes. Fully
  *  deterministic over its inputs (no fresh randomness), so one serve stays stable
  *  for pagination; variety BETWEEN serves comes from the pool's own dithering.
- *  1. Fill: hard per-channel cap, per-cluster share cap, trending cap. Cluster
- *     overflow only backfills at the tail if the page would otherwise run short.
+ *  1. Fill: hard per-channel cap, per-cluster share cap, semantic share cap
+ *     (leader clustering above, so one topic spread across many seeds and
+ *     channels still caps), trending cap. Cluster overflow only backfills at
+ *     the tail if the page would otherwise run short.
  *  2. Subscription quota: recent uploads from subscribed channels swap in over
  *     tail items of the largest clusters until the quota is met.
  *  3. Sub-topic quota: broad searches for what those subscriptions are ABOUT
@@ -952,6 +987,7 @@ const clusterKey = (e: RankedCandidate): string =>
  *     swap in, so part of every page looks past what the user already binges. */
 function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate>, target: number): ItVideo[] {
   const clusterCap = Math.max(2, Math.ceil(target * CLUSTER_SHARE_CAP))
+  const semanticCap = Math.max(2, Math.ceil(target * SEMANTIC_SHARE_CAP))
   // Same trending cap as the hub rail: backfill fills gaps, it doesn't take over as
   // rotation demotes the personalized picks.
   const trendingCap = Math.max(3, Math.floor(target / 3))
@@ -961,9 +997,15 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     const e = entryOf(v)
     return e ? clusterKey(e) : 'unknown'
   }
+  // Semantic clusters over the serve-ordered candidates (rank order = kept order),
+  // so the ids are deterministic for this serve. Entries without a vector map to
+  // null and never count toward (or against) a semantic cap.
+  const semByRef = semanticClusterIds(kept.map((v) => entryOf(v)).filter((e): e is RankedCandidate => !!e))
+  const semOf = (v: ItVideo): number | null => semByRef.get(ytRef(v.videoId)) ?? null
 
   const perChannel = new Map<string, number>()
   const perCluster = new Map<string, number>()
+  const perSemantic = new Map<number, number>()
   const servedIds = new Set<string>()
   const served: ItVideo[] = []
   const overflow: ItVideo[] = []
@@ -973,6 +1015,10 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
     const chan = chanOf(v)
     if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + dir)
     perCluster.set(clusterOf(v), (perCluster.get(clusterOf(v)) ?? 0) + dir)
+    // Quota swaps route through bump too, so items the later passes swap in keep
+    // the semantic tallies honest (they count, but never retroactively evict).
+    const sem = semOf(v)
+    if (sem !== null) perSemantic.set(sem, (perSemantic.get(sem) ?? 0) + dir)
   }
   const channelFull = (v: ItVideo) => {
     const chan = chanOf(v)
@@ -994,10 +1040,18 @@ function assembleDiverseFeed(kept: ItVideo[], byRef: Map<string, RankedCandidate
       overflow.push(v)
       continue
     }
+    // Semantic cap, in addition to the provenance cap above: skip when this
+    // candidate's semantic cluster already owns its share of the page, and let
+    // later candidates outside the capped cluster backfill the slot.
+    const sem = semOf(v)
+    if (sem !== null && (perSemantic.get(sem) ?? 0) >= semanticCap) {
+      overflow.push(v)
+      continue
+    }
     if (isTrending) trendingServed++
     admit(v)
   }
-  // Short page: cluster overflow beats empty slots (channel cap stays hard).
+  // Short page: cluster and semantic overflow beat empty slots (channel cap stays hard).
   for (const v of overflow) {
     if (served.length >= target) break
     if (!channelFull(v)) admit(v)

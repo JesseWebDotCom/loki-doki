@@ -66,8 +66,9 @@ export async function rankCandidates(
     // so relevance gates don't mistake "unknown" for "similar".
     let cos = 0.5
     let cosKnown: number | null = null
+    let vec: number[] | null = null
     if (profile.recentCentroid || profile.longCentroid) {
-      const vec = await embedCached(cand.creatorName ? `${cand.title} by ${cand.creatorName}` : cand.title)
+      vec = await embedCached(cand.creatorName ? `${cand.title} by ${cand.creatorName}` : cand.title)
       if (vec) {
         const recent = profile.recentCentroid ? cosineSimilarity(profile.recentCentroid, vec) : null
         const long = profile.longCentroid ? cosineSimilarity(profile.longCentroid, vec) : null
@@ -95,7 +96,11 @@ export async function rankCandidates(
 
     const score =
       w.cos * cos + w.creator * creator + w.topic * topic + w.fresh * fresh + w.bucket * BUCKET_PRIOR[cand.bucket]
-    ranked.push({ ...cand, score, parts: { cos: cosKnown, creator, topic } })
+    // The vector rides along on the ranked entry so serve-time semantic capping
+    // (videos.ts) can cluster candidates by meaning; embed failures leave it unset.
+    const entry: RankedCandidate = { ...cand, score, parts: { cos: cosKnown, creator, topic } }
+    if (vec) entry.vec = vec
+    ranked.push(entry)
   }
 
   return ranked.sort((a, b) => b.score - a.score)

@@ -1,5 +1,6 @@
 // Candidate-pool persistence + the generic serve flow every suggestion rail shares.
-// A pool is a ranked Candidate[] (~150 entries, payloads included, vectors NOT included)
+// A pool is a ranked Candidate[] (~150 entries, payloads included, plus title embedding
+// vectors where available for serve-time semantic capping)
 // built in the background and cached 6h. Serving is cheap and always current where it
 // matters: the watched set is queried live per request, dismissals hard-exclude, and
 // shownCount demotes so the rail rotates instead of repeating.

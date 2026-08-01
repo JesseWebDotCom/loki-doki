@@ -73,4 +73,8 @@ export interface RankedCandidate extends Candidate {
   /** Ranking components, kept for relevance gates: `cos` is null when the candidate
    *  couldn't be embedded (a gate must not mistake "unknown" for "similar"). */
   parts?: { cos: number | null; creator: number; topic: number }
+  /** Title embedding retained from ranking for serve-time semantic clustering
+   *  (the pool is ~150 entries, so the memory cost is trivial). Absent when the
+   *  candidate couldn't be embedded - such entries are exempt from semantic caps. */
+  vec?: number[]
 }
