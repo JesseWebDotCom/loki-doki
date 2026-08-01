@@ -11,7 +11,10 @@ import { getImpressions, recordShown } from './impressions'
 import { capPerCreator } from './rank'
 import type { InterestDomain, RankedCandidate } from './types'
 
-const NAMESPACE = 'interests:pool'
+// BUMP THE VERSION whenever gating/ranking rules change: pools built under old
+// rules keep serving for up to 6h otherwise — and pre-vector pools bypass the
+// semantic caps entirely (no vec = exempt). v2: news gates + semantic caps.
+const NAMESPACE = 'interests:pool:v2'
 export const POOL_TTL_MS = 6 * 60 * 60 * 1000
 /** Thin-history pools re-check sooner: a new user's first few watches should start
  *  producing suggestions within the hour, not tomorrow. */
