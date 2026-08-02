@@ -32,6 +32,10 @@ import { resolveSplitStreamUrls, invalidateSplitStreamUrls, isValidVideoId, type
 /** h264 stops here on YouTube, so every HLS presentation is capped at 1080p. */
 export const HLS_MAX_HEIGHT = 1080
 
+/** Variant discriminator carried on the low rung's playlist/segment URIs
+ *  (`video.m3u8?v=720`). No query = the original 1080p behavior. */
+export type HlsVideoVariant = '720'
+
 // googlevideo is picky about the UA matching the client that resolved the URL.
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -59,9 +63,21 @@ export interface HlsTrack {
   width: number
   height: number
   channels: number
+  /** Frames per second from the InnerTube format (null when resolved via yt-dlp). */
+  fps: number | null
+  /** The format's declared peak bitrate in bits/s (null when unknown). */
+  peakBitrate: number | null
 }
 
-export interface HlsPresentation { video: HlsTrack; audio: HlsTrack; expires: number }
+export interface HlsPresentation {
+  /** Primary rung: best avc1 above the 720p progressive ceiling (up to 1080p). */
+  video: HlsTrack
+  /** Secondary rung: best avc1 at or under 720p. Null when the resolver found no
+   *  distinct lower track; the master then lists the single 1080p variant as before. */
+  video720: HlsTrack | null
+  audio: HlsTrack
+  expires: number
+}
 
 // ── MP4 box parsing ────────────────────────────────────────────────────────────
 // Just enough of ISO-BMFF to read the segment index and the codec/geometry needed for
@@ -134,7 +150,7 @@ function aacCodec(dv: DataView, entry: Box): string | null {
   return `mp4a.${objectType.toString(16)}.2`
 }
 
-type ParsedTrack = Omit<HlsTrack, 'url' | 'itag'>
+type ParsedTrack = Omit<HlsTrack, 'url' | 'itag' | 'fps' | 'peakBitrate'>
 
 /** Parse a track head into an index. Returns a byte count when the head fetch was too
  *  short to hold the whole sidx (long videos), so the caller can re-fetch exactly. */
@@ -210,7 +226,12 @@ function urlParam(url: string, key: string): string | null {
   try { return new URL(url).searchParams.get(key) } catch { return null }
 }
 
-async function indexTrack(url: string, kind: StreamKind): Promise<HlsTrack | null> {
+// Classic avc1 DASH itag table: the only h264 video-only itags YouTube has ever
+// published. Fills FRAME-RATE when the URL came from the yt-dlp fallback, whose -g
+// output carries no format metadata (the itag rides on the URL itself).
+const AVC1_ITAG_FPS: Record<number, number> = { 133: 30, 134: 30, 135: 30, 136: 30, 137: 30, 160: 30, 298: 60, 299: 60, 304: 60, 305: 60 }
+
+async function indexTrack(url: string, kind: StreamKind, meta?: { fps?: number | null; bitrate?: number | null }): Promise<HlsTrack | null> {
   let head = await fetchHead(url, HEAD_BYTES)
   if (!head) return null
   let parsed = parseTrackHead(head, kind)
@@ -220,7 +241,14 @@ async function indexTrack(url: string, kind: StreamKind): Promise<HlsTrack | nul
     parsed = head ? parseTrackHead(head, kind) : null
   }
   if (!parsed || 'need' in parsed) return null
-  return { url, itag: Number(urlParam(url, 'itag')) || 0, ...parsed }
+  const itag = Number(urlParam(url, 'itag')) || 0
+  return {
+    url,
+    itag,
+    fps: meta?.fps ?? (kind === 'video' ? AVC1_ITAG_FPS[itag] ?? null : null),
+    peakBitrate: meta?.bitrate ?? null,
+    ...parsed,
+  }
 }
 
 // ── Presentation cache ─────────────────────────────────────────────────────────
@@ -266,16 +294,23 @@ async function buildPresentation(videoId: string): Promise<HlsPresentation | nul
     misses.set(videoId, Date.now() + MISS_TTL_MS)
     return null
   }
-  const [video, audio] = await Promise.all([
-    indexTrack(urls.video, 'video').catch(() => null),
-    indexTrack(urls.audio, 'audio').catch(() => null),
+  // Secondary (<=720p) rung: skip when the resolver found no DISTINCT lower track (the
+  // yt-dlp fallback's low selector re-prints the primary itag when none exists). A
+  // missing low rung just means the master lists a single variant, the old behavior.
+  const lowUrl = urls.lowVideo && (Number(urlParam(urls.lowVideo, 'itag')) || 0) !== (Number(urlParam(urls.video, 'itag')) || 0)
+    ? urls.lowVideo
+    : null
+  const [video, audio, video720] = await Promise.all([
+    indexTrack(urls.video, 'video', { fps: urls.videoFps, bitrate: urls.videoBitrate }).catch(() => null),
+    indexTrack(urls.audio, 'audio', { bitrate: urls.audioBitrate }).catch(() => null),
+    lowUrl ? indexTrack(lowUrl, 'video', { fps: urls.lowVideoFps, bitrate: urls.lowVideoBitrate }).catch(() => null) : Promise.resolve(null),
   ])
   if (!video || !audio) {
     logger.warn(`[youtube/hls] no indexable avc1+aac pair for ${videoId} (video=${!!video} audio=${!!audio})`)
     misses.set(videoId, Date.now() + MISS_TTL_MS)
     return null
   }
-  const pres: HlsPresentation = { video, audio, expires: Date.now() + TTL_MS }
+  const pres: HlsPresentation = { video, video720, audio, expires: Date.now() + TTL_MS }
   if (cache.size > 100) for (const [k, v] of cache) if (v.expires <= Date.now()) cache.delete(k)
   cache.set(videoId, pres)
   return pres
@@ -290,13 +325,14 @@ export function invalidateHlsPresentation(videoId: string): void {
 /** Re-resolve one track's signed URL after an upstream 403 (the signature rotated mid-
  *  play). The byte index survives only if the fresh URL is the same itag and length,
  *  otherwise the whole presentation is dropped and the client re-fetches the playlist. */
-export async function refreshHlsTrackUrl(videoId: string, kind: StreamKind): Promise<string | null> {
+export async function refreshHlsTrackUrl(videoId: string, kind: StreamKind, variant?: HlsVideoVariant): Promise<string | null> {
   const pres = cache.get(videoId)
   if (!pres) return null
-  const track = kind === 'audio' ? pres.audio : pres.video
+  const use720 = kind === 'video' && variant === '720' && !!pres.video720
+  const track = kind === 'audio' ? pres.audio : use720 ? pres.video720! : pres.video
   invalidateSplitStreamUrls(videoId, HLS_MAX_HEIGHT, 'avc1')
   const urls = await resolveSplitStreamUrls(videoId, HLS_MAX_HEIGHT, 'avc1')
-  const fresh = urls ? (kind === 'audio' ? urls.audio : urls.video) : null
+  const fresh = urls ? (kind === 'audio' ? urls.audio : use720 ? (urls.lowVideo ?? null) : urls.video) : null
   if (!fresh || Number(urlParam(fresh, 'itag')) !== track.itag) {
     cache.delete(videoId)
     return null
@@ -307,24 +343,52 @@ export async function refreshHlsTrackUrl(videoId: string, kind: StreamKind): Pro
 
 // ── Playlist rendering ─────────────────────────────────────────────────────────
 
+// Measured average bits/s over the whole track (exact: total bytes / total duration).
 const bandwidth = (t: HlsTrack) => Math.round((t.bytes * 8) / Math.max(1, t.duration))
+// Peak bits/s for the BANDWIDTH attribute: the format's declared peak when known,
+// floored at the measured average so BANDWIDTH >= AVERAGE-BANDWIDTH always holds.
+const peakBandwidth = (t: HlsTrack) => Math.max(t.peakBitrate ?? 0, bandwidth(t))
+// FRAME-RATE is a decimal-float attribute; trim integer rates to bare integers.
+const frameRateAttr = (fps: number | null) =>
+  fps ? `,FRAME-RATE=${Number.isInteger(fps) ? fps : fps.toFixed(3)}` : ''
+
+export interface HlsMasterOptions {
+  /** Advertise a WebVTT subtitle rendition (only when a transcript already exists on disk). */
+  subtitles?: boolean
+}
 
 /**
- * Master playlist: one avc1 variant plus the AAC track as an audio rendition group. URIs
- * are relative to `/api/youtube/stream/:videoId/`, so the player keeps hitting our origin
- * (and sends the same session cookie) without us knowing the external hostname.
+ * Master playlist: the avc1 variant ladder (720p rung first when present, then 1080p)
+ * plus the AAC track as an audio rendition group, an I-frame playlist for native
+ * trick-play scrubbing, and optionally a subtitles rendition group. URIs are relative
+ * to `/api/youtube/stream/:videoId/`, so the player keeps hitting our origin (and sends
+ * the same session cookie) without us knowing the external hostname.
  */
-export function hlsMasterPlaylist(pres: HlsPresentation): string {
-  const bw = bandwidth(pres.video) + bandwidth(pres.audio)
-  return [
+export function hlsMasterPlaylist(pres: HlsPresentation, opts: HlsMasterOptions = {}): string {
+  const lines = [
     '#EXTM3U',
     '#EXT-X-VERSION:7',
     '#EXT-X-INDEPENDENT-SEGMENTS',
     `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="${pres.audio.channels || 2}",URI="hls/audio.m3u8"`,
-    `#EXT-X-STREAM-INF:BANDWIDTH=${bw},CODECS="${pres.video.codec},${pres.audio.codec}",RESOLUTION=${pres.video.width}x${pres.video.height},AUDIO="aac"`,
-    'hls/video.m3u8',
-    '',
-  ].join('\n')
+  ]
+  if (opts.subtitles) {
+    lines.push('#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=NO,AUTOSELECT=YES,FORCED=NO,URI="hls/subs.m3u8"')
+  }
+  const subsAttr = opts.subtitles ? ',SUBTITLES="subs"' : ''
+  const variant = (t: HlsTrack, uri: string) => {
+    const bw = peakBandwidth(t) + peakBandwidth(pres.audio)
+    const avg = bandwidth(t) + bandwidth(pres.audio)
+    lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${bw},AVERAGE-BANDWIDTH=${avg},CODECS="${t.codec},${pres.audio.codec}",RESOLUTION=${t.width}x${t.height}${frameRateAttr(t.fps)},AUDIO="aac"${subsAttr}`)
+    lines.push(uri)
+  }
+  if (pres.video720) variant(pres.video720, 'hls/video.m3u8?v=720')
+  variant(pres.video, 'hls/video.m3u8')
+  // Trick play: every sidx subsegment starts on a keyframe (SAP type 1), so the lightest
+  // variant's segment starts double as an I-frame index.
+  const ift = pres.video720 ?? pres.video
+  lines.push(`#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=${peakBandwidth(ift)},CODECS="${ift.codec}",RESOLUTION=${ift.width}x${ift.height},URI="hls/iframe.m3u8"`)
+  lines.push('')
+  return lines.join('\n')
 }
 
 /**
@@ -350,4 +414,51 @@ export function hlsMediaPlaylist(track: HlsTrack, segmentUri: string): string {
   }
   lines.push('#EXT-X-ENDLIST', '')
   return lines.join('\n')
+}
+
+/**
+ * I-frame playlist for native trick-play scrubbing. Every sidx subsegment is SAP type 1,
+ * i.e. it STARTS on a keyframe, so each segment's whole moof+mdat byte range is a valid
+ * I-frame entry: it contains the leading keyframe plus everything needed to decode it.
+ * (Sub-segment moof parsing could shrink the ranges to just the first sample, but the
+ * player stops reading once it has decoded the I-frame, so segment ranges work fine.)
+ */
+export function hlsIframePlaylist(track: HlsTrack, segmentUri: string): string {
+  const target = Math.ceil(Math.max(...track.segments.map(s => s.duration)))
+  const lines = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXT-X-I-FRAMES-ONLY',
+    `#EXT-X-TARGETDURATION:${target}`,
+    '#EXT-X-MEDIA-SEQUENCE:0',
+    `#EXT-X-MAP:URI="${segmentUri}",BYTERANGE="${track.initSize}@0"`,
+  ]
+  for (const s of track.segments) {
+    lines.push(`#EXTINF:${s.duration.toFixed(3)},`)
+    lines.push(`#EXT-X-BYTERANGE:${s.size}@${s.offset}`)
+    lines.push(segmentUri)
+  }
+  lines.push('#EXT-X-ENDLIST', '')
+  return lines.join('\n')
+}
+
+/**
+ * Single-segment WebVTT playlist covering the full duration. The VTT already carries
+ * absolute cue times from 0, so one segment keeps it perfectly aligned with the media
+ * timeline with no splitting or timestamp-map work.
+ */
+export function hlsSubtitlePlaylist(durationSec: number): string {
+  const dur = Math.max(1, durationSec)
+  return [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    `#EXT-X-TARGETDURATION:${Math.ceil(dur)}`,
+    '#EXT-X-MEDIA-SEQUENCE:0',
+    `#EXTINF:${dur.toFixed(3)},`,
+    'subs.vtt',
+    '#EXT-X-ENDLIST',
+    '',
+  ].join('\n')
 }

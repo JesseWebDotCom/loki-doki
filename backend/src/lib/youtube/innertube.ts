@@ -1011,8 +1011,13 @@ async function getVisitorData(): Promise<string | null> {
   return _visitorPending
 }
 
-export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; mime: string }
+export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; fps: number | null; mime: string }
 export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[]; video: ItStreamFormat[] }
+
+/** Everything one ANDROID_VR /player call yields that stream consumers care about:
+ *  the format lists plus the response's perceptual-loudness value (playerConfig.
+ *  audioConfig.loudnessDb), which the client uses to normalize playback volume. */
+interface ItPlayerRecord { streams: ItStreams | null; loudnessDb: number | null }
 
 // Short memo + inflight coalescing per videoId: prewarm, the real play, split-resolve and
 // storyboard-adjacent paths each POST /player for the same id within seconds of each
@@ -1020,27 +1025,42 @@ export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamForma
 // is exactly what a fresh call would return. Errors and gated (null) results share the
 // inflight promise but only OK/gated results are memoized — a thrown failure retries.
 const STREAMS_TTL_MS = 60_000
-const streamsCache = new Map<string, { streams: ItStreams | null; expires: number }>()
-const streamsInflight = new Map<string, Promise<ItStreams | null>>()
+const streamsCache = new Map<string, { rec: ItPlayerRecord; expires: number }>()
+const streamsInflight = new Map<string, Promise<ItPlayerRecord>>()
 
-export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
+async function innertubePlayerRecord(videoId: string, timeout: number): Promise<ItPlayerRecord> {
   const hit = streamsCache.get(videoId)
-  if (hit && hit.expires > Date.now()) return hit.streams
+  if (hit && hit.expires > Date.now()) return hit.rec
   if (hit) streamsCache.delete(videoId)
   const pending = streamsInflight.get(videoId)
   if (pending) return pending
   const p = (async () => {
-    const streams = await doInnertubePlayerStreams(videoId, timeout)
+    const rec = await doInnertubePlayerStreams(videoId, timeout)
     if (streamsCache.size > 200) {
       const now = Date.now()
       for (const [k, v] of streamsCache) if (v.expires <= now) streamsCache.delete(k)
     }
-    streamsCache.set(videoId, { streams, expires: Date.now() + STREAMS_TTL_MS })
-    return streams
+    streamsCache.set(videoId, { rec, expires: Date.now() + STREAMS_TTL_MS })
+    return rec
   })()
   streamsInflight.set(videoId, p)
   void p.finally(() => { if (streamsInflight.get(videoId) === p) streamsInflight.delete(videoId) })
   return p
+}
+
+export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
+  return (await innertubePlayerRecord(videoId, timeout)).streams
+}
+
+/** The video's loudnessDb from the same memoized /player call the stream resolvers use,
+ *  so it is a shared cache hit whenever playback has already (or is about to) resolve streams.
+ *  Never throws: loudness is an enhancement, so failures just mean "no value". */
+export async function innertubeLoudnessDb(videoId: string, timeout = 6000): Promise<number | null> {
+  try {
+    return (await innertubePlayerRecord(videoId, timeout)).loudnessDb
+  } catch {
+    return null
+  }
 }
 
 /** Caption tracks straight from player responses — the yt-dlp-free path for
@@ -1095,7 +1115,7 @@ export async function innertubeCaptionTracks(videoId: string, timeout = 6000): P
   return out
 }
 
-async function doInnertubePlayerStreams(videoId: string, timeout: number): Promise<ItStreams | null> {
+async function doInnertubePlayerStreams(videoId: string, timeout: number): Promise<ItPlayerRecord> {
   const visitorData = await getVisitorData()
   const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
     method: 'POST',
@@ -1115,22 +1135,27 @@ async function doInnertubePlayerStreams(videoId: string, timeout: number): Promi
   // LOGIN_REQUIRED almost always means our visitorData went stale — drop it so the next call
   // refetches a fresh token and recovers the fast path instead of permanently falling to yt-dlp.
   if (status === 'LOGIN_REQUIRED') { _visitorData = null }
-  if (status && status !== 'OK') return null   // login/age/region gated → let yt-dlp try
+  // Perceptual loudness for client-side volume normalization. Read regardless of gating:
+  // it costs nothing and rides the same memo entry as the streams.
+  const loudnessRaw = data?.playerConfig?.audioConfig?.loudnessDb
+  const loudnessDb = typeof loudnessRaw === 'number' && Number.isFinite(loudnessRaw) ? loudnessRaw : null
+  if (status && status !== 'OK') return { streams: null, loudnessDb }   // login/age/region gated → let yt-dlp try
   const sd = data?.streamingData
-  if (!sd) return null
+  if (!sd) return { streams: null, loudnessDb }
   const toFmt = (f: any): ItStreamFormat | null => {
     // Skip ciphered formats (signatureCipher instead of a plain url) — those need the
     // player JS we're trying to avoid; yt-dlp handles them on the fallback path.
     if (!f?.url || typeof f.url !== 'string') return null
     const itag = typeof f.itag === 'number' ? f.itag : parseInt(f.itag, 10)
-    return { itag, url: f.url, height: f.height ?? null, bitrate: f.bitrate ?? null, mime: f.mimeType ?? '' }
+    const fps = typeof f.fps === 'number' && Number.isFinite(f.fps) ? f.fps : null
+    return { itag, url: f.url, height: f.height ?? null, bitrate: f.bitrate ?? null, fps, mime: f.mimeType ?? '' }
   }
   const progressive = ((sd.formats ?? []).map(toFmt).filter(Boolean)) as ItStreamFormat[]
   const audio = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('audio/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
   // Video-only adaptive tracks: the 1080p+ tiers the progressive formats never reach.
   // Paired with an audio track by the stream proxy's ffmpeg remux.
   const video = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('video/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
-  return { progressive, audio, video }
+  return { streams: { progressive, audio, video }, loudnessDb }
 }
 
 // Storyboard (scrub-preview sprite sheet) levels for a video. The plain WEB `player` call

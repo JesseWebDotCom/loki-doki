@@ -22,7 +22,7 @@ import { peekPool } from '@/lib/interests/pool'
 import { buildChannelProfiles, subscriptionTopics } from '@/lib/interests/channelProfiles'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, innertubeLoudnessDb, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
@@ -36,7 +36,7 @@ import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, getOrFetchDeArrowThumb, deArrowThumbKey } from '@/lib/youtube/dearrow'
 import { getOrFetchImageResized } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
-import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist } from '@/lib/youtube/hls'
+import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist, hlsIframePlaylist, hlsSubtitlePlaylist, type HlsVideoVariant } from '@/lib/youtube/hls'
 import { getTranscodePlan, getTranscodeSegment, getTranscodeInit, hevcMasterPlaylist, hevcMediaPlaylist, TRANSCODE_HEIGHTS, type SegmentResult } from '@/lib/youtube/hlsTranscode'
 import { ensureFfmpeg, ffmpegBin } from '@/lib/ffmpeg'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot, getCookiesStatus, saveCookiesFile, clearCookiesFile } from '@/lib/ytdlp'
@@ -56,7 +56,7 @@ import {
   enqueueVideoSave, cancelVideoSaves, createYoutubeEpisode,
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
-import { resolveUserPath } from '@/lib/storage/paths'
+import { resolveUserPath, userPath } from '@/lib/storage/paths'
 import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets, AUDIO_FORMATS, type AudioFormat } from '@/lib/youtube/assets'
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
@@ -1299,8 +1299,10 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     // row missing views/publishedAt would serve a blank caption forever. Backfill in the
     // background — don't block the response on an InnerTube round-trip.
     if (v.views == null || v.publishedAt == null) void backfillVideoStats(videoId).catch(() => {})
-    const [channelThumb, subscribers] = await Promise.all([avatarFor(sub, v.channelId), subscribersFor(v.channelId)])
-    return c.json({ videoId, title, author, channelId: v.channelId, channelThumb, subscribers, description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false })
+    // loudnessDb rides the same memoized /player call playback is about to make anyway
+    // (innertubeLoudnessDb never throws), so the client can normalize volume per video.
+    const [channelThumb, subscribers, loudnessDb] = await Promise.all([avatarFor(sub, v.channelId), subscribersFor(v.channelId), innertubeLoudnessDb(videoId)])
+    return c.json({ videoId, title, author, channelId: v.channelId, channelThumb, subscribers, description: v.description, descriptionClean: v.descriptionClean, summary: v.summary, durationSec: v.durationSec, views: v.views, publishedAt: v.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: false, loudnessDb })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
@@ -1322,7 +1324,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     }
     const channelId = it.channelId ?? v?.channelId ?? null
     const sub = await subFor(channelId)
-    const [channelThumb, subscribers] = await Promise.all([avatarFor(sub, channelId), subscribersFor(channelId)])
+    const [channelThumb, subscribers, loudnessDb] = await Promise.all([avatarFor(sub, channelId), subscribersFor(channelId), innertubeLoudnessDb(videoId)])
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
       channelThumb, subscribers, description: it.description ?? v?.description ?? null,
@@ -1331,6 +1333,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       views: it.views ?? v?.views ?? null,
       publishedAt: it.publishedAt ?? v?.publishedAt ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, isLive: it.isLive,
+      loudnessDb,
     })
   }
 
@@ -1382,10 +1385,12 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       subscribed: !!sub,
       subscriptionId: sub?.id ?? null,
       isLive: !!m.is_live,
+      // yt-dlp branch: InnerTube already declined this video, so no loudness signal.
+      loudnessDb: null,
     })
   } catch {
     const sub = await subFor(v?.channelId)
-    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), subscribers: await subscribersFor(v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, publishedAt: v?.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), subscribers: await subscribersFor(v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, views: v?.views ?? null, publishedAt: v?.publishedAt ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null, loudnessDb: null })
   }
 })
 
@@ -2244,6 +2249,34 @@ const hlsPlaylistResponse = (c: Context<AppEnv>, body: string) =>
 const hlsUnavailable = (c: Context<AppEnv>, videoId: string) =>
   c.json({ error: 'No HLS presentation for this video', fallback: `/api/youtube/stream/${videoId}?kind=video` }, 404)
 
+/** Variant discriminator for the passthrough video playlist/segments: `?v=720` selects
+ *  the secondary rung. No/unknown query = the original single-1080p behavior. */
+const hlsVariant = (c: Context<AppEnv>): HlsVideoVariant | undefined =>
+  c.req.query('v') === '720' ? '720' : undefined
+
+/** Cheap on-disk lookup for an ALREADY-fetched transcript VTT. Deliberately never calls
+ *  ensureTranscript (yt-dlp / network): the HLS master must reflect what exists right
+ *  now, not stall playback acquiring captions. The /video route's play-time enrichment
+ *  fetches captions in the background, so replays pick the rendition up naturally. */
+async function findExistingTranscriptVtt(userId: string, videoId: string): Promise<string | null> {
+  if (!isValidVideoId(videoId)) return null
+  // Downloads row first (same precedence as the /transcript route).
+  const [dl] = await db.select({ transcriptRelPath: ytDownloads.transcriptRelPath })
+    .from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId)))
+    .limit(1)
+  if (dl?.transcriptRelPath) {
+    const p = await resolveUserPath(dl.transcriptRelPath)
+    if (p.endsWith('.vtt') && existsSync(p)) return p
+  }
+  // Then the per-user transcripts dir ensureTranscript writes into (any language suffix).
+  const firstName = await getUserFirstName(userId)
+  const dir = await userPath(userId, firstName, 'youtube/transcripts')
+  const files = await readdir(dir).catch(() => [] as string[])
+  const vtt = files.find(f => f.startsWith(`${videoId}.`) && f.endsWith('.vtt'))
+  return vtt ? join(dir, vtt) : null
+}
+
 /** One track's media playlist. Segment URIs are relative to this playlist's own directory
  *  (`…/hls/`), so the player stays on our origin and keeps sending the session cookie. */
 async function serveHlsMediaPlaylist(c: Context<AppEnv>, kind: StreamKind) {
@@ -2251,8 +2284,10 @@ async function serveHlsMediaPlaylist(c: Context<AppEnv>, kind: StreamKind) {
   if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
   const pres = await getHlsPresentation(videoId)
   if (!pres) return hlsUnavailable(c, videoId)
-  const track = kind === 'audio' ? pres.audio : pres.video
-  return hlsPlaylistResponse(c, hlsMediaPlaylist(track, `${kind}.mp4`))
+  // `?v=720` with no low rung falls back to the primary track (still a valid answer).
+  const use720 = kind === 'video' && hlsVariant(c) === '720' && !!pres.video720
+  const track = kind === 'audio' ? pres.audio : use720 ? pres.video720! : pres.video
+  return hlsPlaylistResponse(c, hlsMediaPlaylist(track, use720 ? 'video.mp4?v=720' : `${kind}.mp4`))
 }
 
 /** The bytes behind every segment of one track: a Range proxy over the upstream DASH file,
@@ -2262,7 +2297,8 @@ async function serveHlsTrack(c: Context<AppEnv>, kind: StreamKind) {
   if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
   const pres = await getHlsPresentation(videoId)
   if (!pres) return hlsUnavailable(c, videoId)
-  const track = kind === 'audio' ? pres.audio : pres.video
+  const use720 = kind === 'video' && hlsVariant(c) === '720' && !!pres.video720
+  const track = kind === 'audio' ? pres.audio : use720 ? pres.video720! : pres.video
 
   const ac = new AbortController()
   c.req.raw.signal.addEventListener('abort', () => ac.abort(), { once: true })
@@ -2282,7 +2318,7 @@ async function serveHlsTrack(c: Context<AppEnv>, kind: StreamKind) {
     // the playlist the client is holding would point at the wrong file.
     if (upstream.status === 403) {
       try { await upstream.body?.cancel() } catch { /* already closed */ }
-      const fresh = await refreshHlsTrackUrl(videoId, kind)
+      const fresh = await refreshHlsTrackUrl(videoId, kind, use720 ? '720' : undefined)
       if (fresh) upstream = await fetchUpstream(fresh)
     }
     if (!upstream.ok && upstream.status !== 206) return c.json({ error: `Upstream ${upstream.status}` }, 502)
@@ -2334,13 +2370,51 @@ youtubeRoute.get('/stream/:videoId/hls.m3u8', async (c) => {
   }
   const pres = await getHlsPresentation(videoId)
   if (!pres) return hlsUnavailable(c, videoId)
-  return hlsPlaylistResponse(c, hlsMasterPlaylist(pres))
+  // Subtitles rendition only when a transcript VTT already exists on disk (cheap check,
+  // never a fetch): an advertised rendition that 404s would stall AVPlayer.
+  const vtt = await findExistingTranscriptVtt(c.get('user').id, videoId).catch(() => null)
+  return hlsPlaylistResponse(c, hlsMasterPlaylist(pres, { subtitles: !!vtt }))
 })
 
 youtubeRoute.get('/stream/:videoId/hls/video.m3u8', (c) => serveHlsMediaPlaylist(c, 'video'))
 youtubeRoute.get('/stream/:videoId/hls/audio.m3u8', (c) => serveHlsMediaPlaylist(c, 'audio'))
 youtubeRoute.get('/stream/:videoId/hls/video.mp4', (c) => serveHlsTrack(c, 'video'))
 youtubeRoute.get('/stream/:videoId/hls/audio.mp4', (c) => serveHlsTrack(c, 'audio'))
+
+// I-frame playlist for native trick play. Built from the lightest indexed variant so
+// scrub thumbnails pull the fewest bytes; every segment start is a keyframe (SAP 1).
+youtubeRoute.get('/stream/:videoId/hls/iframe.m3u8', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const pres = await getHlsPresentation(videoId)
+  if (!pres) return hlsUnavailable(c, videoId)
+  const track = pres.video720 ?? pres.video
+  return hlsPlaylistResponse(c, hlsIframePlaylist(track, pres.video720 ? 'video.mp4?v=720' : 'video.mp4'))
+})
+
+// Subtitle rendition: a single-segment WebVTT playlist over the full duration, backed by
+// the transcript VTT already on disk. 404 when none exists (the master then never
+// advertised the group, so a well-behaved player won't ask).
+youtubeRoute.get('/stream/:videoId/hls/subs.m3u8', async (c) => {
+  const user = c.get('user')
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const vtt = await findExistingTranscriptVtt(user.id, videoId).catch(() => null)
+  if (!vtt) return c.json({ error: 'No subtitles for this video' }, 404)
+  const pres = await getHlsPresentation(videoId)
+  if (!pres) return hlsUnavailable(c, videoId)
+  return hlsPlaylistResponse(c, hlsSubtitlePlaylist(pres.video.duration))
+})
+
+youtubeRoute.get('/stream/:videoId/hls/subs.vtt', async (c) => {
+  const user = c.get('user')
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  const vtt = await findExistingTranscriptVtt(user.id, videoId).catch(() => null)
+  if (!vtt) return c.json({ error: 'No subtitles for this video' }, 404)
+  const body = await readFile(vtt, 'utf-8')
+  return c.text(body, 200, { 'Content-Type': 'text/vtt', 'Cache-Control': 'private, max-age=600' })
+})
 
 // Transcoded tier: playlist is computed from the duration up front (fully seekable from
 // the first request), segments are encoded on demand around wherever the player is.

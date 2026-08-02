@@ -10,7 +10,7 @@ import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
 import { ytDlpBin, withYtDlpSlot, YT_PLAYER_CLIENTS } from '@/lib/ytdlp'
 import { ffprobeBin } from '@/lib/ffmpeg'
-import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
+import { innertubePlayerStreams, type ItStreams, type ItStreamFormat } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
 
@@ -32,7 +32,7 @@ export const isValidVideoId = (id: string): boolean => /^[A-Za-z0-9_-]{11}$/.tes
 
 // Only ever proxy bytes from YouTube's own CDN — never an arbitrary host the resolver
 // might return — so the proxy can't be turned into an SSRF gadget.
-function isAllowedUpstream(url: string): boolean {
+export function isAllowedUpstream(url: string): boolean {
   try {
     const h = new URL(url).hostname
     return h === 'youtube.com' || h.endsWith('.youtube.com') || h.endsWith('.googlevideo.com')
@@ -211,7 +211,20 @@ export function invalidateStreamUrl(videoId: string, kind: StreamKind, quality: 
 
 // ── Split (video-only + audio-only) resolution for the 1080p remux tier ─────────
 
-export interface SplitStreamUrls { video: string; audio: string }
+export interface SplitStreamUrls {
+  video: string
+  audio: string
+  /** Format metadata from the InnerTube fast path, for the HLS master playlist's
+   *  FRAME-RATE / BANDWIDTH attributes. Null/absent when resolved via yt-dlp. */
+  videoFps?: number | null
+  videoBitrate?: number | null
+  audioBitrate?: number | null
+  /** Secondary variant for the HLS ladder: best avc1 at or under 720p. Only resolved on
+   *  the avc1-pinned path; null when no distinct lower track exists. */
+  lowVideo?: string | null
+  lowVideoFps?: number | null
+  lowVideoBitrate?: number | null
+}
 /** Pin the video track to one codec family. Only the HLS tier uses this: AVPlayer decodes
  *  h264 but not VP9/AV1, so "best track" is the wrong answer there. */
 export type SplitVideoCodec = 'avc1'
@@ -229,7 +242,23 @@ function codecRank(mime: string): number {
   if (/av01/i.test(mime)) return 2
   return 3
 }
-function pickSplitVideo(streams: ItStreams, maxHeight: number, codec?: SplitVideoCodec): string | null {
+// Among same-height, same-codec-family candidates: highest bitrate, but prefer the
+// high-framerate (>= 50fps) encode when one exists: 1080p60 over 1080p30. A high-fps
+// pick still wins at a slightly lower bitrate (within 20 percent of the low-fps best),
+// since motion smoothness beats a marginal bits-per-pixel edge on a TV.
+function pickByFpsAndBitrate(peers: ItStreamFormat[]): ItStreamFormat | null {
+  if (!peers.length) return null
+  const best = (arr: ItStreamFormat[]) => arr.reduce((a, b) => ((b.bitrate ?? 0) > (a.bitrate ?? 0) ? b : a))
+  const hi = peers.filter(f => (f.fps ?? 0) >= 50)
+  const lo = peers.filter(f => (f.fps ?? 0) < 50)
+  if (!hi.length) return best(lo)
+  if (!lo.length) return best(hi)
+  const bh = best(hi)
+  const bl = best(lo)
+  return (bh.bitrate ?? 0) >= (bl.bitrate ?? 0) * 0.8 ? bh : bl
+}
+
+function pickSplitVideo(streams: ItStreams, maxHeight: number, codec?: SplitVideoCodec): ItStreamFormat | null {
   // Require a track that actually BEATS the 720p progressive ceiling: InnerTube often
   // exposes only low unciphered adaptive tracks (the high tiers are ciphered), and
   // remuxing a 360p track would silently undercut the plain progressive stream. Passing
@@ -240,7 +269,31 @@ function pickSplitVideo(streams: ItStreams, maxHeight: number, codec?: SplitVide
     .sort((a, b) => ((b.height ?? 0) - (a.height ?? 0))
       || (codecRank(a.mime) - codecRank(b.mime))
       || ((b.bitrate ?? 0) - (a.bitrate ?? 0)))
-  return pool[0]?.url ?? null
+  const top = pool[0]
+  if (!top) return null
+  // Best bytes at the winning height + codec family: highest bitrate, fps-preferred.
+  const peers = pool.filter(f => (f.height ?? 0) === (top.height ?? 0) && codecRank(f.mime) === codecRank(top.mime))
+  return pickByFpsAndBitrate(peers)
+}
+
+/** Best avc1 video-only track at or under `maxHeight` (no >720p floor: this picks the
+ *  SECONDARY, lower rung of the HLS ladder, so undercutting progressive is the point).
+ *  Same highest-bitrate / fps-preferred rule as the primary pick. */
+function pickAvc1VideoAtMost(streams: ItStreams, maxHeight: number): ItStreamFormat | null {
+  const pool = streams.video
+    .filter(f => f.url && /avc1/i.test(f.mime) && (f.height ?? 0) > 0 && (f.height ?? 0) <= maxHeight)
+  if (!pool.length) return null
+  const top = pool.reduce((a, b) => ((b.height ?? 0) > (a.height ?? 0) ? b : a))
+  return pickByFpsAndBitrate(pool.filter(f => (f.height ?? 0) === (top.height ?? 0)))
+}
+
+// Strict AAC pick for the HLS byte-range path: AVPlayer muxes these segments natively,
+// so opus/webm audio is unusable there (parseTrackHead would reject it anyway; better
+// to pass on it here and let the caller fall back than to index-and-fail).
+function pickSplitAudio(streams: ItStreams): ItStreamFormat | null {
+  const pool = streams.audio.filter(f => f.url && /audio\/mp4|mp4a/i.test(f.mime))
+  if (!pool.length) return null
+  return pool.reduce((a, b) => ((b.bitrate ?? 0) > (a.bitrate ?? 0) ? b : a))
 }
 
 /** Resolve (and cache) a pre-signed video-only + audio-only URL pair for the ffmpeg
@@ -272,10 +325,24 @@ async function doResolveSplit(videoId: string, maxHeight: number, codec: SplitVi
   try {
     const streams = await innertubePlayerStreams(videoId)
     if (streams) {
-      const video = pickSplitVideo(streams, maxHeight, codec)
-      const audio = pickAudio(streams)
+      const videoFmt = pickSplitVideo(streams, maxHeight, codec)
+      // The avc1-pinned (HLS) path needs strict AAC; the ffmpeg remux path keeps the
+      // broader pickAudio (m4a-preferred with a fallback).
+      const audioFmt = codec === 'avc1' ? pickSplitAudio(streams) : null
+      // Lower rung of the HLS variant ladder (avc1 pin only).
+      const lowFmt = codec === 'avc1' ? pickAvc1VideoAtMost(streams, 720) : null
+      const video = videoFmt?.url ?? null
+      const audio = codec === 'avc1' ? (audioFmt?.url ?? null) : pickAudio(streams)
       if (video && audio && isAllowedUpstream(video) && isAllowedUpstream(audio)) {
-        const urls = { video, audio }
+        const urls: SplitStreamUrls = {
+          video, audio,
+          videoFps: videoFmt?.fps ?? null,
+          videoBitrate: videoFmt?.bitrate ?? null,
+          audioBitrate: audioFmt?.bitrate ?? null,
+          lowVideo: lowFmt && isAllowedUpstream(lowFmt.url) ? lowFmt.url : null,
+          lowVideoFps: lowFmt?.fps ?? null,
+          lowVideoBitrate: lowFmt?.bitrate ?? null,
+        }
         cacheSplit(key, urls, now)
         return urls
       }
@@ -295,6 +362,13 @@ async function doResolveSplit(videoId: string, maxHeight: number, codec: SplitVi
     : maxHeight > 1080
       ? `${v('vp09')}/${v('vp9')}/${v('av01')}/${v('avc1')}`
       : `${v('avc1')}/bestvideo[ext=mp4][height<=${maxHeight}][height>720][protocol^=https]`
+  // avc1 pin only: a comma-separated third selector makes -g print one more URL, the
+  // best avc1 at or under 720p, the lower rung of the HLS variant ladder. The
+  // `/videoSpec` alternative keeps the whole -f from failing on the (rare) video with
+  // no low avc1 track: it then re-prints the primary itag, which the caller dedupes.
+  const lowSelector = codec === 'avc1'
+    ? `,bestvideo[vcodec^=avc1][height<=720][protocol^=https]/${videoSpec}`
+    : ''
   // Same transient-failure retry as doResolveStreamUrl: a cold burst of resolves can get
   // rate-limited or time out, yet the identical video resolves fine a moment later.
   let lastErr: unknown = null
@@ -302,18 +376,20 @@ async function doResolveSplit(videoId: string, maxHeight: number, codec: SplitVi
     if (attempt > 0) await new Promise(r => setTimeout(r, 1200 * attempt))
     try {
       const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
-        '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]`,
+        '-f', `(${videoSpec})+bestaudio[ext=m4a][protocol^=https]/(${videoSpec})+bestaudio[protocol^=https]${lowSelector}`,
         '-g', '--no-warnings', '--no-playlist', '--force-ipv4',
         '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
         `https://www.youtube.com/watch?v=${videoId}`,
       ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
-      const [video, audio] = stdout.split('\n').map(l => l.trim()).filter(Boolean)
+      // -g prints URLs in selector order: video, audio, then (avc1 pin) the low variant.
+      const [video, audio, low] = stdout.split('\n').map(l => l.trim()).filter(Boolean)
       if (!video || !audio) { lastErr = 'empty output'; continue }   // transient — retry
       if (!isAllowedUpstream(video) || !isAllowedUpstream(audio)) {  // permanent — don't retry
         logger.warn(`[youtube/stream] refusing non-YouTube upstream host for ${videoId} (split)`)
         return null
       }
-      const urls = { video, audio }
+      const urls: SplitStreamUrls = { video, audio }
+      if (codec === 'avc1') urls.lowVideo = low && isAllowedUpstream(low) ? low : null
       cacheSplit(key, urls, now)
       return urls
     } catch (err) {
