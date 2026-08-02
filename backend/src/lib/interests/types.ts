@@ -20,6 +20,9 @@ export interface InterestSignal {
   /** 0..1 — completed = 1, else position/duration clamped to [0.05, 1]. Never negative:
    *  a barely-opened item is a WEAK signal, not a downvote (dismiss is the explicit no). */
   engagement: number
+  /** True when the watch was detected as an unattended autoplay-chain roll
+   *  (or explicitly reported as autoplay). Never seeds recommendations. */
+  autoplayed?: boolean
   /** Epoch ms of the (latest) consumption. */
   at: number
 }

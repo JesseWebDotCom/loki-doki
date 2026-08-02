@@ -23,7 +23,8 @@ export interface EpisodeRating {
 }
 
 let dbInstance: Database | null = null
-function db(): Database {
+/** Shared handle to the dedicated imdb.db file (episode heatmap + trivia tables). */
+export function imdbDb(): Database {
   if (!dbInstance) {
     mkdirSync(dirname(DB_PATH), { recursive: true })
     dbInstance = new Database(DB_PATH)
@@ -45,7 +46,7 @@ function db(): Database {
 }
 
 function lastImportAt(): number {
-  const row = db().query<{ value: string }, []>(`SELECT value FROM meta WHERE key = 'last_import'`).get()
+  const row = imdbDb().query<{ value: string }, []>(`SELECT value FROM meta WHERE key = 'last_import'`).get()
   return row ? Number(row.value) || 0 : 0
 }
 
@@ -58,7 +59,7 @@ function datasetsFresh(): boolean {
 }
 
 /** Stream a gzipped TSV and invoke cb per data line (header skipped). */
-async function streamTsv(url: string, cb: (cols: string[]) => void): Promise<void> {
+export async function streamTsv(url: string, cb: (cols: string[]) => void): Promise<void> {
   const res = await fetch(url, { signal: AbortSignal.timeout(10 * 60 * 1000) })
   if (!res.ok || !res.body) throw new Error(`Download failed: ${url} (${res.status})`)
   const lines = res.body.pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream())
@@ -89,7 +90,7 @@ export function ensureImdbDatasets(): Promise<void> {
   if (datasetsFresh()) return Promise.resolve()
   if (importPromise) return importPromise
   importPromise = (async () => {
-    const d = db()
+    const d = imdbDb()
     // 1. Ratings → in-memory map (~1.6M entries) + title_ratings table (movie fallback).
     const ratings = new Map<string, { rating: number; votes: number }>()
     await streamTsv(RATINGS_URL, (cols) => {
@@ -129,7 +130,7 @@ export function ensureImdbDatasets(): Promise<void> {
 
 /** Per-episode IMDb ratings for a show (by its tt… id), season/episode ascending. */
 export function episodeRatings(parentTconst: string): EpisodeRating[] {
-  return db()
+  return imdbDb()
     .query<EpisodeRating, [string]>(
       'SELECT season, episode, rating, votes FROM episodes WHERE parent = ? ORDER BY season, episode',
     )
@@ -138,5 +139,5 @@ export function episodeRatings(parentTconst: string): EpisodeRating[] {
 
 /** IMDb rating for any title id (movie fallback when JustWatch has no score). */
 export function titleRating(tconst: string): { rating: number; votes: number } | null {
-  return db().query<{ rating: number; votes: number }, [string]>('SELECT rating, votes FROM title_ratings WHERE tconst = ?').get(tconst)
+  return imdbDb().query<{ rating: number; votes: number }, [string]>('SELECT rating, votes FROM title_ratings WHERE tconst = ?').get(tconst)
 }

@@ -13,6 +13,7 @@ import { ollamaChat } from '@/llm/ollama'
 import { getModel, getFastModel } from '@/lib/models'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 import { webSearch } from '@/lib/webSearch'
+import { computeImdbFacts, type ImdbEntityKind } from '@/lib/youtube/imdbFacts'
 import { cachedLookupStale, cachedLookupPut, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { logger } from '@/lib/logger'
 
@@ -25,7 +26,11 @@ export interface PopupFact { t: number; text: string }
 // facts are anchored in live Wikipedia/web snippets for the entities each
 // section discusses (v3 fixed sentence form; v4 gives it something true and
 // interesting to say).
-const NAMESPACE = 'yt-popup-facts-v8'
+// v9: computable IMDb facts. Person/movie/show entities also get precise
+// template facts from the locally ingested IMDb datasets (imdbFacts.ts),
+// which are checkable by construction and bypass the LLM quality gates.
+// The bump regenerates every cached result once the datasets are ingested.
+const NAMESPACE = 'yt-popup-facts-v9'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -60,10 +65,11 @@ const ENTITY_SYSTEM =
   'each. Respond with ONLY a JSON array, no prose: ' +
   '[{"s": <section number>, "entity": "<fullest name>", "kind": "person|band|movie|show|game|product|company|place|event|other"}, ...]'
 
-/** Wikipedia-first (web-search fallback, steered at trivia/IMDb pages) source
- * snippets for the entities each section discusses. Returns a text block for
- * the facts prompt, or '' when nothing useful was retrievable. Never throws. */
-async function gatherSources(numbered: string): Promise<string> {
+interface SectionEntity { s: number; name: string; kind: string }
+
+/** Fast-model extraction of the notable named entities per section. Feeds both
+ * the retrieval step (gatherSources) and the computable IMDb facts. Never throws. */
+async function extractEntities(numbered: string): Promise<SectionEntity[]> {
   try {
     const fast = await getFastModel()
     const r = await ollamaChat(fast, [
@@ -71,9 +77,9 @@ async function gatherSources(numbered: string): Promise<string> {
       { role: 'user', content: numbered },
     ], undefined, { temperature: 0.1, num_predict: 300 })
     const m = r.message.content.match(/\[[\s\S]*\]/)
-    if (!m) return ''
+    if (!m) return []
     const seen = new Set<string>()
-    const picked: { s: number; name: string; kind: string }[] = []
+    const picked: SectionEntity[] = []
     for (const e of JSON.parse(m[0]) as unknown[]) {
       const s = Number((e as any)?.s)
       const name = String((e as any)?.entity ?? '').trim()
@@ -85,6 +91,17 @@ async function gatherSources(numbered: string): Promise<string> {
       picked.push({ s, name, kind })
       if (picked.length >= 6) break
     }
+    return picked
+  } catch {
+    return []
+  }
+}
+
+/** Wikipedia-first (web-search fallback, steered at trivia/IMDb pages) source
+ * snippets for the entities each section discusses. Returns a text block for
+ * the facts prompt, or '' when nothing useful was retrievable. Never throws. */
+async function gatherSources(picked: SectionEntity[]): Promise<string> {
+  try {
     // Mechanical source-relevance check: retrieval for "Jason Ween" (a
     // streamer) happily returns Ween (the band) on the shared surname, and no
     // prompt guard reliably catches same-name-wrong-subject. A source is
@@ -179,15 +196,78 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     .map((s, i) => `${i + 1}. ${s.text.slice(0, 500)}`)
     .join('\n\n')
 
+  const entities = await extractEntities(numbered)
+
+  // Computable IMDb facts for person/movie/show entities: precise template
+  // sentences from the locally ingested datasets. Checkable by construction,
+  // so they bypass the definition/transcript gates the LLM output must pass.
+  // Empty when the datasets were never ingested (skip silently) or when a
+  // name lookup is ambiguous (precision over recall).
+  const imdbCandidates: { s: number; text: string }[] = []
+  {
+    const seenText = new Set<string>()
+    for (const e of entities) {
+      if (e.kind !== 'person' && e.kind !== 'movie' && e.kind !== 'show') continue
+      if (!Number.isInteger(e.s) || e.s < 1 || e.s > segments.length) continue
+      for (const text of computeImdbFacts(e.name, e.kind as ImdbEntityKind)) {
+        const key = text.toLowerCase()
+        if (seenText.has(key)) continue
+        seenText.add(key)
+        imdbCandidates.push({ s: e.s, text })
+      }
+    }
+  }
+
   // Ground the trivia: pull Wikipedia/web snippets for the entities each
   // section discusses so the writer works from real sources, not model memory.
-  const sources = await gatherSources(numbered)
-  // Sources are MANDATORY: without retrieved snippets the model can only
-  // restate the transcript or invent from memory - both worse than silence
-  // (real feedback: "display facts NOT in the transcript"). Cached as a miss,
-  // retried after the TTL when retrieval may succeed.
-  if (!sources) return null
+  const sources = entities.length ? await gatherSources(entities) : ''
+  // Sources are MANDATORY for the LLM path: without retrieved snippets the
+  // model can only restate the transcript or invent from memory, both worse
+  // than silence (real feedback: "display facts NOT in the transcript").
+  // Computable IMDb facts need no sources; when neither is available the
+  // build is a miss, retried after the TTL when retrieval may succeed.
+  if (!sources && !imdbCandidates.length) return null
 
+  const llmFacts = sources ? await llmWriteFacts(segments, sources) : []
+
+  // Dedupe: when the LLM already wrote about the same connection (title-word
+  // overlap), the IMDb copy is redundant and the LLM version keeps its slot.
+  const llmWordSets = llmFacts.map((f) => new Set(f.text.toLowerCase().match(/[a-z0-9']{4,}/g) ?? []))
+  const dupOfLlm = (text: string): boolean => {
+    const words = text.toLowerCase().match(/[a-z0-9']{4,}/g) ?? []
+    if (!words.length) return false
+    return llmWordSets.some((set) => words.filter((w) => set.has(w)).length / words.length > 0.5)
+  }
+
+  const facts: PopupFact[] = [...llmFacts]
+  const perSection = new Map<number, number>()
+  for (const c of imdbCandidates) {
+    if (dupOfLlm(c.text)) continue
+    // Land a beat after the section starts; a second fact in the same section
+    // is pushed one spacing slot later so both can survive the spacing pass.
+    const nth = perSection.get(c.s) ?? 0
+    perSection.set(c.s, nth + 1)
+    facts.push({ t: Math.round(segments[c.s - 1]!.start + 12 + nth * MIN_SPACING_SEC), text: c.text })
+  }
+
+  facts.sort((a, b) => a.t - b.t)
+  // Breathing room between bubbles, capped so a video never turns into confetti.
+  const spaced: PopupFact[] = []
+  for (const f of facts) {
+    const prev = spaced[spaced.length - 1]
+    if (prev && f.t - prev.t < MIN_SPACING_SEC) continue
+    spaced.push(f)
+    if (spaced.length >= MAX_FACTS) break
+  }
+  return spaced
+}
+
+/** The retrieval-grounded LLM writing pass with its quality gates. Returns the
+ * surviving facts placed at their sections' timestamps, unsorted and unspaced. */
+async function llmWriteFacts(segments: { start: number; text: string }[], sources: string): Promise<PopupFact[]> {
+  const numbered = segments
+    .map((s, i) => `${i + 1}. ${s.text.slice(0, 500)}`)
+    .join('\n\n')
   // Background job — latency is free, so use the MAIN model: trivia needs
   // world knowledge, and the fast tier answered [] essentially always.
   const model = await getModel()
@@ -201,14 +281,14 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   const m = raw.match(/\[[\s\S]*\]/)
   if (!m) {
     logger.info({ len: raw.length, head: raw.slice(0, 120) }, 'yt popup facts: no JSON array in reply')
-    return null
+    return []
   }
   let parsed: unknown
   try { parsed = JSON.parse(m[0]) } catch {
     logger.info({ len: m[0].length, head: m[0].slice(0, 120) }, 'yt popup facts: JSON parse failed')
-    return null
+    return []
   }
-  if (!Array.isArray(parsed)) return null
+  if (!Array.isArray(parsed)) return []
 
   // Transcript-overlap gate: a "fact" whose distinctive words mostly appear in
   // the video's own transcript is a restatement, not trivia - the model slips
@@ -251,14 +331,5 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     // Land the bubble a beat into its section, so the topic is on screen first.
     facts.push({ t: Math.round(segments[s - 1]!.start + 6), text })
   }
-  facts.sort((a, b) => a.t - b.t)
-  // Breathing room between bubbles, capped so a video never turns into confetti.
-  const spaced: PopupFact[] = []
-  for (const f of facts) {
-    const prev = spaced[spaced.length - 1]
-    if (prev && f.t - prev.t < MIN_SPACING_SEC) continue
-    spaced.push(f)
-    if (spaced.length >= MAX_FACTS) break
-  }
-  return spaced
+  return facts
 }

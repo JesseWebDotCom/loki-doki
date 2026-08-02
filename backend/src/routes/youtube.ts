@@ -31,6 +31,7 @@ import { peekRecap, kickRecap, recapBucket } from '@/lib/youtube/recap'
 import { peekFiller, kickFiller } from '@/lib/youtube/filler'
 import { peekAsk, kickAsk } from '@/lib/youtube/askVideo'
 import { peekPopupFacts, kickPopupFacts } from '@/lib/youtube/popupFacts'
+import { kickTriviaIngest, triviaIngestStatus } from '@/lib/imdb/ingest'
 import { peekWorth, kickWorth } from '@/lib/youtube/worthIt'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, getOrFetchDeArrowThumb, deArrowThumbKey } from '@/lib/youtube/dearrow'
@@ -939,6 +940,19 @@ youtubeRoute.get('/admin/interests/debug', requireAdmin, async (c) => {
     })),
   })
 })
+
+// ── Admin: IMDb datasets for computable Pop-Up Facts ────────────────────────────
+
+// Kick the background ingest of IMDb's non-commercial TSV datasets into the local
+// trivia tables (lib/imdb/ingest.ts). Coalesced: a second POST while one is running
+// reports started:false and the live status instead of starting another download.
+youtubeRoute.post('/admin/imdb/ingest', requireAdmin, async (c) => {
+  const started = kickTriviaIngest()
+  return c.json({ started, ...triviaIngestStatus() })
+})
+
+// Row counts per table, last completed ingest time, and the in-progress phase.
+youtubeRoute.get('/admin/imdb/status', requireAdmin, async (c) => c.json(triviaIngestStatus()))
 
 // ── Download to device: list formats, run export, stream the file ───────────────
 

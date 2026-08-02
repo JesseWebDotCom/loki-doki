@@ -252,15 +252,34 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
     }
   } catch { /* unlinked account or fetch failure - local signals stand alone */ }
 
+  // Autoplay-chain detection (verified live against real damage: ONE Caravan
+  // of Garbage watch autoplay-chained through five more full "completions",
+  // two at 2 and 6 AM, and those maximum-engagement rows became the top
+  // interest seeds - "everything is Space Jam and I never clicked it"). A
+  // completed row whose updatedAt sits right at the previous row's end (the
+  // rows are DESC by updatedAt, so the chain predecessor is the NEXT array
+  // element) was rolled into, not chosen. Chained rows keep a whisper of
+  // engagement (0.15) and are marked so seed selection skips them entirely.
+  const chained = new Set<string>()
+  for (let i = 0; i < yt.length - 1; i++) {
+    const cur = yt[i]!
+    const prev = yt[i + 1]!
+    if (!cur.completed || !cur.durationSec) continue
+    const gap = (cur.updatedAt.getTime() - prev.updatedAt.getTime()) / 1000 - cur.durationSec
+    if (Math.abs(gap) < 180) chained.add(cur.videoId)
+  }
+
   for (const w of yt) {
     if (!w.title || w.title === w.videoId) continue
+    const auto = chained.has(w.videoId)
     signals.push({
       ref: ytRef(w.videoId),
       title: w.title,
       creatorId: w.channelId,
       creatorName: w.author || null,
       topics: primaryTopic(w.relatedTopics),
-      engagement: clampEngagement(w.completed, w.positionSec, w.durationSec),
+      engagement: auto ? 0.15 : clampEngagement(w.completed, w.positionSec, w.durationSec),
+      autoplayed: auto,
       at: w.updatedAt.getTime(),
     })
   }
@@ -428,7 +447,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // Fan-out, all best-effort: a failing source degrades its bucket, never the build.
   // News watches never seed: one crime headline was spawning a whole related
   // cluster plus "Because you just watched <crime story>" copy (real feedback).
-  const seeds = stratifiedSeeds(ytSignals.filter((s) => !isNewsSignal(s)), 3, 12)
+  const seeds = stratifiedSeeds(ytSignals.filter((s) => !isNewsSignal(s) && !s.autoplayed), 3, 12)
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
