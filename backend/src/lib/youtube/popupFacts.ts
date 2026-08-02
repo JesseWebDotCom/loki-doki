@@ -25,7 +25,7 @@ export interface PopupFact { t: number; text: string }
 // facts are anchored in live Wikipedia/web snippets for the entities each
 // section discusses (v3 fixed sentence form; v4 gives it something true and
 // interesting to say).
-const NAMESPACE = 'yt-popup-facts-v7'
+const NAMESPACE = 'yt-popup-facts-v8'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -55,8 +55,10 @@ const FACTS_SYSTEM =
 const ENTITY_SYSTEM =
   'From the numbered transcript sections, list the notable named things worth trivia: ' +
   'people, movies/shows/games/works, products, companies, places, events. Up to 8, most ' +
-  'interesting first, each tied to the section where it is discussed. Respond with ONLY a ' +
-  'JSON array, no prose: [{"s": <section number>, "entity": "<name>"}, ...]'
+  'interesting first, each tied to the section where it is discussed. Use the FULLEST ' +
+  'name form the transcript gives (never shorten "Jason Ween" to "Ween") and classify ' +
+  'each. Respond with ONLY a JSON array, no prose: ' +
+  '[{"s": <section number>, "entity": "<fullest name>", "kind": "person|band|movie|show|game|product|company|place|event|other"}, ...]'
 
 /** Wikipedia-first (web-search fallback, steered at trivia/IMDb pages) source
  * snippets for the entities each section discusses. Returns a text block for
@@ -71,15 +73,16 @@ async function gatherSources(numbered: string): Promise<string> {
     const m = r.message.content.match(/\[[\s\S]*\]/)
     if (!m) return ''
     const seen = new Set<string>()
-    const picked: { s: number; name: string }[] = []
+    const picked: { s: number; name: string; kind: string }[] = []
     for (const e of JSON.parse(m[0]) as unknown[]) {
       const s = Number((e as any)?.s)
       const name = String((e as any)?.entity ?? '').trim()
+      const kind = String((e as any)?.kind ?? '').trim().toLowerCase()
       if (!Number.isInteger(s) || name.length < 2 || name.length > 80) continue
       const key = name.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
-      picked.push({ s, name })
+      picked.push({ s, name, kind })
       if (picked.length >= 6) break
     }
     // Mechanical source-relevance check: retrieval for "Jason Ween" (a
@@ -100,11 +103,14 @@ async function gatherSources(numbered: string): Promise<string> {
     }
     const blocks = await Promise.all(picked.map(async e => {
       let text = ''
-      const wiki = (await wikipediaSearch(e.name, 2)).find((r) =>
+      // The kind qualifier disambiguates retrieval ("Jason Ween person" never
+      // lands on the band the way a bare surname search does).
+      const wikiQuery = e.kind && e.kind !== 'other' ? `${e.name} ${e.kind}` : e.name
+      const wiki = (await wikipediaSearch(wikiQuery, 2)).find((r) =>
         matchesEntity(e.name, r.title ?? '', r.snippet ?? ''))
       if (wiki) text = wiki.snippet ?? ''
       if (text.length < 60) {
-        const web = await webSearch(`"${e.name}" trivia imdb`, 3)
+        const web = await webSearch(`"${e.name}" ${e.kind && e.kind !== 'other' ? e.kind + ' ' : ''}trivia imdb`, 3)
         text = web
           .filter((w) => matchesEntity(e.name, w.title ?? '', w.snippet ?? ''))
           .map((w) => w.snippet)
@@ -218,6 +224,19 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     return hits / words.length > 0.6
   }
 
+  // Definition-grade "facts" are banal by construction: the classic
+  // encyclopedia lead shape ("X is an American rock band...") and near-verbatim
+  // copies of a source's opening 200 chars (the definition zone). Real trivia
+  // lives deeper in the article.
+  const sourceLeads = sources.split('\n\n').map((b) =>
+    b.replace(/^SOURCE for section \d+ — [^:]+: /, '').slice(0, 200).toLowerCase().replace(/\s+/g, ' '),
+  )
+  const isDefinition = (text: string): boolean => {
+    if (/^(the\s+)?[\w\s'&.:-]{2,45}\s(is|are|was|were)\s(a|an|the)\b/i.test(text)) return true
+    const head = text.toLowerCase().replace(/\s+/g, ' ').slice(0, 60)
+    return head.length >= 30 && sourceLeads.some((l) => l.includes(head))
+  }
+
   const facts: PopupFact[] = []
   for (const item of parsed) {
     const s = Number((item as any)?.s)
@@ -228,6 +247,7 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     if (text.length < 40 || text.length > 220) continue
     if (text.split(/\s+/).length < 7) continue
     if (restatesTranscript(text)) continue
+    if (isDefinition(text)) continue
     // Land the bubble a beat into its section, so the topic is on screen first.
     facts.push({ t: Math.round(segments[s - 1]!.start + 6), text })
   }
