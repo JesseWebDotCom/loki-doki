@@ -1589,6 +1589,10 @@ const SHELF_MAX = 6
 // served skeletal (a two-card "section" reads as broken, not curated).
 const SHELF_VIDEOS_MAX = 14
 const SHELF_VIDEOS_MIN = 6
+// Subscription-derived groups start from ~10-item searches and shrink under
+// policy/impression/dedupe filters; a 6 floor filtered them all out (verified
+// live: zero SUB shelves served). The client already drops shelves under 4.
+const SUB_SHELF_VIDEOS_MIN = 4
 // Max videos from any one channel within a single shelf.
 const SHELF_CHANNEL_CAP = 2
 // A semantic cluster needs at least this many members to earn its own shelf.
@@ -1725,7 +1729,7 @@ export async function serveYtHomeShelves(
 
   // Eligibility + deterministic ordering: most material first, key breaks ties.
   const eligible = [...groups.values()]
-    .filter((g) => g.entries.length >= SHELF_VIDEOS_MIN)
+    .filter((g) => g.entries.length >= SUB_SHELF_VIDEOS_MIN)
     .sort((a, b) => b.entries.length - a.entries.length || a.key.localeCompare(b.key))
 
   // Provenance partition for shelf SELECTION. SUB = groups whose members are
@@ -1794,7 +1798,7 @@ export async function serveYtHomeShelves(
     }
     // Cross-shelf dedupe can shrink a group below the floor; skip it without
     // consuming its ids so a later shelf (or the mixed shelf) can use them.
-    if (picked.length < SHELF_VIDEOS_MIN) continue
+    if (picked.length < SUB_SHELF_VIDEOS_MIN) continue
     const videos: Suggested[] = picked.map((e) => ({ ...(e.payload as ItVideo), why: whyServed(e) }))
     for (const v of videos) seenIds.add(v.videoId)
     servedEntries.push(...picked)
