@@ -1141,6 +1141,27 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
   const overflow: V[] = []
   let trendingServed = 0
 
+  // Title-similarity cap: "8 robot-in-the-family videos" read as fixation no
+  // matter which buckets they rode in on - and you can tell by the titles
+  // (real feedback, verbatim). Max 2 near-duplicate titles per page:
+  // overlap coefficient over distinctive words (4+ chars) above 0.6 = same
+  // video in different clothes.
+  const titleWordSets: Set<string>[] = []
+  const titleWords = (v: ItVideo): Set<string> =>
+    new Set((v.title.toLowerCase().match(/[a-z0-9']{4,}/g) ?? []))
+  const titleSaturated = (v: ItVideo): boolean => {
+    const words = titleWords(v)
+    if (words.size < 3) return false
+    let near = 0
+    for (const other of titleWordSets) {
+      let hits = 0
+      for (const w of words) if (other.has(w)) hits++
+      if (hits / Math.min(words.size, other.size) > 0.6) near++
+      if (near >= 2) return true
+    }
+    return false
+  }
+
   const bump = (v: ItVideo, dir: 1 | -1) => {
     const chan = chanOf(v)
     if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + dir)
@@ -1157,6 +1178,7 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
   const admit = (v: V) => {
     bump(v, 1)
     servedIds.add(v.videoId)
+    titleWordSets.push(titleWords(v))
     served.push(v)
   }
 
@@ -1164,6 +1186,7 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
   for (const v of kept) {
     if (served.length >= target) break
     if (channelFull(v)) continue
+    if (titleSaturated(v)) continue
     const isTrending = entryOf(v)?.bucket === 'trending'
     if (isTrending && trendingServed >= trendingCap) continue
     if ((perCluster.get(clusterOf(v)) ?? 0) >= clusterCap) {
