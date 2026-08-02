@@ -13,8 +13,8 @@ import type { InterestDomain, RankedCandidate } from './types'
 
 // BUMP THE VERSION whenever gating/ranking rules change: pools built under old
 // rules keep serving for up to 6h otherwise — and pre-vector pools bypass the
-// semantic caps entirely (no vec = exempt). v5: amplified yt-home (40 + gate exemption) and 10-topic windows.
-const NAMESPACE = 'interests:pool:v5'
+// semantic caps entirely (no vec = exempt). v6: personalized account watch-next drives the related fan-out.
+const NAMESPACE = 'interests:pool:v6'
 export const POOL_TTL_MS = 6 * 60 * 60 * 1000
 /** Thin-history pools re-check sooner: a new user's first few watches should start
  *  producing suggestions within the hour, not tomorrow. */

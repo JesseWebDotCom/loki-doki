@@ -20,7 +20,7 @@ import {
 } from '@/lib/youtube/innertube'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { getValidAccessToken } from '@/lib/youtube/account'
-import { fetchAccountLiked, fetchAccountWatchLater, fetchHomeFeed, fetchSubscriptionsFeed, fetchWatchHistory, type TvVideo } from '@/lib/youtube/tvClient'
+import { fetchAccountLiked, fetchAccountNext, fetchAccountWatchLater, fetchHomeFeed, fetchSubscriptionsFeed, fetchWatchHistory, type TvVideo } from '@/lib/youtube/tvClient'
 import { cachedLookup } from '@/lib/lookupCache'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { filterVideosForUser, filterYtItemsForUser } from '@/lib/videos/policy'
@@ -432,10 +432,28 @@ export async function buildVideoPool(userId: string): Promise<void> {
   const topicQueries = profile.topics.slice(0, 6)
   const affinityChannels = profile.creators.filter((c) => c.id?.startsWith('UC') && !subs.has(c.id!)).slice(0, 4)
 
+  // Related fan-out prefers the ACCOUNT's personalized watch-next over the
+  // anonymous related rail. Anonymous related conflates "a video ABOUT Space
+  // Jam" with "Space Jam content" - one Caravan of Garbage commentary watch
+  // flooded the feed with movie clips (real feedback: "I never clicked those").
+  // Google's personalized next knows a commentary watcher wants commentary.
+  const seedToken = await getValidAccessToken(userId).catch(() => null)
+  const seedRelated = async (id: string): Promise<ItVideo[]> => {
+    if (seedToken) {
+      const acct = await fetchAccountNext(seedToken, id, 15).catch(() => [] as TvVideo[])
+      if (acct.length >= 5) {
+        return acct.map((v) => ({
+          videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
+          channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
+          publishedText: v.publishedText, views: v.views,
+        }))
+      }
+    }
+    return tryInnertube('interests related', () => innertubeRelated(id, 15, 8000, safe), [] as ItVideo[])
+  }
+
   const [relatedLists, topicLists, subTopicLists, channelLists, popular, trending, hubRelated, followItems, subUploads] = await Promise.all([
-    Promise.all(
-      seeds.map((id) => tryInnertube('interests related', () => innertubeRelated(id, 15, 8000, safe), [] as ItVideo[])),
-    ),
+    Promise.all(seeds.map(seedRelated)),
     Promise.all(
       topicQueries.map((t) =>
         tryInnertube(
