@@ -25,28 +25,31 @@ export interface PopupFact { t: number; text: string }
 // facts are anchored in live Wikipedia/web snippets for the entities each
 // section discusses (v3 fixed sentence form; v4 gives it something true and
 // interesting to say).
-const NAMESPACE = 'yt-popup-facts-v5'
+const NAMESPACE = 'yt-popup-facts-v6'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
 
 const FACTS_SYSTEM =
-  'You write VH1 Pop-Up Video style trivia bubbles for a video, from its transcript split ' +
-  'into numbered sections. For each section you may contribute 0 or 1 fact that would ' +
-  'delight a viewer watching that exact part: surprising background on the people, products, ' +
-  'places, works or events being discussed - origins, behind-the-scenes details, numbers, ' +
-  'connections to other works. Every fact MUST be a COMPLETE SENTENCE of 15-30 words with a ' +
-  'specific, checkable detail. Example of the style: "The white streak in Nancy\'s hair is ' +
+  'You write VH1 Pop-Up Video style trivia bubbles for a video. You are given the ' +
+  'transcript split into numbered sections, and a VERIFIED SOURCES block of live ' +
+  'Wikipedia/web snippets about the things each section discusses. RULE ONE: every fact ' +
+  'MUST come from a detail in the VERIFIED SOURCES - never from the transcript and never ' +
+  'from your own memory. RULE TWO: if the transcript already says it, it is NOT a fact - ' +
+  'the whole point is telling the viewer something the video does NOT. The transcript is ' +
+  'context for matching sources to moments, nothing more. For each section contribute 0 or ' +
+  '1 fact: surprising background on the people, products, places, works or events being ' +
+  'discussed - origins, behind-the-scenes details, numbers, connections to other works. ' +
+  'Every fact MUST be a COMPLETE SENTENCE of 15-30 words with a specific, checkable ' +
+  'detail. Example of the style: "The white streak in Nancy\'s hair is ' +
   'on her right side here, but it was on her left in A Nightmare on Elm Street (1984)." ' +
   'NEVER a bare phrase or fragment, NEVER a summary of what is on screen. ' +
   'A SOURCE may describe the WRONG thing (same name, different subject) - if a source does ' +
   'not clearly match what the section is actually discussing, IGNORE it entirely. Skip ' +
   'dictionary definitions and anything an average viewer already knows; a bubble must ' +
-  'surprise. ' +
-  'Only include facts you are HIGHLY confident are true and verifiable general knowledge; if ' +
-  'you are not sure, contribute nothing for that section - silence is always better than a ' +
-  'wrong fact. Never restate what the video itself just said, never speculate about the ' +
-  'creator, no opinions. Respond with ONLY a JSON array, no prose, no code fences: ' +
+  'surprise. If no source yields a good fact for a section, contribute nothing - silence ' +
+  'is always better than a wrong or redundant fact. Never speculate about the creator, no ' +
+  'opinions. Respond with ONLY a JSON array, no prose, no code fences: ' +
   '[{"s": <section number>, "text": "<the fact>"}, ...]. An empty array is a fine answer.'
 
 const ENTITY_SYSTEM =
@@ -151,13 +154,16 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   // Ground the trivia: pull Wikipedia/web snippets for the entities each
   // section discusses so the writer works from real sources, not model memory.
   const sources = await gatherSources(numbered)
+  // Sources are MANDATORY: without retrieved snippets the model can only
+  // restate the transcript or invent from memory - both worse than silence
+  // (real feedback: "display facts NOT in the transcript"). Cached as a miss,
+  // retried after the TTL when retrieval may succeed.
+  if (!sources) return null
 
   // Background job — latency is free, so use the MAIN model: trivia needs
   // world knowledge, and the fast tier answered [] essentially always.
   const model = await getModel()
-  const user = sources
-    ? `${numbered}\n\nVERIFIED SOURCES — ground your facts in details from these that the video itself does not mention:\n\n${sources}`
-    : numbered
+  const user = `${numbered}\n\nVERIFIED SOURCES — every fact must come from a detail in these that the video itself does not mention:\n\n${sources}`
   const result = await ollamaChat(model, [
     { role: 'system', content: FACTS_SYSTEM },
     { role: 'user', content: user },
@@ -176,6 +182,20 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   }
   if (!Array.isArray(parsed)) return null
 
+  // Transcript-overlap gate: a "fact" whose distinctive words mostly appear in
+  // the video's own transcript is a restatement, not trivia - the model slips
+  // these through no matter what the prompt says. Words of 5+ chars are the
+  // discriminative ones (short words match everything).
+  const transcriptWords = new Set(
+    segments.flatMap((seg) => seg.text.toLowerCase().match(/[a-z']{5,}/g) ?? []),
+  )
+  const restatesTranscript = (text: string): boolean => {
+    const words = text.toLowerCase().match(/[a-z']{5,}/g) ?? []
+    if (words.length < 4) return false
+    const hits = words.filter((w) => transcriptWords.has(w)).length
+    return hits / words.length > 0.6
+  }
+
   const facts: PopupFact[] = []
   for (const item of parsed) {
     const s = Number((item as any)?.s)
@@ -185,6 +205,7 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
     // sentence punctuation somewhere.
     if (text.length < 40 || text.length > 220) continue
     if (text.split(/\s+/).length < 7) continue
+    if (restatesTranscript(text)) continue
     // Land the bubble a beat into its section, so the topic is on screen first.
     facts.push({ t: Math.round(segments[s - 1]!.start + 6), text })
   }
