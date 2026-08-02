@@ -31,7 +31,7 @@ import { buildAndSaveProfile, getProfileStale } from './profile'
 import { subscriptionTopics, type SubscriptionTopic } from './channelProfiles'
 import { dismissedCreatorCounts, getImpressions } from './impressions'
 import { rankCandidates } from './rank'
-import { EMPTY_POOL_TTL_MS, recordServed, savePool, servePool } from './pool'
+import { EMPTY_POOL_TTL_MS, POOL_SIZE, recordServed, savePool, servePool } from './pool'
 import type { Candidate, InterestSignal, RankedCandidate } from './types'
 
 const DOMAIN = 'videos' as const
@@ -80,12 +80,19 @@ const SUB_UNWATCHED_BOOST = 1.35
 // ── Sub-topic bucket knobs (channel profiler → broad searches) ─────────────────
 // Subscription-derived topics searched per pool build. The full topic list rotates
 // deterministically by day, so successive builds explore different topics.
-const SUBTOPIC_QUERIES_PER_BUILD = 6
+const SUBTOPIC_QUERIES_PER_BUILD = 10
 // InnerTube results fetched per sub-topic query.
 const SUBTOPIC_SEARCH_LIMIT = 10
 // Share of a served page reserved for sub-topic candidates (min 2 when any exist):
 // "you subscribe to guitar channels, here's guitar content from channels you don't".
-const SUBTOPIC_SERVE_SHARE = 0.15
+const SUBTOPIC_SERVE_SHARE = 0.18
+// Share of a served page reserved for the linked account's real YouTube home picks
+// (min 2 when any exist). Google's recommender sees signals we never will, and its
+// picks self-diversify, so they must reliably land on the page instead of losing
+// slots to the related fan-out.
+const YTHOME_SERVE_SHARE = 0.15
+// How many linked-account home-feed items feed the pool as the yt-home bucket.
+const YTHOME_POOL_MAX = 40
 // Hard per-seed cap on "Because you just watched <seed>" items in any served page.
 // Both single-watch expanders (the live layer's hot pool and the deep related
 // fan-out) lack embedding vectors, so the semantic share cap cannot see them;
@@ -379,8 +386,8 @@ export async function buildVideoPool(userId: string): Promise<void> {
   const allSubTopics = await subscriptionTopics(userId).catch(() => [] as SubscriptionTopic[])
   // Rotate per pool-build window (6h), STRIDED by the pick count: verified live
   // that a user can carry 260 derived topics, and a 6-per-DAY walk takes six
-  // weeks to cycle - guitar never showed. Four windows a day x 6 topics covers
-  // the whole list in ~11 days, and the stride keeps windows disjoint.
+  // weeks to cycle - guitar never showed. Four windows a day x 10 topics covers
+  // the whole list in ~6.5 days, and the stride keeps windows disjoint.
   const windowIndex = Math.floor(Date.now() / (6 * 60 * 60 * 1000))
   const subTopicPicks = allSubTopics.length
     ? Array.from(
@@ -435,12 +442,16 @@ export async function buildVideoPool(userId: string): Promise<void> {
   ])
 
   // The linked account's real YouTube home feed: Google's recommender as a
-  // candidate source. Best-effort like everything else; no linked account or an
-  // expired token simply contributes nothing.
+  // candidate source, and deliberately a big one (up to YTHOME_POOL_MAX items).
+  // These are the user's actual home-page picks, already diversified across
+  // their topics by a recommender with signals we never see, so leaning on them
+  // is the cheapest diversity win available. Best-effort like everything else;
+  // no linked account or an expired token simply contributes nothing. Ref-level
+  // dedupe against the other buckets happens in the shared `fresh` pass below.
   const homeFeed: ItVideo[] = await (async () => {
     const token = await getValidAccessToken(userId).catch(() => null)
     if (!token) return []
-    const feed = await fetchHomeFeed(token, 50).catch(() => [])
+    const feed = await fetchHomeFeed(token, YTHOME_POOL_MAX).catch(() => [])
     return feed.map((v) => ({
       videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
       channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
@@ -528,7 +539,12 @@ export async function buildVideoPool(userId: string): Promise<void> {
     // they derive from subscriptions, not watch history, so the watch centroid would
     // veto exactly the exploration they exist for, the guitar lessons that score
     // nowhere near a retro-cartoon binge. Subscribing to guitar channels IS the signal.
-    if (e.bucket !== 'sub-topic' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
+    // yt-home skips it for the same reason: those are Google's own picks for THIS
+    // linked account, diverse BY DESIGN, and the cosine veto was preferentially
+    // killing the most diverse account-home picks (only ~3 of ~50 fetched survived
+    // into the pool). Google already vetted them against far richer signals than
+    // the local watch centroid has.
+    if (e.bucket !== 'sub-topic' && e.bucket !== 'yt-home' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
     if (isHardNews(e)) {
       if ((p?.creator ?? 0) < 0.15) return false
@@ -561,6 +577,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
       seeds: seeds.length,
       topics: topicQueries.length,
       subTopics: subTopicPicks.length,
+      ytHome: homeFeed.length,
       candidates: fresh.length,
       kept: Math.min(ranked.length, 150),
     },
@@ -1022,7 +1039,7 @@ function semanticClusterIds(entries: RankedCandidate[]): Map<string, number> {
   return ids
 }
 
-/** Rank-ordered greedy fill with diversity caps, then three quota passes. Fully
+/** Rank-ordered greedy fill with diversity caps, then four quota passes. Fully
  *  deterministic over its inputs (no fresh randomness), so one serve stays stable
  *  for pagination; variety BETWEEN serves comes from the pool's own dithering.
  *  1. Fill: hard per-channel cap, per-cluster share cap, semantic share cap
@@ -1033,7 +1050,9 @@ function semanticClusterIds(entries: RankedCandidate[]): Map<string, number> {
  *     tail items of the largest clusters until the quota is met.
  *  3. Sub-topic quota: broad searches for what those subscriptions are ABOUT
  *     (any channel), same swap mechanics.
- *  4. Exploration quota: items outside the page's dominant clusters likewise
+ *  4. YouTube-home quota: the linked account's real home-page picks (bucket
+ *     yt-home), same swap mechanics, so Google-picked items reliably appear.
+ *  5. Exploration quota: items outside the page's dominant clusters likewise
  *     swap in, so part of every page looks past what the user already binges. */
 function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, RankedCandidate>, target: number): V[] {
   const clusterCap = Math.max(2, Math.ceil(target * CLUSTER_SHARE_CAP))
@@ -1117,7 +1136,7 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
     for (const [cl, n] of perCluster) {
       // Quota-backed clusters are never victims: one quota pass must not evict
       // what another (or the greedy fill) admitted for the same purpose.
-      if (cl === 'subscription' || cl.startsWith('sub-topic:') || (victims && !victims.has(cl))) continue
+      if (cl === 'subscription' || cl === 'yt-home' || cl.startsWith('sub-topic:') || (victims && !victims.has(cl))) continue
       if (n > max) {
         max = n
         victim = cl
@@ -1169,13 +1188,24 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
     if (admitOrSwap(v)) subTopicHave++
   }
 
-  // 4. Exploration quota. Dominant clusters are the biggest ones on the page
-  // right now; anything outside them (including subscription and sub-topic
-  // items: sub-topic clusters are exploration by construction, so they are
-  // never counted as dominant) counts.
+  // 4. YouTube-home quota: Google's own picks for the linked account, same
+  // swap mechanics, so the account-home slice reliably survives composition.
+  const isYtHome = (v: ItVideo) => entryOf(v)?.bucket === 'yt-home'
+  const ytHomeWant = kept.some(isYtHome) ? Math.max(2, Math.round(target * YTHOME_SERVE_SHARE)) : 0
+  let ytHomeHave = served.filter(isYtHome).length
+  for (const v of kept) {
+    if (ytHomeHave >= ytHomeWant) break
+    if (!isYtHome(v) || servedIds.has(v.videoId)) continue
+    if (admitOrSwap(v)) ytHomeHave++
+  }
+
+  // 5. Exploration quota. Dominant clusters are the biggest ones on the page
+  // right now; anything outside them (including subscription, sub-topic, and
+  // yt-home items: those clusters are exploration or quota-backed by
+  // construction, so they are never counted as dominant) counts.
   const dominant = new Set(
     [...perCluster.entries()]
-      .filter(([cl, n]) => n >= 3 && cl !== 'subscription' && !cl.startsWith('sub-topic:'))
+      .filter(([cl, n]) => n >= 3 && cl !== 'subscription' && cl !== 'yt-home' && !cl.startsWith('sub-topic:'))
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([cl]) => cl),
@@ -1195,8 +1225,8 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
 /** Everything the deep path needs from a base serve, beyond the composed page:
  *  the candidate index (for provenance-aware final assembly) and the quota-bucket
  *  videos that survived policy filtering (so the deep path's own quota passes
- *  always have subscription and sub-topic material to deliver, even when page
- *  composition dropped them from the base). */
+ *  always have subscription, sub-topic, and yt-home material to deliver, even
+ *  when page composition dropped them from the base). */
 interface ServedBase {
   videos: Suggested[]
   building: boolean
@@ -1234,9 +1264,18 @@ async function serveYtRecommendedCore(userId: string, target: number): Promise<S
     build,
     entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'sub-topic',
   })
+  // And for the yt-home quota: Google's account-home picks are diverse by design,
+  // so plenty of them sit mid-pool where the top-N slice never reaches.
+  const ytHomeWant = Math.max(2, Math.round(target * YTHOME_SERVE_SHARE))
+  const ytHomePull = await servePool(userId, DOMAIN, {
+    limit: ytHomeWant * 2,
+    watchedRefs,
+    build,
+    entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'yt-home',
+  })
   const haveRefs = new Set(entries.map((e) => e.ref))
   const merged = [...entries]
-  for (const e of [...subPull.entries, ...subTopicPull.entries]) {
+  for (const e of [...subPull.entries, ...subTopicPull.entries, ...ytHomePull.entries]) {
     if (haveRefs.has(e.ref)) continue
     haveRefs.add(e.ref)
     merged.push(e)
@@ -1263,7 +1302,7 @@ async function serveYtRecommendedCore(userId: string, target: number): Promise<S
   // needs these as candidates.
   const quotaCandidates = kept.filter((v) => {
     const b = byRef.get(ytRef(v.videoId))?.bucket
-    return b === 'subscription' || b === 'sub-topic'
+    return b === 'subscription' || b === 'sub-topic' || b === 'yt-home'
   })
   return { videos: composeFeed(explained, layer, target, watchedRefs), building: false, byRef, quotaCandidates }
 }
@@ -1373,15 +1412,15 @@ export async function serveYtRecommendedDeep(
 
   // Final assembly over base + quota candidates + extension: the same semantic
   // cap, provenance cluster cap, channel cap and subscription / sub-topic /
-  // exploration quota passes as the non-deep serve, applied to every page the
-  // deep path returns. Extension items enter with per-seed synthetic entries.
+  // yt-home / exploration quota passes as the non-deep serve, applied to every
+  // page the deep path returns. Extension items enter with per-seed synthetic entries.
   const byRef = new Map(base.byRef)
   for (const { seed, video } of items) {
     const ref = ytRef(video.videoId)
     if (!byRef.has(ref)) byRef.set(ref, extensionEntry(video, seed))
   }
-  // Subscription and sub-topic candidates the composed base dropped get another
-  // chance here, so the quota passes always have material to deliver.
+  // Subscription, sub-topic, and yt-home candidates the composed base dropped
+  // get another chance here, so the quota passes always have material to deliver.
   const quotaExtras: Suggested[] = base.quotaCandidates.filter((v) => !seen.has(v.videoId))
   const combined: Suggested[] = [...base.videos, ...quotaExtras, ...items.map((i) => i.video)]
   const assembled = assembleDiverseFeed(combined, byRef, want)
@@ -1478,4 +1517,205 @@ export async function serveVideosSuggested(
   }
   await recordServed(userId, DOMAIN, served.map((w) => w.entry))
   return { items: served.map((w) => w.item), building: false }
+}
+
+// ── YouTube-style sectioned home (topic shelves) ────────────────────────────────
+// The real YouTube home is organized as TOPIC SECTIONS (guitar lessons, retro
+// arcade, movie breakdowns, smart home) interleaved with mixed picks; a flat
+// ranked rail over-serves related fan-out and channel-centric picks (compared
+// live against the user's actual home page, 2026-08). This serve groups the
+// pool's candidates into those sections server-side, no extra InnerTube calls:
+//   - sub-topic and topic-search candidates group by the query that found them,
+//   - semantic clusters big enough to stand alone earn shelves of their own,
+//   - thin query groups top up with semantic siblings (same topic, other route).
+// Which topics get shelves rotates deterministically per 6h window (the
+// sub-topic rotation pattern), preferring the topics with the most available
+// videos, so different visits show different sections while one serve is a
+// pure function of the pool pull.
+
+const SHELF_WINDOW_MS = 6 * 60 * 60 * 1000
+// At most this many topic shelves per serve (spec: 4 to 6 when material allows).
+const SHELF_MAX = 6
+// A shelf aims for 8-14 videos; below the floor it is dropped rather than
+// served skeletal (a two-card "section" reads as broken, not curated).
+const SHELF_VIDEOS_MAX = 14
+const SHELF_VIDEOS_MIN = 6
+// Max videos from any one channel within a single shelf.
+const SHELF_CHANNEL_CAP = 2
+// A semantic cluster needs at least this many members to earn its own shelf.
+const SHELF_SEMANTIC_MIN = 6
+// The optional mixed shelf's size (?includeMixed=1).
+const SHELF_MIXED_SIZE = 12
+
+export interface HomeShelf {
+  key: string
+  title: string
+  kind: 'topic' | 'mixed'
+  videos: Suggested[]
+}
+
+// "guitar lessons" -> "Guitar lessons". The topic phrases are already
+// human-readable (channel-profiler topics and search queries), so a light
+// sentence-case pass is all the titling needs; no LLM call.
+const friendlyShelfTitle = (phrase: string): string => {
+  const t = phrase.trim().replace(/\s+/g, ' ')
+  if (!t) return ''
+  const base = t.length > 3 && t === t.toUpperCase() ? t.toLowerCase() : t
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+const shelfSlug = (s: string): string =>
+  s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)
+
+/** Sectioned home for /api/youtube/home-shelves: 4-6 topic shelves per serve,
+ *  built from the user's existing pool + profiles. Deterministic per serve
+ *  (everything after the pool pull is a pure function of it); dedupe across
+ *  shelves; per-shelf channel cap; the same policy filtering, near-duplicate
+ *  collapse, and impression recording as /recommended. */
+export async function serveYtHomeShelves(
+  userId: string,
+  includeMixed = false,
+): Promise<{ shelves: HomeShelf[]; building: boolean }> {
+  const watchedRefs = await watchedVideoRefs(userId)
+  // Pull the whole ranked pool (not a page-sized slice): grouping needs every
+  // candidate a topic has. servePool already excludes watched + dismissed,
+  // demotes recently-shown items (the cheap "served recently" notion), and
+  // caps per creator, all before we group.
+  const { entries, building } = await servePool(userId, DOMAIN, {
+    limit: POOL_SIZE,
+    watchedRefs,
+    build: () => buildVideoPool(userId),
+    entryFilter: (e) => e.ref.startsWith('youtube:'),
+  })
+  if (building || !entries.length) return { shelves: [], building }
+
+  // Same filtering as /recommended: policy first, then near-duplicate collapse.
+  const byRef = new Map(entries.map((e) => [e.ref, e]))
+  const kept = dedupeNearDuplicates(
+    await filterYtItemsForUser(userId, entries.map((e) => e.payload as ItVideo)))
+  const keptEntries = kept
+    .map((v) => byRef.get(ytRef(v.videoId)))
+    .filter((e): e is RankedCandidate => !!e)
+
+  // Semantic clusters over the pull order (deterministic for this serve). They
+  // both top up thin query groups and earn standalone shelves when big enough.
+  const semIds = semanticClusterIds(keptEntries)
+  const semMembers = new Map<number, RankedCandidate[]>()
+  for (const e of keptEntries) {
+    const id = semIds.get(e.ref)
+    if (id === undefined) continue
+    const arr = semMembers.get(id) ?? []
+    arr.push(e)
+    semMembers.set(id, arr)
+  }
+
+  interface ShelfGroup { key: string; title: string; entries: RankedCandidate[] }
+  const groups = new Map<string, ShelfGroup>()
+  const claimed = new Set<string>()
+
+  // 1. Query groups: sub-topic and topic-search candidates by the query that
+  // found them (topics[0], stamped at candidate generation).
+  for (const e of keptEntries) {
+    if (e.bucket !== 'sub-topic' && e.bucket !== 'topic-search') continue
+    const phrase = e.topics[0]?.trim()
+    if (!phrase) continue
+    const slug = shelfSlug(phrase)
+    if (!slug) continue
+    const key = `topic:${slug}`
+    let g = groups.get(key)
+    if (!g) {
+      g = { key, title: friendlyShelfTitle(phrase), entries: [] }
+      groups.set(key, g)
+    }
+    g.entries.push(e)
+    claimed.add(e.ref)
+  }
+
+  // Top up thin query groups with semantic siblings: an entry clustering with a
+  // group member is the same topic reached via a different route (a related
+  // fan-out hit, a yt-home pick), and it belongs on that topic's shelf.
+  for (const g of groups.values()) {
+    const memberRefs = new Set(g.entries.map((e) => e.ref))
+    const wantedSems = new Set<number>()
+    for (const e of g.entries) {
+      const id = semIds.get(e.ref)
+      if (id !== undefined) wantedSems.add(id)
+    }
+    for (const id of wantedSems) {
+      for (const e of semMembers.get(id) ?? []) {
+        if (memberRefs.has(e.ref)) continue
+        memberRefs.add(e.ref)
+        g.entries.push(e)
+        claimed.add(e.ref)
+      }
+    }
+  }
+
+  // 2. Semantic-cluster groups from entries no query group claimed, when the
+  // cluster is big enough to stand as a section on its own. Titled from the
+  // leader's title phrase (leader = highest-ranked member).
+  for (const [id, members] of semMembers) {
+    const free = members.filter((e) => !claimed.has(e.ref))
+    if (free.length < SHELF_SEMANTIC_MIN) continue
+    const title = friendlyShelfTitle(titleTopic(free[0]!.title))
+    if (!title) continue
+    const key = `cluster:${shelfSlug(title) || String(id)}`
+    if (groups.has(key)) continue
+    groups.set(key, { key, title, entries: free })
+  }
+
+  // Eligibility + deterministic ordering: most material first, key breaks ties.
+  const eligible = [...groups.values()]
+    .filter((g) => g.entries.length >= SHELF_VIDEOS_MIN)
+    .sort((a, b) => b.entries.length - a.entries.length || a.key.localeCompare(b.key))
+
+  const shelves: HomeShelf[] = []
+  const servedEntries: RankedCandidate[] = []
+  const seenIds = new Set<string>()
+  if (eligible.length) {
+    // Rotate WHICH topics get shelves per 6h window, strided by the shelf count
+    // so consecutive windows pick (mostly) disjoint topic sets; the size-ordered
+    // walk still prefers the topics with the most available videos.
+    const windowIndex = Math.floor(Date.now() / SHELF_WINDOW_MS)
+    const offset = (windowIndex * SHELF_MAX) % eligible.length
+    for (let i = 0; i < eligible.length && shelves.length < SHELF_MAX; i++) {
+      const g = eligible[(offset + i) % eligible.length]!
+      const perChannel = new Map<string, number>()
+      const picked: RankedCandidate[] = []
+      const pickedIds = new Set<string>()
+      // Rank order within the shelf: group members keep the pool pull's order.
+      for (const e of g.entries) {
+        if (picked.length >= SHELF_VIDEOS_MAX) break
+        const v = e.payload as ItVideo
+        if (seenIds.has(v.videoId) || pickedIds.has(v.videoId)) continue
+        const chan = e.creatorId ?? v.channelId ?? (v.author ?? '').toLowerCase()
+        if (chan && (perChannel.get(chan) ?? 0) >= SHELF_CHANNEL_CAP) continue
+        if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + 1)
+        picked.push(e)
+        pickedIds.add(v.videoId)
+      }
+      // Cross-shelf dedupe can shrink a group below the floor; skip it without
+      // consuming its ids so a later shelf (or the mixed shelf) can use them.
+      if (picked.length < SHELF_VIDEOS_MIN) continue
+      const videos: Suggested[] = picked.map((e) => ({ ...(e.payload as ItVideo), why: whyServed(e) }))
+      for (const v of videos) seenIds.add(v.videoId)
+      servedEntries.push(...picked)
+      shelves.push({ key: g.key, title: g.title, kind: 'topic', videos })
+    }
+  }
+
+  await enrichChannelThumbs(shelves.flatMap((s) => s.videos))
+  // Impressions, recorded the same way /recommended records its page: what a
+  // shelf shows counts as shown, so rotation demotes it on later visits.
+  if (servedEntries.length) await recordServed(userId, DOMAIN, servedEntries)
+
+  // Optional mixed shelf via the normal serve (live layer, format quotas and
+  // all), deduped against the topic shelves. It records its own impressions.
+  if (includeMixed) {
+    const mixed = await serveYtRecommendedCore(userId, SHELF_MIXED_SIZE * 2)
+    const videos = mixed.videos.filter((v) => !seenIds.has(v.videoId)).slice(0, SHELF_MIXED_SIZE)
+    if (videos.length) shelves.push({ key: 'mixed', title: 'Picked for you', kind: 'mixed', videos })
+  }
+
+  return { shelves, building: false }
 }

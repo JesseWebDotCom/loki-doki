@@ -17,7 +17,7 @@ import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary, ensureSmartDescription, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
-import { serveYtRecommendedDeep } from '@/lib/interests/videos'
+import { serveYtRecommendedDeep, serveYtHomeShelves } from '@/lib/interests/videos'
 import { peekPool } from '@/lib/interests/pool'
 import { buildChannelProfiles, subscriptionTopics } from '@/lib/interests/channelProfiles'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
@@ -1829,6 +1829,29 @@ youtubeRoute.get('/playlist/:playlistId', async (c) => {
   const playlistId = c.req.param('playlistId')
   const page = await tryInnertube('playlist', () => innertubePlaylist(playlistId), { title: null, description: null, owner: null, videos: [] })
   return c.json(page)
+})
+
+// YouTube-style sectioned home: 4-6 topic shelves per serve, grouped server-side
+// from the user's interest pool (sub-topic and topic-search candidates by their
+// query, plus large semantic clusters), rotating which topics get shelves per 6h
+// window. Videos use the /recommended serialization (itVideoResult + why).
+// ?includeMixed=1 appends one 12-item mixed shelf from the normal serve; by
+// default there is none (the client already has Suggested via /recommended).
+youtubeRoute.get('/home-shelves', async (c) => {
+  const user = c.get('user')
+
+  // Same per-user "no suggestions" limit as /recommended (kids).
+  if ((await getVideoViewFlags(user.id)).noSuggestions) return c.json({ shelves: [] })
+
+  const { shelves } = await serveYtHomeShelves(user.id, c.req.query('includeMixed') === '1')
+  return c.json({
+    shelves: shelves.map(s => ({
+      key: s.key,
+      title: s.title,
+      kind: s.kind,
+      videos: s.videos.map(v => ({ ...itVideoResult(v), why: v.why })),
+    })),
+  })
 })
 
 // "Recommended for you" — discover content beyond your subscriptions. Served from the
