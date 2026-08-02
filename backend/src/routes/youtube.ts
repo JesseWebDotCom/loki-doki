@@ -61,6 +61,8 @@ import { resolvePlaybackBlob, releaseAssetsIfOrphaned, enhancedStatusForAssets, 
 import { startLiveRecording, getLiveStatus, stopLiveRecording } from '@/lib/youtube/live'
 import { getYoutubeSuggestions } from '@/lib/youtube/suggest'
 import { getAccountRow, getLinkFlow, getValidAccessToken, startAccountLink, cancelLinkFlow, unlinkAccount } from '@/lib/youtube/account'
+// Type-only: the runtime tvClient module stays dynamically imported (account-scoped, lazy).
+import type { TvVideo } from '@/lib/youtube/tvClient'
 import { syncAccount, pushSubscribe, pushUnsubscribe, pushCollectionChange } from '@/lib/youtube/accountSync'
 import { ytAccounts } from '@/db/schema'
 import { acquireRead, releaseRead } from '@/lib/content/store'
@@ -491,6 +493,43 @@ youtubeRoute.get('/feed', async (c) => {
 
   // Kid-safe: a subscribed channel can still post a mature upload — filter the feed too.
   return c.json({ videos: await filterYtItemsForUser(user.id, result) })
+})
+
+// The linked account's REAL Subscriptions feed (Google's own newest-uploads roll),
+// an alternative to the RSS-built /feed above: it covers channels the poller hasn't
+// caught up on and honors the account's own ordering. Item shape mirrors /feed as
+// closely as the TV response allows (no publishedAt timestamp, only relative text).
+youtubeRoute.get('/feed/account', async (c) => {
+  const user = c.get('user')
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ error: 'not linked' }, 404)
+  const { fetchSubscriptionsFeed } = await import('@/lib/youtube/tvClient')
+  const items = await cachedLookup('yt-account-subfeed', user.id, 10 * 60_000,
+    () => fetchSubscriptionsFeed(token, 60)).catch(() => [] as TvVideo[])
+
+  // Watch state in one query, exactly like /feed.
+  const videoIds = items.map(v => v.videoId)
+  const watchRows = videoIds.length
+    ? await db.select().from(ytWatchState)
+        .where(and(eq(ytWatchState.userId, user.id), inArray(ytWatchState.videoId, videoIds)))
+    : []
+  const watchMap = new Map(watchRows.map(w => [w.videoId, w]))
+
+  const mapped = items.map(v => ({
+    id: v.videoId,
+    videoId: v.videoId,
+    title: v.title,
+    author: v.author,
+    channelId: v.channelId,
+    thumbnailUrl: `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+    durationSec: v.durationSec,
+    views: v.views,
+    publishedText: v.publishedText,
+    publishedAt: null,
+    channelThumb: null,
+    watchState: watchMap.get(v.videoId) ?? null,
+  }))
+  return c.json({ videos: await filterYtItemsForUser(user.id, mapped) })
 })
 
 // Backfill video durations (RSS feeds omit them) so the UI can split Shorts from
@@ -1657,12 +1696,34 @@ youtubeRoute.get('/channel/:channelId/:tab', async (c) => {
 // the search route — so a transient InnerTube failure returns [] once instead of
 // memoizing an empty "Up next" rail for the full TTL.
 youtubeRoute.get('/related/:videoId', async (c) => {
+  const user = c.get('user')
   const videoId = c.req.param('videoId')
   const limit = Math.min(40, parseInt(c.req.query('limit') ?? '20', 10))
-  const videos = await tryInnertube('related',
+
+  // Linked account first: Google's OWN watch-next picks for this user on this video
+  // ('next' on the TV client) beat anything the anonymous related graph can guess.
+  // Cached 10min per (user, video); best-effort, so an expired token or upstream
+  // hiccup just leaves the anonymous rail alone.
+  let personalized: ItVideo[] = []
+  const accountToken = await getValidAccessToken(user.id).catch(() => null)
+  if (accountToken) {
+    const { fetchAccountNext } = await import('@/lib/youtube/tvClient')
+    const items = await cachedLookup('yt-account-next', `${user.id}:${videoId}`, 10 * 60_000,
+      () => fetchAccountNext(accountToken, videoId, limit)).catch(() => [])
+    personalized = items.map(v => ({
+      videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
+      channelThumb: null, thumbnailUrl: `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+      durationSec: v.durationSec, publishedText: v.publishedText, views: v.views,
+    }))
+  }
+
+  const anon = await tryInnertube('related',
     () => cachedLookup('youtube:related', `${videoId}:${limit}`, 20 * 60_000, () => innertubeRelated(videoId, limit)),
     [])
-  return c.json({ videos: await filterYtItemsForUser(c.get('user').id, videos) })
+  // Account picks lead; anonymous related tops up, deduped, same response shape.
+  const seen = new Set(personalized.map(v => v.videoId))
+  const videos = [...personalized, ...anon.filter(v => !seen.has(v.videoId))].slice(0, limit)
+  return c.json({ videos: await filterYtItemsForUser(user.id, videos) })
 })
 
 // Topic-grouped related shelves — an LLM names the video's 2-4 concrete subjects from its
@@ -2391,6 +2452,36 @@ youtubeRoute.get('/collections', async (c) => {
   if (rows.some(r => !r.channelThumbSub && !r.channelThumbVid && r.channelId)) {
     void backfillCollectionChannelThumbs(user.id).catch(() => {})
   }
+
+  // Linked account: append the REAL Watch Later / Liked lists (first page each) so the
+  // Library shows everything the account holds, not just what was saved in-app. Deduped
+  // by videoId against local rows; read-only merge, never written into the local DB.
+  // Cached 15min per user (shared keys with the interest-signal reader).
+  try {
+    const token = await getValidAccessToken(user.id)
+    if (token) {
+      const { fetchAccountWatchLater, fetchAccountLiked } = await import('@/lib/youtube/tvClient')
+      const [wl, liked] = await Promise.all([
+        cachedLookup('yt-account-wl', user.id, 15 * 60_000, () => fetchAccountWatchLater(token, 60)).catch(() => [] as TvVideo[]),
+        cachedLookup('yt-account-liked', user.id, 15 * 60_000, () => fetchAccountLiked(token, 60)).catch(() => [] as TvVideo[]),
+      ])
+      const append = (key: CollectionKey, items: TvVideo[]) => {
+        const have = new Set((out[key] as Array<{ videoId: string }>).map(r => r.videoId))
+        for (const v of items) {
+          if (!v.videoId || have.has(v.videoId)) continue
+          have.add(v.videoId)
+          out[key].push({
+            videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
+            channelThumb: null, durationSec: v.durationSec,
+            thumbnailUrl: `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+            addedAt: null, videoSource: 'youtube', views: v.views, publishedAt: null,
+          })
+        }
+      }
+      append('watch-later', wl)
+      append('liked', liked)
+    }
+  } catch { /* account lists are best-effort; the local rows stand alone */ }
   return c.json(out)
 })
 

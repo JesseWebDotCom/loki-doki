@@ -50,6 +50,10 @@ export type CandidateBucket =
    *  lessons", "funny pranks", from the channel profiler), so similar videos
    *  from any channel surface, not just the subscriptions' own uploads. */
   | 'sub-topic'
+  /** The linked account's real Subscriptions feed (FEsubscriptions): Google's own
+   *  newest-uploads roll across every subscribed channel, covering channels the
+   *  local RSS poller misses. Serves through the subscription quota. */
+  | 'sub-feed'
   | 'similar'
   | 'trending'
   | 'yt-home'

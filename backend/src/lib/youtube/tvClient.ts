@@ -213,6 +213,39 @@ export async function fetchHomeFeed(accessToken: string, limit = 60): Promise<Tv
   return collectVideosDeep(data).slice(0, limit)
 }
 
+/** First page of the account's Watch Later playlist (VLWL browse), newest saves first.
+ *  Lighter than fetchAccountPlaylist: one call, no paging, for signal/merge surfaces. */
+export async function fetchAccountWatchLater(accessToken: string, limit = 60): Promise<TvVideo[]> {
+  const data = await tvCall('browse', accessToken, { browseId: 'VLWL' })
+  return collectVideosDeep(data).slice(0, limit)
+}
+
+/** First page of the account's Liked videos playlist (VLLL browse), newest likes first. */
+export async function fetchAccountLiked(accessToken: string, limit = 60): Promise<TvVideo[]> {
+  const data = await tvCall('browse', accessToken, { browseId: 'VLLL' })
+  return collectVideosDeep(data).slice(0, limit)
+}
+
+/** The account's real Subscriptions feed (FEsubscriptions browse): Google's own
+ *  newest-uploads roll across every subscribed channel, richer than our RSS poller
+ *  (it includes channels the poller has not caught up on and respects the account's
+ *  own ordering). */
+export async function fetchSubscriptionsFeed(accessToken: string, limit = 60): Promise<TvVideo[]> {
+  const data = await tvCall('browse', accessToken, { browseId: 'FEsubscriptions' })
+  return collectVideosDeep(data).slice(0, limit)
+}
+
+/** The account's personalized watch-next rail for one video ('next' endpoint): what
+ *  Google would queue after this video FOR THIS ACCOUNT. The response interleaves
+ *  secondaryResults / autoplay sets whose items render as compactVideoRenderer,
+ *  playlistPanelVideoRenderer, tileRenderer, or lockupViewModel depending on client
+ *  generation; collectVideosDeep already walks all of those, so no dedicated
+ *  collector is needed. The subject video itself is filtered out. */
+export async function fetchAccountNext(accessToken: string, videoId: string, limit = 20): Promise<TvVideo[]> {
+  const data = await tvCall('next', accessToken, { videoId })
+  return collectVideosDeep(data).filter(v => v.videoId !== videoId).slice(0, limit)
+}
+
 export async function fetchSubscribedChannels(accessToken: string): Promise<TvChannel[]> {
   const channels = new Map<string, TvChannel>()
 
@@ -246,8 +279,7 @@ export async function fetchSubscribedChannels(accessToken: string): Promise<TvCh
 
   // Floor: infer channels from the subscriptions video feed.
   try {
-    const data = await tvCall('browse', accessToken, { browseId: 'FEsubscriptions' })
-    for (const v of collectVideosDeep(data)) {
+    for (const v of await fetchSubscriptionsFeed(accessToken, 200)) {
       if (v.channelId && v.author && !channels.has(v.channelId)) {
         channels.set(v.channelId, { channelId: v.channelId, title: v.author, handle: null, thumbnailUrl: null })
       }
@@ -274,7 +306,8 @@ export interface TvVideo {
 function collectVideosDeep(data: any): TvVideo[] {
   const out = new Map<string, TvVideo>()
 
-  for (const key of ['playlistVideoRenderer', 'videoRenderer', 'gridVideoRenderer', 'compactVideoRenderer']) {
+  // playlistPanelVideoRenderer: the watch-next / autoplay panel shape 'next' returns.
+  for (const key of ['playlistVideoRenderer', 'videoRenderer', 'gridVideoRenderer', 'compactVideoRenderer', 'playlistPanelVideoRenderer']) {
     const raw: any[] = []
     collectKey(data, key, raw)
     for (const r of raw) {

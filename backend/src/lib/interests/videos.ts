@@ -20,7 +20,7 @@ import {
 } from '@/lib/youtube/innertube'
 import { ensureRelatedTopics } from '@/lib/youtube/relatedTopics'
 import { getValidAccessToken } from '@/lib/youtube/account'
-import { fetchHomeFeed, fetchWatchHistory } from '@/lib/youtube/tvClient'
+import { fetchAccountLiked, fetchAccountWatchLater, fetchHomeFeed, fetchSubscriptionsFeed, fetchWatchHistory, type TvVideo } from '@/lib/youtube/tvClient'
 import { cachedLookup } from '@/lib/lookupCache'
 import { videoPolicyFor } from '@/lib/media/policyTier'
 import { filterVideosForUser, filterYtItemsForUser } from '@/lib/videos/policy'
@@ -208,8 +208,10 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
       const acct = await cachedLookup('yt-account-history', userId, 5 * 60_000, () => fetchWatchHistory(token, 60))
       // Local rows win on overlap: they carry real positions/completion.
       const localRefs = new Set(yt.map((w) => ytRef(w.videoId)))
+      const accountRefs = new Set<string>()
       acct.forEach((v, i) => {
-        if (!v.videoId || !v.title || localRefs.has(ytRef(v.videoId))) return
+        if (!v.videoId || !v.title || localRefs.has(ytRef(v.videoId)) || accountRefs.has(ytRef(v.videoId))) return
+        accountRefs.add(ytRef(v.videoId))
         signals.push({
           ref: ytRef(v.videoId),
           title: v.title,
@@ -220,6 +222,33 @@ export async function collectVideoSignals(userId: string): Promise<InterestSigna
           at: Date.now() - i * 3 * 60 * 60 * 1000,
         })
       })
+
+      // Account Watch Later + Liked: the strongest INTENT signals the account holds.
+      // A deliberate save outranks a mere watch (0.9), a like sits just under it
+      // (0.8). No positions exist, so timestamps are synthesized recent-descending;
+      // local rows (and the account history above) win on overlap, same dedupe as
+      // the history block. Cached 15min per user, keys shared with /collections.
+      const [wl, liked] = await Promise.all([
+        cachedLookup('yt-account-wl', userId, 15 * 60_000, () => fetchAccountWatchLater(token, 60)).catch(() => [] as TvVideo[]),
+        cachedLookup('yt-account-liked', userId, 15 * 60_000, () => fetchAccountLiked(token, 60)).catch(() => [] as TvVideo[]),
+      ])
+      const pushIntent = (items: TvVideo[], engagement: number) => {
+        items.forEach((v, i) => {
+          if (!v.videoId || !v.title || localRefs.has(ytRef(v.videoId)) || accountRefs.has(ytRef(v.videoId))) return
+          accountRefs.add(ytRef(v.videoId))
+          signals.push({
+            ref: ytRef(v.videoId),
+            title: v.title,
+            creatorId: v.channelId ?? null,
+            creatorName: v.author ?? null,
+            topics: [],
+            engagement,
+            at: Date.now() - i * 6 * 60 * 60 * 1000,
+          })
+        })
+      }
+      pushIntent(wl, 0.9)
+      pushIntent(liked, 0.8)
     }
   } catch { /* unlinked account or fetch failure - local signals stand alone */ }
 
@@ -448,16 +477,25 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // is the cheapest diversity win available. Best-effort like everything else;
   // no linked account or an expired token simply contributes nothing. Ref-level
   // dedupe against the other buckets happens in the shared `fresh` pass below.
-  const homeFeed: ItVideo[] = await (async () => {
-    const token = await getValidAccessToken(userId).catch(() => null)
-    if (!token) return []
-    const feed = await fetchHomeFeed(token, YTHOME_POOL_MAX).catch(() => [])
-    return feed.map((v) => ({
-      videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
-      channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
-      publishedText: v.publishedText, views: v.views,
-    }))
-  })()
+  const accountToken = await getValidAccessToken(userId).catch(() => null)
+  const tvToIt = (v: TvVideo): ItVideo => ({
+    videoId: v.videoId, title: v.title, author: v.author, channelId: v.channelId,
+    channelThumb: null, thumbnailUrl: null, durationSec: v.durationSec,
+    publishedText: v.publishedText, views: v.views,
+  })
+  const homeFeed: ItVideo[] = accountToken
+    ? (await fetchHomeFeed(accountToken, YTHOME_POOL_MAX).catch(() => [] as TvVideo[])).map(tvToIt)
+    : []
+  // The account's real Subscriptions feed (bucket 'sub-feed'): Google's own newest-
+  // uploads roll, covering channels our RSS poller misses. It shares the subscription
+  // bucket's goals (stated intent), so it rides the subscription serve quota rather
+  // than earning one of its own; deduped here against the RSS subscription bucket.
+  const subRefs = new Set(subUploads.map((cand) => cand.ref))
+  const subFeed: ItVideo[] = accountToken
+    ? (await fetchSubscriptionsFeed(accountToken, 40).catch(() => [] as TvVideo[]))
+        .map(tvToIt)
+        .filter((v) => !subRefs.has(ytRef(v.videoId)))
+    : []
 
   // Seed titles let "why this" name the exact watch that earned the suggestion.
   const seedTitle = new Map(ytSignals.map((s) => [s.ref.slice('youtube:'.length), s.title]))
@@ -485,6 +523,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
     ...hubRelated,
     ...followItems,
     ...subUploads,
+    ...subFeed.map((v) => itToCandidate(v, 'sub-feed')),
     ...homeFeed.map((v) => itToCandidate(v, 'yt-home')),
     ...popular.map((v) => itToCandidate(v, 'trending')),
     ...trending.map((v) => itToCandidate(v, 'trending')),
@@ -543,8 +582,9 @@ export async function buildVideoPool(userId: string): Promise<void> {
     // linked account, diverse BY DESIGN, and the cosine veto was preferentially
     // killing the most diverse account-home picks (only ~3 of ~50 fetched survived
     // into the pool). Google already vetted them against far richer signals than
-    // the local watch centroid has.
-    if (e.bucket !== 'sub-topic' && e.bucket !== 'yt-home' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
+    // the local watch centroid has. sub-feed skips it like subscription does:
+    // subscribing IS the positive signal (age and news gates still apply to it).
+    if (e.bucket !== 'sub-topic' && e.bucket !== 'yt-home' && e.bucket !== 'sub-feed' && p && p.cos !== null && p.cos < RELEVANCE_COS && p.creator < 0.15 && topicVouch < 0.2) return false
     if (e.publishedAt && builtAt - e.publishedAt > MAX_AGE_MS && (p?.creator ?? 0) === 0) return false
     if (isHardNews(e)) {
       if ((p?.creator ?? 0) < 0.15) return false
@@ -561,7 +601,9 @@ export async function buildVideoPool(userId: string): Promise<void> {
   // its uploads from channels with no recent watch activity get a boost.
   ranked = gated
     .map((e): RankedCandidate => {
-      if (e.bucket === 'subscription') {
+      // sub-feed items are subscription uploads too (Google's roll of them), so
+      // they share the boost-don't-demote treatment.
+      if (e.bucket === 'subscription' || e.bucket === 'sub-feed') {
         const unwatched = (watchesByChannel.get(e.creatorId ?? '') ?? 0) === 0
         return unwatched ? { ...e, score: e.score * SUB_UNWATCHED_BOOST } : e
       }
@@ -578,6 +620,7 @@ export async function buildVideoPool(userId: string): Promise<void> {
       topics: topicQueries.length,
       subTopics: subTopicPicks.length,
       ytHome: homeFeed.length,
+      subFeed: subFeed.length,
       candidates: fresh.length,
       kept: Math.min(ranked.length, 150),
     },
@@ -1136,7 +1179,7 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
     for (const [cl, n] of perCluster) {
       // Quota-backed clusters are never victims: one quota pass must not evict
       // what another (or the greedy fill) admitted for the same purpose.
-      if (cl === 'subscription' || cl === 'yt-home' || cl.startsWith('sub-topic:') || (victims && !victims.has(cl))) continue
+      if (cl === 'subscription' || cl === 'sub-feed' || cl === 'yt-home' || cl.startsWith('sub-topic:') || (victims && !victims.has(cl))) continue
       if (n > max) {
         max = n
         victim = cl
@@ -1166,8 +1209,12 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
     return swapIn(v, victims)
   }
 
-  // 2. Subscription quota.
-  const isSub = (v: ItVideo) => entryOf(v)?.bucket === 'subscription'
+  // 2. Subscription quota. 'sub-feed' (the account's real Subscriptions feed) shares
+  // this quota rather than owning one: both buckets serve the same stated intent.
+  const isSub = (v: ItVideo) => {
+    const b = entryOf(v)?.bucket
+    return b === 'subscription' || b === 'sub-feed'
+  }
   const subWant = Math.max(2, Math.round(target * SUB_SERVE_SHARE))
   let subHave = served.filter(isSub).length
   for (const v of kept) {
@@ -1205,7 +1252,7 @@ function assembleDiverseFeed<V extends ItVideo>(kept: V[], byRef: Map<string, Ra
   // construction, so they are never counted as dominant) counts.
   const dominant = new Set(
     [...perCluster.entries()]
-      .filter(([cl, n]) => n >= 3 && cl !== 'subscription' && cl !== 'yt-home' && !cl.startsWith('sub-topic:'))
+      .filter(([cl, n]) => n >= 3 && cl !== 'subscription' && cl !== 'sub-feed' && cl !== 'yt-home' && !cl.startsWith('sub-topic:'))
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([cl]) => cl),
@@ -1253,7 +1300,7 @@ async function serveYtRecommendedCore(userId: string, target: number): Promise<S
     limit: subWant * 2,
     watchedRefs,
     build,
-    entryFilter: (e) => e.ref.startsWith('youtube:') && e.bucket === 'subscription',
+    entryFilter: (e) => e.ref.startsWith('youtube:') && (e.bucket === 'subscription' || e.bucket === 'sub-feed'),
   })
   // Same deal for the sub-topic quota: those candidates score without watch-history
   // backing (deliberately), so the plain top-N slice can miss them entirely.
@@ -1302,7 +1349,7 @@ async function serveYtRecommendedCore(userId: string, target: number): Promise<S
   // needs these as candidates.
   const quotaCandidates = kept.filter((v) => {
     const b = byRef.get(ytRef(v.videoId))?.bucket
-    return b === 'subscription' || b === 'sub-topic' || b === 'yt-home'
+    return b === 'subscription' || b === 'sub-feed' || b === 'sub-topic' || b === 'yt-home'
   })
   return { videos: composeFeed(explained, layer, target, watchedRefs), building: false, byRef, quotaCandidates }
 }
@@ -1455,6 +1502,8 @@ function whyServed(entry: RankedCandidate): string {
       return entry.creatorName ? `New from ${entry.creatorName}, a channel you keep coming back to` : 'From a creator you watch'
     case 'subscription':
       return entry.creatorName ? `Fresh from ${entry.creatorName}, one of your subscriptions` : 'Fresh from a channel you subscribed to'
+    case 'sub-feed':
+      return entry.creatorName ? `New from ${entry.creatorName}, in your subscriptions feed` : 'New in your subscriptions feed'
     case 'sub-topic':
       // topics[0] = the searched topic, topics[1] = the first subscribed channel
       // that earned it (stamped at candidate generation).
@@ -1544,6 +1593,16 @@ const SHELF_VIDEOS_MIN = 6
 const SHELF_CHANNEL_CAP = 2
 // A semantic cluster needs at least this many members to earn its own shelf.
 const SHELF_SEMANTIC_MIN = 6
+// Hard cap on WATCH-derived shelves (topic-search groups + standalone semantic
+// clusters) per serve. Watch-derived fixation groups are systematically bigger
+// than subscription-derived ones (related fan-out multiplies them), so the old
+// size-sorted walk handed them 4-6 of the 6 shelves every window (verified live:
+// The Mask / Looney Tunes / Space Jam / Joey Belladonna crowding out every
+// sub-topic shelf).
+const WATCH_SHELF_MAX = 3
+// Cross-shelf leader dedupe: two chosen shelves whose leader embeddings clear
+// this cosine are one topic wearing two titles; the later one is skipped.
+const SHELF_LEADER_COS = 0.8
 // The optional mixed shelf's size (?includeMixed=1).
 const SHELF_MIXED_SIZE = 12
 
@@ -1669,39 +1728,79 @@ export async function serveYtHomeShelves(
     .filter((g) => g.entries.length >= SHELF_VIDEOS_MIN)
     .sort((a, b) => b.entries.length - a.entries.length || a.key.localeCompare(b.key))
 
+  // Provenance partition for shelf SELECTION. SUB = groups whose members are
+  // predominantly subscription-derived (sub-topic queries, the account sub-feed,
+  // subscription uploads, Google's yt-home picks): stated intent. WATCH =
+  // topic-search groups, standalone semantic clusters, related-derived top-ups:
+  // watch-history fixation material. Selection alternates the partitions instead
+  // of walking a size-sorted list, because fixation groups always out-size the
+  // subscription-derived ones and were owning 4-6 of the 6 shelves.
+  const isSubEntry = (e: RankedCandidate) =>
+    e.bucket === 'sub-topic' || e.bucket === 'sub-feed' || e.bucket === 'subscription' || e.bucket === 'yt-home'
+  const isSubGroup = (g: { entries: RankedCandidate[] }) =>
+    g.entries.filter(isSubEntry).length * 2 >= g.entries.length
+  const leaderVec = (g: { entries: RankedCandidate[] }): number[] | null =>
+    g.entries.find((e) => e.vec?.length)?.vec ?? null
+
+  // Keep the 6h topic rotation, but WITHIN each partition, so successive windows
+  // surface different topics on both sides of the alternation.
+  const windowIndex = Math.floor(Date.now() / SHELF_WINDOW_MS)
+  const rotated = (arr: ShelfGroup[], stride: number): ShelfGroup[] => {
+    if (!arr.length) return arr
+    const offset = (windowIndex * stride) % arr.length
+    return arr.map((_, i) => arr[(offset + i) % arr.length]!)
+  }
+  const subOrder = rotated(eligible.filter(isSubGroup), SHELF_MAX - WATCH_SHELF_MAX)
+  const watchOrder = rotated(eligible.filter((g) => !isSubGroup(g)), WATCH_SHELF_MAX)
+
   const shelves: HomeShelf[] = []
   const servedEntries: RankedCandidate[] = []
   const seenIds = new Set<string>()
-  if (eligible.length) {
-    // Rotate WHICH topics get shelves per 6h window, strided by the shelf count
-    // so consecutive windows pick (mostly) disjoint topic sets; the size-ordered
-    // walk still prefers the topics with the most available videos.
-    const windowIndex = Math.floor(Date.now() / SHELF_WINDOW_MS)
-    const offset = (windowIndex * SHELF_MAX) % eligible.length
-    for (let i = 0; i < eligible.length && shelves.length < SHELF_MAX; i++) {
-      const g = eligible[(offset + i) % eligible.length]!
-      const perChannel = new Map<string, number>()
-      const picked: RankedCandidate[] = []
-      const pickedIds = new Set<string>()
-      // Rank order within the shelf: group members keep the pool pull's order.
-      for (const e of g.entries) {
-        if (picked.length >= SHELF_VIDEOS_MAX) break
-        const v = e.payload as ItVideo
-        if (seenIds.has(v.videoId) || pickedIds.has(v.videoId)) continue
-        const chan = e.creatorId ?? v.channelId ?? (v.author ?? '').toLowerCase()
-        if (chan && (perChannel.get(chan) ?? 0) >= SHELF_CHANNEL_CAP) continue
-        if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + 1)
-        picked.push(e)
-        pickedIds.add(v.videoId)
-      }
-      // Cross-shelf dedupe can shrink a group below the floor; skip it without
-      // consuming its ids so a later shelf (or the mixed shelf) can use them.
-      if (picked.length < SHELF_VIDEOS_MIN) continue
-      const videos: Suggested[] = picked.map((e) => ({ ...(e.payload as ItVideo), why: whyServed(e) }))
-      for (const v of videos) seenIds.add(v.videoId)
-      servedEntries.push(...picked)
-      shelves.push({ key: g.key, title: g.title, kind: 'topic', videos })
+  // Compose alternating SUB, WATCH, SUB, WATCH... WATCH is hard-capped per serve;
+  // SUB backfills freely when WATCH runs out, WATCH backfills (up to its cap)
+  // when SUB runs short.
+  const chosenLeaders: number[][] = []
+  let si = 0
+  let wi = 0
+  let watchServed = 0
+  while (shelves.length < SHELF_MAX) {
+    const canSub = si < subOrder.length
+    const canWatch = watchServed < WATCH_SHELF_MAX && wi < watchOrder.length
+    if (!canSub && !canWatch) break
+    const fromWatch = canWatch && (!canSub || shelves.length % 2 === 1)
+    const g = fromWatch ? watchOrder[wi++]! : subOrder[si++]!
+
+    // Cross-shelf SEMANTIC dedupe, on top of the per-video dedupe below: compare
+    // this group's leader embedding against already-chosen shelves' leaders. One
+    // topic reached via three queries (The Mask / Space Jam / Looney Tunes: one
+    // nostalgia cluster wearing three shelf titles) serves once, not three times.
+    // Groups without a retained vector pass; unknown is not the same as duplicate.
+    const lv = leaderVec(g)
+    if (lv && chosenLeaders.some((l) => cosineSimilarity(l, lv) > SHELF_LEADER_COS)) continue
+
+    const perChannel = new Map<string, number>()
+    const picked: RankedCandidate[] = []
+    const pickedIds = new Set<string>()
+    // Rank order within the shelf: group members keep the pool pull's order.
+    for (const e of g.entries) {
+      if (picked.length >= SHELF_VIDEOS_MAX) break
+      const v = e.payload as ItVideo
+      if (seenIds.has(v.videoId) || pickedIds.has(v.videoId)) continue
+      const chan = e.creatorId ?? v.channelId ?? (v.author ?? '').toLowerCase()
+      if (chan && (perChannel.get(chan) ?? 0) >= SHELF_CHANNEL_CAP) continue
+      if (chan) perChannel.set(chan, (perChannel.get(chan) ?? 0) + 1)
+      picked.push(e)
+      pickedIds.add(v.videoId)
     }
+    // Cross-shelf dedupe can shrink a group below the floor; skip it without
+    // consuming its ids so a later shelf (or the mixed shelf) can use them.
+    if (picked.length < SHELF_VIDEOS_MIN) continue
+    const videos: Suggested[] = picked.map((e) => ({ ...(e.payload as ItVideo), why: whyServed(e) }))
+    for (const v of videos) seenIds.add(v.videoId)
+    servedEntries.push(...picked)
+    if (lv) chosenLeaders.push(lv)
+    if (fromWatch) watchServed++
+    shelves.push({ key: g.key, title: g.title, kind: 'topic', videos })
   }
 
   await enrichChannelThumbs(shelves.flatMap((s) => s.videos))

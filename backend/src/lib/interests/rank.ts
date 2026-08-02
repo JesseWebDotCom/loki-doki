@@ -35,6 +35,10 @@ const BUCKET_PRIOR: Record<Candidate['bucket'], number> = {
   // one step removed from the stated intent of the subscription itself, so a
   // notch below it, on par with the profile's own topic searches.
   'sub-topic': 0.85,
+  // The account's real Subscriptions feed (Google's newest-uploads roll): same
+  // stated intent as the local subscription bucket, but the feed's contents come
+  // from upstream rather than our own poller, so a notch below it.
+  'sub-feed': 0.85,
   'creator-latest': 0.8,
   trending: 0.5,
 }
