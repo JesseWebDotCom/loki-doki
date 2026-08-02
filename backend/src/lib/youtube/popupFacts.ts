@@ -25,7 +25,7 @@ export interface PopupFact { t: number; text: string }
 // facts are anchored in live Wikipedia/web snippets for the entities each
 // section discusses (v3 fixed sentence form; v4 gives it something true and
 // interesting to say).
-const NAMESPACE = 'yt-popup-facts-v6'
+const NAMESPACE = 'yt-popup-facts-v7'
 const MISS_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_FACTS = 14
 const MIN_SPACING_SEC = 45
@@ -82,11 +82,33 @@ async function gatherSources(numbered: string): Promise<string> {
       picked.push({ s, name })
       if (picked.length >= 6) break
     }
+    // Mechanical source-relevance check: retrieval for "Jason Ween" (a
+    // streamer) happily returns Ween (the band) on the shared surname, and no
+    // prompt guard reliably catches same-name-wrong-subject. A source is
+    // accepted only when it demonstrably matches the WHOLE entity: the result
+    // title covers most of the entity's words, or the snippet contains the
+    // full entity phrase.
+    const matchesEntity = (name: string, title: string, snippet: string): boolean => {
+      const entity = name.toLowerCase()
+      const t = title.toLowerCase()
+      const s = snippet.toLowerCase()
+      if (s.includes(entity)) return true
+      const words = entity.split(/\s+/).filter((w) => w.length > 1)
+      if (!words.length) return false
+      const covered = words.filter((w) => t.includes(w)).length
+      return covered / words.length >= 0.75
+    }
     const blocks = await Promise.all(picked.map(async e => {
-      let text = (await wikipediaSearch(e.name, 1))[0]?.snippet ?? ''
+      let text = ''
+      const wiki = (await wikipediaSearch(e.name, 2)).find((r) =>
+        matchesEntity(e.name, r.title ?? '', r.snippet ?? ''))
+      if (wiki) text = wiki.snippet ?? ''
       if (text.length < 60) {
-        const web = await webSearch(`"${e.name}" trivia imdb`, 2)
-        text = web.map(w => w.snippet).join(' ')
+        const web = await webSearch(`"${e.name}" trivia imdb`, 3)
+        text = web
+          .filter((w) => matchesEntity(e.name, w.title ?? '', w.snippet ?? ''))
+          .map((w) => w.snippet)
+          .join(' ')
       }
       text = text.replace(/\s+/g, ' ').trim().slice(0, 450)
       return text ? `SOURCE for section ${e.s} — ${e.name}: ${text}` : ''
