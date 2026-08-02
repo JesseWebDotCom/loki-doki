@@ -46,6 +46,11 @@ function fmtRating(r: number | null): string {
   return (r ?? 0).toFixed(1)
 }
 
+/** "a 7.4 rating" but "an 8.4 rating" (eight starts with a vowel sound). */
+function withArticle(rating: string): string {
+  return `${rating.startsWith('8') ? 'an' : 'a'} ${rating}`
+}
+
 function fmtVotes(v: number): string {
   if (v >= 1_000_000) return `over ${(Math.floor(v / 100_000) / 10).toFixed(1)} million`
   if (v >= 1000) return `over ${(Math.floor(v / 1000) * 1000).toLocaleString('en-US')}`
@@ -167,7 +172,7 @@ function ratingFact(t: TitleRow, kind: 'movie' | 'show'): string | null {
   const side = t.rating >= 8.5 ? 'highest' : 'lowest'
   const kindWord = kind === 'movie' ? 'movies' : 'shows'
   return keep(
-    `With a ${fmtRating(t.rating)} rating from ${fmtVotes(t.votes)} IMDb voters, ${t.primaryTitle}${yearSuffix(t)} stands among the ${side}-rated ${kindWord} on the site.`,
+    `With ${withArticle(fmtRating(t.rating))} rating from ${fmtVotes(t.votes)} IMDb voters, ${t.primaryTitle}${yearSuffix(t)} stands among the ${side}-rated ${kindWord} on the site.`,
   )
 }
 
@@ -185,7 +190,7 @@ function bestCredit(d: Database, nconst: string): TitleRow | null {
 
 function highestRatedFact(p: PersonRow, best: TitleRow): string | null {
   return keep(
-    `${p.primaryName}'s highest-rated IMDb credit is ${best.primaryTitle} (${best.startYear}), which holds a ${fmtRating(best.rating)} rating from ${fmtVotes(best.votes)} voters.`,
+    `${p.primaryName}'s highest-rated IMDb credit is ${best.primaryTitle} (${best.startYear}), which holds ${withArticle(fmtRating(best.rating))} rating from ${fmtVotes(best.votes)} voters.`,
   )
 }
 
