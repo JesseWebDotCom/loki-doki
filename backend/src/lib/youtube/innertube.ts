@@ -492,6 +492,114 @@ export async function innertubeSearch(query: string, limit = 12, channelLimit = 
   return { videos: collectVideos(data, limit), channels: collectChannels(data, channelLimit), playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
 }
 
+// ── Movies ──────────────────────────────────────────────────────────────────────
+
+/**
+ * YouTube's actual film catalogue, not a keyword search over uploads.
+ *
+ * The type:Movie search filter returns `movieRenderer` entries from the
+ * YouTube Movies & TV store: the OFFICIAL title, release year, genre,
+ * certificate, cast, director, runtime and a real synopsis — plus a badge
+ * saying whether it is free with ads or something you have to pay for.
+ * Searching for "full action movie" instead returned junk uploads titled
+ * "FULL COMEDY MOVIE / GROWING UP, BLACK NOTICE - Jason Statham", which is
+ * what every title-cleaning heuristic downstream was there to survive
+ * (Jesse, 2026-08-07).
+ */
+export const SEARCH_FILTER_MOVIES = 'EgIQBA%3D%3D'
+
+export interface ItMovie {
+  videoId: string
+  title: string
+  year: number | null
+  genre: string | null
+  certificate: string | null
+  /** Free with ads, as opposed to buy/rent or a channel subscription. */
+  free: boolean
+  /** What the badge actually says ("Free with ads", "Try now", "Buy or rent"). */
+  offer: string | null
+  durationSec: number | null
+  description: string | null
+  cast: string[]
+  directors: string[]
+  thumbnailUrl: string | null
+  captions: boolean
+}
+
+const CERTIFICATES = /^(G|PG|PG-13|R|NC-17|Unrated|Not Rated|TV-Y|TV-Y7|TV-G|TV-PG|TV-14|TV-MA)$/i
+
+/** "Actors: Karl Urban, Olivia Thirlby" → ["Karl Urban", "Olivia Thirlby"] */
+function namesFromRow(rows: any[], prefix: RegExp): string[] {
+  for (const row of rows) {
+    const text = textOf(row)
+    const match = text.match(prefix)
+    if (match) return text.slice(match[0].length).split(',').map((n: string) => n.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function parseMovieRenderer(r: any): ItMovie | null {
+  const videoId = r?.videoId
+  const title = textOf(r?.title)
+  if (!videoId || !title) return null
+
+  // "Action & adventure • 2012"
+  const top = (r?.topMetadataItems ?? []).map((x: any) => textOf(x)).filter(Boolean)
+  const genreYear = top[0] ?? ''
+  const yearMatch = genreYear.match(/\b((?:19|20)\d{2})\b/)
+  const genre = genreYear.split('•')[0]?.trim() || null
+
+  const badges: string[] = (r?.badges ?? [])
+    .map((b: any) => b?.metadataBadgeRenderer?.label)
+    .filter(Boolean)
+  const certificate = badges.find((b) => CERTIFICATES.test(b)) ?? null
+  const offer = badges.find((b) => !CERTIFICATES.test(b) && b !== 'CC') ?? null
+
+  const bottom = r?.bottomMetadataItems ?? []
+  const lengthText = (() => {
+    const found: any[] = []
+    collect(r, 'thumbnailOverlayTimeStatusRenderer', found, 1)
+    return textOf(found[0]?.text)
+  })()
+
+  const thumbs: any[] = r?.thumbnail?.thumbnails ?? []
+  return {
+    videoId,
+    title,
+    year: yearMatch ? Number(yearMatch[1]) : null,
+    genre,
+    certificate,
+    free: /free/i.test(offer ?? ''),
+    offer,
+    durationSec: parseClock(lengthText) ?? durationFromOverlays(r),
+    description: (r?.descriptionSnippet?.runs ?? []).map((x: any) => x.text).join('') || null,
+    cast: namesFromRow(bottom, /^Actors?:\s*/i),
+    directors: namesFromRow(bottom, /^Directors?:\s*/i),
+    thumbnailUrl: fixProtoRelative(thumbs.length ? thumbs[thumbs.length - 1]?.url : null),
+    captions: badges.includes('CC'),
+  }
+}
+
+export interface ItMoviePage { movies: ItMovie[]; continuation: string | null }
+
+export async function innertubeMovies(query: string, limit = 30, timeout = 10_000, continuation?: string | null): Promise<ItMoviePage> {
+  const data = continuation
+    ? await call('search', { continuation }, timeout)
+    : await call('search', { query, params: SEARCH_FILTER_MOVIES }, timeout)
+  const raw: any[] = []
+  collect(data, 'movieRenderer', raw, limit * 2)
+  const movies: ItMovie[] = []
+  const seen = new Set<string>()
+  for (const r of raw) {
+    const movie = parseMovieRenderer(r)
+    if (!movie || seen.has(movie.videoId)) continue
+    seen.add(movie.videoId)
+    movies.push(movie)
+    if (movies.length >= limit) break
+  }
+  return { movies, continuation: findContinuation(data) }
+}
+
 export interface ItPlaylistOwner { channelId: string | null; name: string | null; thumbnailUrl: string | null }
 
 // The playlist's owning channel — from the modern videoOwnerRenderer (carries the avatar)

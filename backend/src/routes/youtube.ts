@@ -22,7 +22,7 @@ import { peekPool } from '@/lib/interests/pool'
 import { buildChannelProfiles, subscriptionTopics } from '@/lib/interests/channelProfiles'
 import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, innertubeLoudnessDb, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubePlayerStoryboards, innertubeComments, innertubeChapters, innertubeHeatmap, innertubeSearchMore, innertubePlaylist, innertubeSearch, innertubeMovies, innertubeLoudnessDb, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipModes } from '@/lib/youtube/sponsorblock'
@@ -137,6 +137,28 @@ youtubeRoute.get('/suggest', async (c) => {
 })
 
 // ── Search (existing) ─────────────────────────────────────────────────────────
+
+/**
+ * YouTube's film catalogue: the real store entries, not a keyword search
+ * over uploads. Each carries the official title, year, genre, certificate,
+ * cast, director, runtime and synopsis, plus whether it is free with ads
+ * (Jesse, 2026-08-07: "it seems like you are doing a generic youtube movie
+ * search as opposed to showing the movies youtube has on their channel").
+ */
+youtubeRoute.get('/movies', async (c) => {
+  c.header('cache-control', 'private, max-age=300')
+  const genre = c.req.query('genre')?.trim() || 'movies'
+  const cursor = c.req.query('cursor') || null
+  // Free-with-ads only unless the caller asks for everything.
+  const freeOnly = c.req.query('all') !== '1'
+  try {
+    const page = await innertubeMovies(genre, 40, 12_000, cursor)
+    const movies = freeOnly ? page.movies.filter((m) => m.free) : page.movies
+    return c.json({ movies, continuation: page.continuation })
+  } catch {
+    return c.json({ movies: [], continuation: null, error: 'unavailable' }, 200)
+  }
+})
 
 youtubeRoute.get('/search', async (c) => {
   const user = c.get('user')
