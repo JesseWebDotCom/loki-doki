@@ -381,6 +381,16 @@ It is metadata only — no model call, no added latency — and drives the compa
 "working" affordance. A `spoken_cue` event fires ONLY on a re-plan; the phrases are a static
 in-process list, so no LLM call is ever made in the request path to produce them.
 
+## Background LLM Work Must Yield to Conversation (2026-08 regression)
+
+**Files:** `backend/src/lib/youtube/popupFacts.ts`, `backend/src/lib/activityGate.ts`, `backend/src/lib/idleScheduler.ts`
+
+The August 2026 "chats take 15+ seconds" regression: Pop-Up Facts moved its writing pass onto the MAIN chat model (it needs world knowledge) and kicked a build at watch time for every uncached video. Ollama serializes requests per model, so a live chat turn sent during a build queued behind a multi-thousand-token prefill plus a 900-token generation on the power-capped prod GPU, then paid full re-prefill because the build clobbered the chat KV prefix. The v5 to v9 cache-namespace bumps (each discarding every cached result) made rebuilds near-constant.
+
+The rule: **any not-user-waiting LLM call on the chat model must (1) defer its start behind `backgroundGateSnapshot()` / `waitForInteractiveIdle()`, and (2) if the generation is long, run STREAMED with a cancelRef and abort when a live turn arrives** (`interactiveIdleMs() < elapsed` is the signal; see `llmWriteFacts`). `ollamaChat` with `stream: false` cannot be preempted, so it is the wrong call shape for long background generations. Fast-model calls (entity extraction, worth-it verdicts) are exempt: they are short and live on a different model.
+
+Precompute-band jobs (`lib/precompute.ts`) already get (1) from the opportunistic gate in downloadJobs; they still lack (2), so keep their generations short or add the same abort pattern if one grows.
+
 ## What NOT to Change Without Re-Testing
 
 1. **Warmup system prompt**: must stay in sync with `chat.ts` prefix or KV cache misses on every first turn
@@ -406,3 +416,4 @@ in-process list, so no LLM call is ever made in the request path to produce them
 | T2 routing very slow (>4s) | granite4.1:3b not running; check `ROUTER_MODEL` env var and Ollama |
 | Long responses cut off mid-sentence | `num_predict` cap hit; default is 2048, check user's `max_tokens` preference in DB |
 | Responses stream all at once instead of token by token | `noDelay: true` removed from TCP socket, or switched back to `fetch`/Bun.connect |
+| Chats slow (10-30s first token) only sometimes, worse while videos are being watched | A background job is occupying the main chat model. Check `[CHAT-TIMING] first-token` against Ollama queue time; audit new `getModel()` callers for missing idle gating (see "Background LLM Work Must Yield to Conversation") |

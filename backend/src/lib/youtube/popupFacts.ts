@@ -9,7 +9,9 @@
 import { readFile } from 'node:fs/promises'
 import { ensureTranscript } from '@/lib/youtube/download'
 import { parseVttCues, segmentByEmbeddings, timedDigest } from '@/lib/youtube/aiChapters'
-import { ollamaChat } from '@/llm/ollama'
+import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
+import { interactiveIdleMs, waitForInteractiveIdle } from '@/lib/activityGate'
+import { backgroundGateSnapshot } from '@/lib/idleScheduler'
 import { getModel, getFastModel } from '@/lib/models'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 import { webSearch } from '@/lib/webSearch'
@@ -152,21 +154,54 @@ export async function peekPopupFacts(videoId: string): Promise<PopupFact[] | nul
 
 const _inFlight = new Set<string>()
 
-/** Fire-and-forget build, coalesced per video. */
+// Builds run one at a time, and only in a quiet moment. A build is
+// nobody-is-waiting work, but its writing pass runs on the MAIN chat model:
+// launched at watch time it parked that model for tens of seconds on the prod
+// GPU, and any live chat turn sent meanwhile queued behind trivia (measured
+// 15s+ first-token). The gate defers the start (conversation idle, GPU calm,
+// no generation running) and llmWriteFacts aborts mid-generation the instant
+// a real turn arrives.
+let _buildChain: Promise<void> = Promise.resolve()
+
+const GATE_POLL_MS = 15_000
+const GATE_MAX_WAIT_MS = 10 * 60_000
+
+class PopupFactsInterrupted extends Error {
+  constructor() { super('popup-facts build yielded to a live turn') }
+}
+
+/** Resolve when the background gate reports quiet, or after GATE_MAX_WAIT_MS
+ * (the mid-generation abort still protects live turns after a forced start). */
+async function waitForQuietWindow(): Promise<void> {
+  const deadline = Date.now() + GATE_MAX_WAIT_MS
+  while (Date.now() < deadline) {
+    if (!backgroundGateSnapshot().busy) return
+    await new Promise((r) => setTimeout(r, GATE_POLL_MS))
+  }
+}
+
+/** Fire-and-forget build, coalesced per video, serialized across videos. */
 export function kickPopupFacts(videoId: string, userId: string, firstName: string): void {
   if (_inFlight.has(videoId)) return
   _inFlight.add(videoId)
-  void (async () => {
+  _buildChain = _buildChain.then(async () => {
     try {
+      await waitForQuietWindow()
       const facts = await buildFacts(videoId, userId, firstName)
       await cachedLookupPut(NAMESPACE, videoId, facts?.length ? THIRTY_DAYS_MS : MISS_TTL_MS, facts)
       logger.info({ videoId, count: facts?.length ?? 0 }, 'yt popup facts: cached')
     } catch (err) {
-      logger.warn({ videoId, err }, 'yt popup facts: build failed')
+      if (err instanceof PopupFactsInterrupted) {
+        // Nothing cached, so the watch page's next poll re-kicks and the retry
+        // waits out the conversation.
+        logger.info({ videoId }, 'yt popup facts: build yielded to a live turn')
+      } else {
+        logger.warn({ videoId, err }, 'yt popup facts: build failed')
+      }
     } finally {
       _inFlight.delete(videoId)
     }
-  })()
+  })
 }
 
 async function buildFacts(videoId: string, userId: string, firstName: string): Promise<PopupFact[] | null> {
@@ -269,15 +304,40 @@ async function llmWriteFacts(segments: { start: number; text: string }[], source
     .map((s, i) => `${i + 1}. ${s.text.slice(0, 500)}`)
     .join('\n\n')
   // Background job — latency is free, so use the MAIN model: trivia needs
-  // world knowledge, and the fast tier answered [] essentially always.
+  // world knowledge, and the fast tier answered [] essentially always. But the
+  // main model is the CHAT model: while this generates, a live chat turn queues
+  // behind it (Ollama serializes per model) and its KV prefix gets clobbered.
+  // So: one last quiet check, then a STREAMED call that aborts the moment a
+  // real turn arrives — ollamaChat (stream:false) cannot be preempted.
   const model = await getModel()
   const user = `${numbered}\n\nVERIFIED SOURCES — every fact must come from a detail in these that the video itself does not mention:\n\n${sources}`
-  const result = await ollamaChat(model, [
-    { role: 'system', content: FACTS_SYSTEM },
-    { role: 'user', content: user },
-  ], undefined, { temperature: 0.3, num_predict: 900 })
+  await waitForInteractiveIdle({ quietMs: 2_000, maxWaitMs: 60_000, label: 'yt-popup-facts' })
 
-  const raw = result.message.content
+  const cancelRef: { cancel?: () => void } = {}
+  let interrupted = false
+  const t0 = Date.now()
+  // A turn that starts AFTER generation began resets interactiveIdleMs below
+  // the elapsed time — that's the abort signal.
+  const watchdog = setInterval(() => {
+    if (interactiveIdleMs() < Date.now() - t0) {
+      interrupted = true
+      cancelRef.cancel?.()
+    }
+  }, 300)
+  let raw = ''
+  try {
+    for await (const chunk of ollamaChatStream(model, [
+      { role: 'system', content: FACTS_SYSTEM },
+      { role: 'user', content: user },
+    ], { temperature: 0.3, num_predict: 900 }, cancelRef)) {
+      if (chunk.message.content) raw += chunk.message.content
+    }
+  } catch (err) {
+    if (!interrupted) throw err
+  } finally {
+    clearInterval(watchdog)
+  }
+  if (interrupted) throw new PopupFactsInterrupted()
   const m = raw.match(/\[[\s\S]*\]/)
   if (!m) {
     logger.info({ len: raw.length, head: raw.slice(0, 120) }, 'yt popup facts: no JSON array in reply')
