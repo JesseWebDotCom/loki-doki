@@ -181,7 +181,13 @@ async function localItems(limit: number): Promise<NewsItem[]> {
 // live fetch when the store is still empty (fresh boot). Everything else → its folder's items.
 async function categoryItems(cat: { id: string; slug: string | null }, limit: number): Promise<NewsItem[]> {
   if (cat.slug === 'local') {
-    const items = await localItems(limit)
+    let items = await localItems(limit)
+    if (!items.length) {
+      // No local sources configured, or they timed out: world headlines beat
+      // an empty page.
+      const raw = await worldHeadlines(limit, 12000).catch(() => [])
+      items = raw.map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))
+    }
     // Awaited (unlike the folder branch below): most local items are Google News RSS, which
     // carries NO image at all, so nearly every item needs this. Firing it in the background
     // meant the first response — the one both the server cache and the client's 5-min
@@ -191,8 +197,12 @@ async function categoryItems(cat: { id: string; slug: string | null }, limit: nu
     return items
   }
   let items = await itemsFromFolder(cat.id, limit)
-  if (!items.length && cat.slug === 'global') {
-    const raw = await worldHeadlines(limit, 6000)
+  // Any built-in category with nothing in it falls back to live world
+  // headlines, not just 'global' - a built-in whose feeds have never polled
+  // left the News app permanently empty while Today's Briefing, which pulls
+  // the same sources directly, was full (Jesse, 2026-08-07).
+  if (!items.length && (cat.slug === 'global' || cat.slug === 'local')) {
+    const raw = await worldHeadlines(limit, 12000).catch(() => [])
     items = raw.map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))
   }
   setCached(`cat-${cat.id}-${limit}`, items)
@@ -375,16 +385,20 @@ news.get('/', requireAuth, async (c) => {
       // Route through the cached category path (stale-while-revalidate) for parity.
       const cacheKey = `cat-${folder.id}-${limit}`
       const entry = getCacheEntry(cacheKey)
-      if (entry) {
+      if (entry && entry.items.length) {
         if (!entry.fresh) categoryItems(folder, limit).catch(() => {})
         return c.json({ items: entry.items, type })
       }
-      return c.json({ items: await categoryItems(folder, limit), type })
+      const items = await categoryItems(folder, limit)
+      if (items.length) return c.json({ items, type })
+      // Fall through to the live path below rather than answering empty.
     }
     // Pre-seed fallback (folder not created yet): live world headlines / Patch.
-    const items = type === 'local'
-      ? await localItems(limit)
-      : (await worldHeadlines(limit, 6000)).map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))
+    let items = type === 'local' ? await localItems(limit) : []
+    if (!items.length) {
+      const raw = await worldHeadlines(limit, 12000)
+      items = raw.map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))
+    }
     return c.json({ items, type })
   } catch (err) {
     const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timed out'))
