@@ -112,3 +112,54 @@ export function parseFilmTitle(raw: string): ParsedFilmTitle {
 
   return { title: text, year, uncertain }
 }
+
+/** Normalised form for comparing two titles: no case, no punctuation, no
+ *  leading article, no doubled spaces. */
+function normalise(text: string): string {
+  return text
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/^(the|a|an)\s+/, '')
+    .trim()
+}
+
+/**
+ * Does a catalogue hit actually correspond to what we searched for?
+ *
+ * JustWatch fuzzy-matches, so a query it cannot place lands on whatever
+ * shares a word: "No Rules, No Fear ..." came back as the film "Fear"
+ * (Jesse, 2026-08-07). A wrong synopsis is worse than none, so a hit has to
+ * earn it — most of the query's words have to be in the matched title.
+ */
+export function titleMatches(query: string, matched: string, opts: { queryYear?: number; matchedYear?: number | null } = {}): boolean {
+  const a = normalise(query)
+  const b = normalise(matched)
+  if (!a || !b) return false
+  if (a === b) return yearOk(opts)
+  const at = new Set(a.split(' ').filter(Boolean))
+  const bt = new Set(b.split(' ').filter(Boolean))
+  // A one-word film answering a multi-word query is the classic false
+  // positive; demand an exact match in that case.
+  if (bt.size === 1 && at.size > 1) return false
+  // A bare sequel number is not evidence: "Colombiana 2" and "Zootopia 2"
+  // share the "2" and nothing else (Jesse, 2026-08-07). Count only real
+  // words toward the overlap, but keep the numbers in the union so they
+  // still cost a mismatch.
+  let shared = 0
+  for (const word of at) if (bt.has(word) && !/^\d+$/.test(word)) shared++
+  const union = new Set([...at, ...bt]).size
+  const jaccard = shared / union
+  // Also allow a clean subtitle difference ("Rampage" vs "Rampage: Big
+  // Meets Bigger"): the match must START with the whole query, so a shared
+  // word in the middle never counts.
+  const coversQuery = (shared === at.size && at.size >= 2) || b.startsWith(a + ' ')
+  return (jaccard >= 0.6 || coversQuery) && yearOk(opts)
+}
+
+function yearOk({ queryYear, matchedYear }: { queryYear?: number; matchedYear?: number | null }): boolean {
+  if (!queryYear || !matchedYear) return true
+  // Upload years drift from release years; a couple of years is fine, a
+  // decade is a different film.
+  return Math.abs(queryYear - matchedYear) <= 2
+}

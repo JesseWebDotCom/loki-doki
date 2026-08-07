@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { lookupTitle } from '@/lib/titles/streaming'
-import { parseFilmTitle } from '@/lib/titles/filmTitle'
+import { parseFilmTitle, titleMatches } from '@/lib/titles/filmTitle'
 import { ollamaChat } from '@/llm/ollama'
 import { getExtractionModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
@@ -71,7 +71,15 @@ titlesRoute.get('/lookup', requireAuth, async (c) => {
   const title = parsed.title || given
   const year = parsed.year ?? givenYear
 
-  let found = title ? await lookupTitle(year ? `${title} ${year}` : title, type) : null
+  // A hit has to actually correspond to the query - JustWatch fuzzy-matches
+  // and will hand back "Fear" for "No Rules, No Fear ...".
+  const verify = async (query: string, queryYear?: number) => {
+    const hit = await lookupTitle(queryYear ? `${query} ${queryYear}` : query, type)
+    if (!hit?.found) return null
+    return titleMatches(query, hit.title, { queryYear, matchedYear: hit.year }) ? hit : null
+  }
+
+  let found = title ? await verify(title, year) : null
 
   // Pass 2: the model, but only when code alone didn't land a match. A
   // successful code match is never second-guessed - it is both cheaper and
@@ -82,8 +90,8 @@ titlesRoute.get('/lookup', requireAuth, async (c) => {
     const guess = await extractWithModel(raw)
     if (guess) {
       modelTitle = guess.title
-      const second = await lookupTitle(guess.year ? `${guess.title} ${guess.year}` : guess.title, type)
-      if (second?.found) { found = second; usedModel = true }
+      const second = await verify(guess.title, guess.year)
+      if (second) { found = second; usedModel = true }
     }
   }
 
