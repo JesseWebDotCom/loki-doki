@@ -166,27 +166,52 @@ let _buildChain: Promise<void> = Promise.resolve()
 const GATE_POLL_MS = 15_000
 const GATE_MAX_WAIT_MS = 10 * 60_000
 
+// Liveness: a build only runs on behalf of a video someone is watching RIGHT
+// NOW. The watch client polls this video's uncached facts while it plays, and
+// every poll re-kicks, refreshing this stamp; once the viewer leaves (no
+// request for WANTED_WINDOW_MS) a deferred build is dropped instead of burning
+// the GPU on a video nobody is watching. The next watch re-kicks and builds.
+const WANTED_WINDOW_MS = 2 * 60_000
+const _lastWantedAt = new Map<string, number>()
+
 class PopupFactsInterrupted extends Error {
   constructor() { super('popup-facts build yielded to a live turn') }
 }
 
-/** Resolve when the background gate reports quiet, or after GATE_MAX_WAIT_MS
- * (the mid-generation abort still protects live turns after a forced start). */
-async function waitForQuietWindow(): Promise<void> {
+class PopupFactsSkipped extends Error {
+  constructor() { super('popup-facts build skipped: viewer left') }
+}
+
+/** True when a quiet moment arrived while the video is still being watched;
+ * false when the viewer left first. After GATE_MAX_WAIT_MS of sustained busy a
+ * still-watched video builds anyway (the mid-generation abort keeps protecting
+ * live turns). */
+async function waitForQuietWindow(videoId: string): Promise<boolean> {
   const deadline = Date.now() + GATE_MAX_WAIT_MS
-  while (Date.now() < deadline) {
-    if (!backgroundGateSnapshot().busy) return
+  while (true) {
+    if (Date.now() - (_lastWantedAt.get(videoId) ?? 0) > WANTED_WINDOW_MS) return false
+    if (!backgroundGateSnapshot().busy) return true
+    if (Date.now() >= deadline) return true
     await new Promise((r) => setTimeout(r, GATE_POLL_MS))
   }
 }
 
 /** Fire-and-forget build, coalesced per video, serialized across videos. */
 export function kickPopupFacts(videoId: string, userId: string, firstName: string): void {
+  _lastWantedAt.set(videoId, Date.now())
+  if (_lastWantedAt.size > 500) {
+    for (const [id, at] of _lastWantedAt) {
+      if (Date.now() - at > WANTED_WINDOW_MS) _lastWantedAt.delete(id)
+    }
+  }
   if (_inFlight.has(videoId)) return
   _inFlight.add(videoId)
   _buildChain = _buildChain.then(async () => {
     try {
-      await waitForQuietWindow()
+      if (!(await waitForQuietWindow(videoId))) {
+        logger.info({ videoId }, 'yt popup facts: viewer left before a quiet window, build skipped')
+        return
+      }
       const facts = await buildFacts(videoId, userId, firstName)
       await cachedLookupPut(NAMESPACE, videoId, facts?.length ? THIRTY_DAYS_MS : MISS_TTL_MS, facts)
       logger.info({ videoId, count: facts?.length ?? 0 }, 'yt popup facts: cached')
@@ -195,6 +220,9 @@ export function kickPopupFacts(videoId: string, userId: string, firstName: strin
         // Nothing cached, so the watch page's next poll re-kicks and the retry
         // waits out the conversation.
         logger.info({ videoId }, 'yt popup facts: build yielded to a live turn')
+      } else if (err instanceof PopupFactsSkipped) {
+        // Nothing cached either: the next watch of this video re-kicks.
+        logger.info({ videoId }, 'yt popup facts: viewer left mid-build, skipped')
       } else {
         logger.warn({ videoId, err }, 'yt popup facts: build failed')
       }
@@ -263,6 +291,12 @@ async function buildFacts(videoId: string, userId: string, firstName: string): P
   // build is a miss, retried after the TTL when retrieval may succeed.
   if (!sources && !imdbCandidates.length) return null
 
+  // Viewer-left re-check before the expensive main-model pass: the transcript
+  // download and retrieval above can take a while after the quiet window opened.
+  // The computable IMDb path below is cheap and LLM-free, so it never skips.
+  if (sources && Date.now() - (_lastWantedAt.get(videoId) ?? 0) > WANTED_WINDOW_MS) {
+    throw new PopupFactsSkipped()
+  }
   const llmFacts = sources ? await llmWriteFacts(segments, sources) : []
 
   // Dedupe: when the LLM already wrote about the same connection (title-word
