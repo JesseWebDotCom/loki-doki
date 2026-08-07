@@ -200,6 +200,7 @@ import { lookup } from '@/routes/lookup'
 import { startHomeAssistantSync } from '@/lib/homeAssistant'
 import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
+import { clientPrefs } from '@/routes/clientPrefs'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { monitoring } from '@/routes/monitoring'
@@ -776,6 +777,7 @@ app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
 app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/monitoring', monitoring)
+app.route('/api/client-prefs', clientPrefs)
 app.route('/api/admin/monitoring', adminMonitoring)
 app.route('/api/integrations', integrationsStatus)
 app.route('/api/icloud', icloud)
