@@ -239,4 +239,49 @@ frigate.get('/snapshot/:camera', requireAuth, async (c) => {
   }
 })
 
+/** One event's snapshot — the phone's activity circles. Same proxy posture
+ *  as everything here: the client never learns Frigate's address. */
+frigate.get('/event/:id/snapshot', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  if (!cfg.enabled || !cfg.baseUrl) return c.text('Frigate not configured', 400)
+  const id = c.req.param('id')
+  if (!/^[\w.@-]{1,80}$/.test(id)) return c.text('Bad event', 400)
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/api/events/${id}/snapshot.jpg?height=270`,
+      { signal: AbortSignal.timeout(8000) })
+    if (!upstream.ok || !upstream.body) return c.text('Snapshot unavailable', 502)
+    return new Response(upstream.body, {
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' },
+    })
+  } catch {
+    return c.text('Snapshot unavailable', 502)
+  }
+})
+
+/** The recorded clip behind an activity circle. Range passes through so a
+ *  native player can scrub. */
+frigate.get('/event/:id/clip', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  if (!cfg.enabled || !cfg.baseUrl) return c.text('Frigate not configured', 400)
+  const id = c.req.param('id')
+  if (!/^[\w.@-]{1,80}$/.test(id)) return c.text('Bad event', 400)
+  try {
+    const range = c.req.header('range')
+    const upstream = await fetch(`${cfg.baseUrl}/api/events/${id}/clip.mp4`,
+      { headers: range ? { Range: range } : {} })
+    if (!upstream.ok || !upstream.body) return c.text('Clip unavailable', 502)
+    const headers = new Headers({
+      'Content-Type': upstream.headers.get('content-type') ?? 'video/mp4',
+      'Cache-Control': 'private, max-age=86400',
+    })
+    for (const h of ['content-length', 'content-range', 'accept-ranges']) {
+      const v = upstream.headers.get(h)
+      if (v) headers.set(h, v)
+    }
+    return new Response(upstream.body, { status: upstream.status, headers })
+  } catch {
+    return c.text('Clip unavailable', 502)
+  }
+})
+
 export { frigate }
