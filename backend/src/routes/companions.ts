@@ -5,6 +5,7 @@ import { db } from '@/db'
 import { characters, characterUserGrants, userPreferences, userCharacters } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
+import { buildDicebearSvg } from '@/lib/avatar'
 import { getModel, getVisionModel } from '@/lib/models'
 import { companionsAllowed } from '@/lib/consent'
 import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from '@/memory/blockCache'
@@ -380,6 +381,48 @@ companions_.post('/action/:id/decline', requireAuth, async (c) => {
 // A family member's personal voice/speed/pitch/hushed override for ONE companion,
 // distinct from the character's own authored defaults, and never affects other
 // household members. Storage: userPreferences (see lib/voice/voicePrefs.ts).
+/**
+ * A companion's face, rendered server-side.
+ *
+ * The web app builds DiceBear in the browser, which native clients can't do —
+ * so the phone had no way to show the companion it was talking to. `state`
+ * picks the same pose overrides the web avatar uses (listening, thinking,
+ * sad, angry, shocked, sick), which is how a chat can show it thinking while
+ * a reply generates (Jesse, 2026-08-07).
+ */
+companions_.get('/:id/avatar', requireAuth, async (c) => {
+  const id = c.req.param('id')
+  const state = c.req.query('state') ?? 'listening'
+  const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
+  if (!row) return c.notFound()
+
+  let config: Record<string, unknown> = {}
+  if (row.avatarConfig) {
+    try { config = JSON.parse(row.avatarConfig) as Record<string, unknown> } catch { /* ignore */ }
+  }
+  config._pose = state
+
+  try {
+    const svg = await buildDicebearSvg({
+      id: row.id,
+      firstName: row.name ?? 'Doki',
+      lastName: '',
+      dicebearStyle: row.style ?? 'avataaars',
+      dicebearSeed: row.seed ?? row.id,
+      dicebearConfig: JSON.stringify(config),
+    })
+    return new Response(svg, {
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        // Same face for the same state; cheap to re-render but pointless to.
+        'Cache-Control': 'private, max-age=3600',
+      },
+    })
+  } catch {
+    return c.notFound()
+  }
+})
+
 companions_.get('/:id/voice-prefs', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
