@@ -7,7 +7,7 @@ import { requireAuth } from '@/middleware/auth'
 import { extractText } from '@/lib/rag/ingest'
 import { ollamaChat } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
-import { getFastModel } from '@/lib/models'
+import { getFastModel, getVisionModel } from '@/lib/models'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { maskProfanity } from '@/lib/protections'
 import { triggerJudgeForConversation } from '@/memory/sweep'
@@ -196,7 +196,7 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
 chat.post('/stream', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments, focusedArtifact } = (await c.req.json()) as {
+  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments, images, focusedArtifact } = (await c.req.json()) as {
     message: string
     conversationId?: string
     characterId?: string
@@ -206,6 +206,10 @@ chat.post('/stream', requireAuth, async (c) => {
     clientLng?: number | null
     clientTz?: string | null
     attachments?: { filename: string; text: string }[]
+    /** Base64 photos for a vision turn (the iPhone app's camera/library
+     *  attachments — "translate the street sign"). Routed to the vision
+     *  model; companionTurn attaches them to the user message. */
+    images?: string[]
     /** The Canvas artifact open in this chat, so an edit-style message targets it. */
     focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
   }
@@ -329,12 +333,21 @@ chat.post('/stream', requireAuth, async (c) => {
   const finalConvId = convId
   const finalConvTitle = convTitle
 
+  // Vision turns swap to the vision-capable model; oversized or non-string
+  // entries are dropped rather than erroring (a phone should never brick a
+  // send by attaching too much).
+  const visionImages = (Array.isArray(images) ? images : [])
+    .filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length <= 12_000_000)
+    .slice(0, 4)
+  const turnModel = visionImages.length ? await getVisionModel() : model
+
   // Build the run closure — captures all per-request context
   const run = makeChatRun({
     userId: user.id,
     userRole: user.role,
     userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
-    model,
+    model: turnModel,
+    images: visionImages.length ? visionImages : undefined,
     options,
     message,
     characterId: characterId ?? null,
@@ -778,6 +791,8 @@ interface ChatRunParams {
   userRole: string
   userDisplayName: string | null
   model: string
+  /** Base64 photos for a vision turn; model is already the vision model. */
+  images?: string[]
   options: Record<string, unknown>
   message: string
   characterId: string | null
@@ -848,6 +863,7 @@ function makeChatRun(p: ChatRunParams) {
           userRole: p.userRole,
           userDisplayName: p.userDisplayName,
           model: p.model,
+          images: p.images,
           options: p.options,
           message: p.message,
           characterId: p.characterId,
