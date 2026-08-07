@@ -184,6 +184,7 @@ import { startOllamaAutoUpdate } from '@/lib/download'
 import { resolveEngineGuards } from '@/lib/engineGuards'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
+import { titlesRoute } from '@/routes/titles'
 import { recipesRoute } from '@/routes/recipes'
 import { showtimesRoute } from '@/routes/showtimes'
 import { skillsRoute, adminSkillsRoute } from '@/routes/skills'
@@ -828,6 +829,7 @@ app.route('/api/remote', createRemoteRoute(upgradeWebSocket))
 app.route('/api/artifacts', artifactsRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
+app.route('/api/titles', titlesRoute)
 app.route('/api/recipes', recipesRoute)
 app.route('/api/showtimes', showtimesRoute)
 app.route('/api/skills', skillsRoute)
