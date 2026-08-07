@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
-import { ytDlpBin, withYtDlpSlot, YT_PLAYER_CLIENTS } from '@/lib/ytdlp'
+import { ytDlpBin, withYtDlpSlot, YT_PLAYER_CLIENTS, ytDlpAuthArgs } from '@/lib/ytdlp'
 import { ffprobeBin } from '@/lib/ffmpeg'
 import { innertubePlayerStreams, type ItStreams, type ItStreamFormat } from '@/lib/youtube/innertube'
 
@@ -108,10 +108,20 @@ function pickAudio(streams: ItStreams): string | null {
  * and fall back to yt-dlp. `forceYtDlp` skips the fast path (used when an InnerTube URL has
  * just 403'd, since re-fetching it the same way would likely 403 again).
  */
-export async function resolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto', forceYtDlp = false): Promise<string | null> {
+/**
+ * `useAuth` opts ONE resolve into the admin-uploaded YouTube cookies.
+ *
+ * Normal viewing stays anonymous on purpose (see ytDlpAuthArgs): forcing one
+ * personal session onto every household member's traffic risks that account
+ * being flagged. But YouTube's catalogue films publish no formats at all to
+ * a signed-out client, and half are age-gated, so they cannot play any other
+ * way. Off by default; the Movies setting turns it on for films only
+ * (Jesse, 2026-08-07).
+ */
+export async function resolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto', forceYtDlp = false, useAuth = false): Promise<string | null> {
   if (!isValidVideoId(videoId)) return null
   const now = Date.now()
-  const key = cacheKey(videoId, kind, quality)
+  const key = cacheKey(videoId, kind, quality) + (useAuth ? ':auth' : '')
   const hit = cache.get(key)
   if (hit && hit.expires > now) return hit.url
   if (hit) cache.delete(key) // expired
@@ -122,7 +132,7 @@ export async function resolveStreamUrl(videoId: string, kind: StreamKind, qualit
     const pending = inflight.get(key)
     if (pending) return pending
   }
-  const p = doResolveStreamUrl(videoId, kind, quality, forceYtDlp, key, now)
+  const p = doResolveStreamUrl(videoId, kind, quality, forceYtDlp, key, now, useAuth)
   if (!forceYtDlp) {
     inflight.set(key, p)
     void p.finally(() => { if (inflight.get(key) === p) inflight.delete(key) })
@@ -157,8 +167,10 @@ function cacheUrl(key: string, url: string, now: number): void {
   cache.set(key, { url, expires: now + TTL_MS })
 }
 
-async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality, forceYtDlp: boolean, key: string, now: number): Promise<string | null> {
-  if (!forceYtDlp) {
+async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality, forceYtDlp: boolean, key: string, now: number, useAuth = false): Promise<string | null> {
+  // The fast path is an anonymous InnerTube call, which is exactly what
+  // fails for these titles — skip straight to yt-dlp with the cookies.
+  if (!forceYtDlp && !useAuth) {
     const url = await fastPathResolve(videoId, kind, quality)
     if (url) { cacheUrl(key, url, now); return url }
   }
@@ -179,6 +191,7 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
         // player-JS step) and the web clients cover anything it misses.
         '--force-ipv4',
         '--extractor-args', `youtube:player_client=${YT_PLAYER_CLIENTS}`,
+        ...(useAuth ? ytDlpAuthArgs() : []),
         `https://www.youtube.com/watch?v=${videoId}`,
       ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }))
 

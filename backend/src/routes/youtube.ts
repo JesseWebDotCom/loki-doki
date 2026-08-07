@@ -46,6 +46,7 @@ import {
   getUserPreference, DEFAULT_GLOBAL_CAP,
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { ytDlpAuthArgs } from '@/lib/ytdlp'
 import { filterYtItemsForUser, videoAllowedForUser } from '@/lib/videos/policy'
 import { getVideoViewFlags } from '@/lib/videos/viewFlags'
 import { checkVideoTime, recordWatchBeat } from '@/lib/videos/watchTime'
@@ -145,6 +146,33 @@ youtubeRoute.get('/suggest', async (c) => {
  * (Jesse, 2026-08-07: "it seems like you are doing a generic youtube movie
  * search as opposed to showing the movies youtube has on their channel").
  */
+/**
+ * Whether films may resolve through the hub's YouTube cookies. Off by
+ * default: normal viewing stays anonymous so one personal session isn't
+ * forced onto shared household traffic. Films are the exception because
+ * YouTube publishes no playable formats for them otherwise.
+ */
+const MOVIE_AUTH_KEY = 'youtube.movie_auth'
+
+export async function movieAuthEnabled(): Promise<boolean> {
+  return (await getAppSetting(MOVIE_AUTH_KEY)) === 'true' && ytDlpAuthArgs().length > 0
+}
+
+youtubeRoute.get('/movie-auth', async (c) => {
+  return c.json({
+    enabled: (await getAppSetting(MOVIE_AUTH_KEY)) === 'true',
+    // Without a cookies.txt the toggle can be on and still do nothing, so
+    // the apps can say which it is.
+    haveCookies: ytDlpAuthArgs().length > 0,
+  })
+})
+
+youtubeRoute.post('/movie-auth', requireAdmin, async (c) => {
+  const body = await c.req.json<{ enabled?: boolean }>().catch(() => ({}))
+  await setAppSetting(MOVIE_AUTH_KEY, body.enabled ? 'true' : 'false')
+  return c.json({ enabled: !!body.enabled, haveCookies: ytDlpAuthArgs().length > 0 })
+})
+
 youtubeRoute.get('/movies', async (c) => {
   c.header('cache-control', 'private, max-age=300')
   const genre = c.req.query('genre')?.trim() || 'movies'
@@ -2163,7 +2191,10 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
     quality = 'auto'
   }
 
-  const upstreamUrl = await resolveStreamUrl(videoId, kind, quality)
+  // ?film=1 asks for the authenticated resolve. Honored only when the
+  // household has switched it on and a cookies.txt actually exists.
+  const asFilm = c.req.query('film') === '1' && await movieAuthEnabled()
+  const upstreamUrl = await resolveStreamUrl(videoId, kind, quality, false, asFilm)
   if (!upstreamUrl) {
     // Last resort: both the InnerTube fast path and the yt-dlp -g retry chain gave up (see
     // resolveStreamUrl) — instead of dead-ending the player, kick off the same offline-download
@@ -2203,7 +2234,7 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
       // Drain the stale response before refetching so its connection isn't leaked.
       try { await upstream.body?.cancel() } catch { /* already closed */ }
       invalidateStreamUrl(videoId, kind, quality)
-      const fresh = await resolveStreamUrl(videoId, kind, quality, true)
+      const fresh = await resolveStreamUrl(videoId, kind, quality, true, asFilm)
       if (fresh) upstream = await fetchUpstream(fresh)
     }
     if (!upstream.ok && upstream.status !== 206) {
