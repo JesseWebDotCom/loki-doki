@@ -153,7 +153,14 @@ youtubeRoute.get('/movies', async (c) => {
   const freeOnly = c.req.query('all') !== '1'
   try {
     const page = await innertubeMovies(genre, 40, 12_000, cursor)
-    const movies = freeOnly ? page.movies.filter((m) => m.free) : page.movies
+    let movies = freeOnly ? page.movies.filter((m) => m.free) : page.movies
+    // A keyword query drags in the adjacent ("comedy" returns stand-up
+    // specials, "classic" returns music documentaries). Each record carries
+    // its own store genre, so prefer the ones that actually match - unless
+    // that would leave the shelf nearly empty.
+    const wanted = genre.toLowerCase().split(' ')[0]
+    const onGenre = movies.filter((m) => (m.genre ?? '').toLowerCase().includes(wanted))
+    if (onGenre.length >= 4) movies = onGenre
     return c.json({ movies, continuation: page.continuation })
   } catch {
     return c.json({ movies: [], continuation: null, error: 'unavailable' }, 200)
