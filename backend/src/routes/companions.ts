@@ -5,7 +5,7 @@ import { db } from '@/db'
 import { characters, characterUserGrants, userPreferences, userCharacters } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
-import { buildDicebearSvg } from '@/lib/avatar'
+import { buildDicebearSvg, rasterizeSvgToPng } from '@/lib/avatar'
 import { getModel, getVisionModel } from '@/lib/models'
 import { companionsAllowed } from '@/lib/consent'
 import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from '@/memory/blockCache'
@@ -411,6 +411,19 @@ companions_.get('/:id/avatar', requireAuth, async (c) => {
       dicebearSeed: row.seed ?? row.id,
       dicebearConfig: JSON.stringify(config),
     })
+    // PNG by default: the web app can render SVG, but UIImage cannot, so an
+    // SVG here left the phone with a blank face (Jesse, 2026-08-07). SVG
+    // stays available for callers that want it.
+    if (c.req.query('format') !== 'svg') {
+      const size = Math.min(Math.max(Number(c.req.query('size')) || 160, 32), 512)
+      const png = await rasterizeSvgToPng(svg, size)
+      if (png) {
+        return new Response(new Uint8Array(png), {
+          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=3600' },
+        })
+      }
+      // sharp missing: fall through to SVG rather than 500.
+    }
     return new Response(svg, {
       headers: {
         'Content-Type': 'image/svg+xml',
