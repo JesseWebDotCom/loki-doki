@@ -2725,6 +2725,39 @@ youtubeRoute.get('/account/playlists', async (c) => {
   return c.json({ linked: true, playlists })
 })
 
+// Add or remove one video in one of the account's own playlists. The TV
+// client's edit_playlist call takes any playlist id, so Save to Playlist on
+// the phone can target real YouTube playlists, not just hub collections.
+youtubeRoute.put('/account/playlists/:id/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ error: 'No linked account' }, 400)
+  const { tvPlaylistAdd } = await import('@/lib/youtube/tvClient')
+  try {
+    await tvPlaylistAdd(token, c.req.param('id'), c.req.param('videoId'))
+    return c.json({ ok: true })
+  } catch (err) {
+    logger.warn({ err: String(err) }, '[youtube] account playlist add failed')
+    return c.json({ error: 'YouTube rejected the change' }, 502)
+  }
+})
+
+youtubeRoute.delete('/account/playlists/:id/:videoId', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ error: 'No linked account' }, 400)
+  const { tvPlaylistRemove } = await import('@/lib/youtube/tvClient')
+  try {
+    await tvPlaylistRemove(token, c.req.param('id'), c.req.param('videoId'))
+    return c.json({ ok: true })
+  } catch (err) {
+    logger.warn({ err: String(err) }, '[youtube] account playlist remove failed')
+    return c.json({ error: 'YouTube rejected the change' }, 502)
+  }
+})
+
 // One account playlist's videos, authenticated: private playlists resolve too,
 // which the public /playlist/:id endpoint cannot do.
 youtubeRoute.get('/account/playlists/:id', async (c) => {
