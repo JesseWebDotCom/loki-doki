@@ -13,6 +13,7 @@ import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { ViewToggle } from '@/components/shared/ViewToggle'
 import { useViewPreference } from '@/hooks/useViewPreference'
+import { useCardStyle } from '@/hooks/useCardStyle'
 import { ShelfSkeleton } from '@/components/youtube/shelves'
 import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
 import { HubCard, HubRow, hubHistoryToItem, ytItemToHub } from '@/components/videos/HubCard'
@@ -55,6 +56,7 @@ function HubLanding() {
     return c && getVideoCategory(c) ? c : null
   })
   const [view, setView] = useViewPreference('videos.home_view', 'grid')
+  const [cardStyle] = useCardStyle()
   const { data: mineBin } = useQuery({ queryKey: ['studio-bin'], queryFn: listStudioBin, enabled: mineOnly })
   const mineItems = useMemo(() => (mineBin?.items ?? []).filter(isMineBinItem), [mineBin])
 
@@ -154,7 +156,9 @@ function HubLanding() {
 
   return (
     <PageContainer width="wide" className="py-6">
-      {!mineOnly && !activeCategory && (
+      {/* The billboard is Netflix's move; YouTube's home just starts with cards -
+          the classic styles (synced with the phone and TV apps) skip it. */}
+      {!mineOnly && !activeCategory && cardStyle === 'modern' && (
         featured.length > 0 ? <VideoBillboard items={featured} eyebrow="Featured today" />
           : resumeFallback ? <VideoBillboard items={[resumeFallback]} eyebrow="Continue watching" resume /> : null
       )}

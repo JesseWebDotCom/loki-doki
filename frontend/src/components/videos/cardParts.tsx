@@ -11,11 +11,14 @@ import { Check, CloudOff, HardDriveDownload, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Spinner } from '@/components/ui/spinner'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { useCardStyle } from '@/hooks/useCardStyle'
 
 /** Title + creator identity + "creator · views · age" line.
  *  `grid` = avatar beside a 2-line title, meta line full-width below (kept apart, not one
  *  joined+truncated string, so a very long creator name only eats into itself).
- *  `row` = 2-line title, then a meta line with a small inline avatar (list views). */
+ *  `row` = 2-line title, then a meta line with a small inline avatar (list views).
+ *  The synced card-style pref (shared with the iPhone and Apple TV apps) applies here so
+ *  it reaches every card at once: Classic Minimal keeps only the title. */
 export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix, ghosted, layout = 'grid' }: {
   title: string
   creatorName?: string | null
@@ -25,7 +28,9 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
   ghosted?: boolean
   layout?: 'grid' | 'row'
 }) {
-  const metaLine = (creatorName || metaSuffix) && (
+  const [cardStyle] = useCardStyle()
+  const minimal = cardStyle === 'classicMinimal'
+  const metaLine = !minimal && (creatorName || metaSuffix) && (
     <p className="flex min-w-0 items-baseline gap-1 overflow-hidden text-xs text-muted-foreground">
       {creatorName && <span className="truncate">{creatorName}</span>}
       {metaSuffix && <span className="shrink-0 whitespace-nowrap">{creatorName ? ' · ' : ''}{metaSuffix}</span>}
@@ -35,7 +40,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
     return (
       <div className="min-w-0 flex-1 py-0.5">
         <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
-        {(creatorName || metaSuffix) && (
+        {!minimal && (creatorName || metaSuffix) && (
           <div className="mt-1.5 flex items-center gap-2 overflow-hidden">
             {creatorName && <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-white/10', ghosted && 'grayscale')} />}
             {metaLine}
@@ -47,7 +52,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
   return (
     <div className="space-y-1">
       <div className="flex items-start gap-2.5">
-        {creatorName && (
+        {!minimal && creatorName && (
           <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('mt-0.5 size-8 shrink-0 text-[11px] ring-1 ring-white/10', ghosted && 'grayscale')} />
         )}
         <p className={cn('line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>

@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server, ArrowLeftRight, EyeOff } from 'lucide-react'
+import { SkipForward, Sparkles, Wand2, Type, FileText, Rss, Bot, Play, Plug, ShieldCheck, Server, ArrowLeftRight, EyeOff, LayoutGrid } from 'lucide-react'
 import { AppSettingsShell, type AppSettingsSection } from '@/components/shared/AppSettingsShell'
 import { getAppByPath } from '@/lib/appCategories'
 import {
@@ -9,6 +9,7 @@ import {
 } from '@/components/settings/SettingsYoutubeTab'
 import { SettingsVideoSources } from '@/components/settings/SettingsVideoSources'
 import { SettingsVideoTitles } from '@/components/settings/SettingsVideoTitles'
+import { SettingsVideosAppearance } from '@/components/settings/SettingsVideosAppearance'
 import { SettingsVideoFollows } from '@/components/settings/SettingsVideoFollows'
 import { SettingsVideosQuality } from '@/components/settings/SettingsVideosQuality'
 import { SettingsVideosPlexSync } from '@/components/settings/SettingsVideosPlexSync'
@@ -26,6 +27,7 @@ import { AdminYoutubeLimitsSection } from '@/components/admin/AdminYoutubeLimits
 // "General".
 const SECTIONS: AppSettingsSection[] = [
   { id: 'connect',      label: 'Connect',             icon: Plug,        content: <SettingsVideoSources /> },
+  { id: 'appearance',   label: 'Appearance',          icon: LayoutGrid,  content: <SettingsVideosAppearance /> },
   { id: 'smart-titles', label: 'Titles',              icon: Type,        content: <SettingsVideoTitles /> },
   {
     id: 'channels', label: 'Channels', icon: Rss, group: 'Library',
