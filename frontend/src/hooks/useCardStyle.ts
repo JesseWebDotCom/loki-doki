@@ -23,7 +23,9 @@ export function useCardStyle() {
       const res = await fetch(`/api/client-prefs/${KEY}`, { credentials: 'include' })
       if (!res.ok) throw new Error(`client-prefs ${res.status}`)
       const body = (await res.json()) as { value?: unknown }
-      const style = parse(body.value) ?? 'modern'
+      // Classic is the app's look; modern is the opt-in (matches the
+      // iPhone and Apple TV defaults).
+      const style = parse(body.value) ?? 'classic'
       try { localStorage.setItem(MIRROR, style) } catch { /* storage unavailable */ }
       return style
     },
@@ -31,7 +33,7 @@ export function useCardStyle() {
     // First paint from the device mirror so the page never flashes the
     // default style before the hub answers (same trick as useUserPreferences).
     placeholderData: () => {
-      try { return parse(localStorage.getItem(MIRROR)) ?? 'modern' } catch { return 'modern' }
+      try { return parse(localStorage.getItem(MIRROR)) ?? 'classic' } catch { return 'classic' }
     },
   })
 
@@ -46,5 +48,5 @@ export function useCardStyle() {
     })
   }, [queryClient])
 
-  return [query.data ?? 'modern', setStyle] as const
+  return [query.data ?? 'classic', setStyle] as const
 }
