@@ -56,6 +56,19 @@ async function visibleEntities(store: HAStore, userId: string, isAdmin: boolean)
   return filterByGrants(all, grants, false).allowed
 }
 
+// Direct-connection credentials for trusted clients: the phone app caches
+// these so cameras and device control keep working when this hub is down
+// (Jesse, 2026-08-08). Admin-only on purpose: the raw token bypasses the
+// per-user grants below, so non-admin profiles stay hub-bridged.
+homeAssistantRoute.get('/direct', requireAuth, async (c) => {
+  const user = c.get('user')
+  if (user.role !== 'admin') return c.json({ available: false })
+  const config = await resolveToolConfig('homeAssistant', user.id)
+  const conn = normalizeConnection(config['base_url'], config['api_token'])
+  if (!conn) return c.json({ available: false })
+  return c.json({ available: true, baseUrl: conn.baseUrl, token: conn.token })
+})
+
 homeAssistantRoute.get('/entities', requireAuth, async (c) => {
   const user = c.get('user')
   const config = await resolveToolConfig('homeAssistant', user.id)
