@@ -378,8 +378,10 @@ function collectVideosDeep(data: any): TvVideo[] {
   return [...out.values()]
 }
 
-/** Full contents of one of the account's fixed playlists ('WL' watch-later, 'LL' liked). */
-export async function fetchAccountPlaylist(accessToken: string, playlistId: 'WL' | 'LL', max = 1000): Promise<TvVideo[]> {
+/** Full contents of one of the account's playlists: 'WL' watch-later, 'LL' liked,
+ *  or any playlist id the account can see (its own playlists included, private ones too,
+ *  since the call is authenticated). */
+export async function fetchAccountPlaylist(accessToken: string, playlistId: string, max = 1000): Promise<TvVideo[]> {
   const videos = new Map<string, TvVideo>()
   let data = await tvCall('browse', accessToken, { browseId: `VL${playlistId}` })
   for (let page = 0; page <= MAX_PAGES; page++) {
@@ -397,6 +399,89 @@ export async function fetchAccountPlaylist(accessToken: string, playlistId: 'WL'
     }
   }
   return [...videos.values()]
+}
+
+// ── The account's own playlists ────────────────────────────────────────────────
+
+export interface TvPlaylist {
+  playlistId: string
+  title: string
+  videoCount: number | null
+  thumbnailUrl: string | null
+}
+
+function collectPlaylistsDeep(data: any, into: Map<string, TvPlaylist>): void {
+  const put = (rawId: unknown, title: string, videoCount: number | null, thumbnailUrl: string | null): void => {
+    if (typeof rawId !== 'string' || !rawId || !title) return
+    // Browse ids arrive as VL<id>; WL and LL are the fixed lists with their own
+    // sync, and RD* ids are radio mixes, not real playlists.
+    const playlistId = rawId.replace(/^VL/, '')
+    if (playlistId === 'WL' || playlistId === 'LL' || playlistId.startsWith('RD')) return
+    if (into.has(playlistId)) return
+    into.set(playlistId, { playlistId, title, videoCount, thumbnailUrl })
+  }
+
+  // Classic renderers, across client generations.
+  for (const key of ['gridPlaylistRenderer', 'compactPlaylistRenderer', 'playlistRenderer']) {
+    const raw: any[] = []
+    collectKey(data, key, raw)
+    for (const r of raw) {
+      const count = parseInt(textOf(r?.videoCountText ?? r?.videoCountShortText).replace(/[^0-9]/g, ''), 10)
+      put(r?.playlistId, textOf(r?.title), Number.isFinite(count) ? count : null,
+          lastThumb(r?.thumbnail ?? r?.thumbnails?.[0]))
+    }
+  }
+
+  // tileRenderer playlists (TV native shell).
+  const tiles: any[] = []
+  collectKey(data, 'tileRenderer', tiles)
+  for (const t of tiles) {
+    if (t?.contentType !== 'TILE_CONTENT_TYPE_PLAYLIST') continue
+    const id = t?.onSelectCommand?.watchPlaylistEndpoint?.playlistId
+      ?? t?.onSelectCommand?.browseEndpoint?.browseId
+      ?? t?.contentId
+    put(id, textOf(t?.metadata?.tileMetadataRenderer?.title), null,
+        lastThumb(t?.header?.tileHeaderRenderer?.thumbnail))
+  }
+
+  // lockupViewModel playlists (current viewmodel shell).
+  const lockups: any[] = []
+  collectKey(data, 'lockupViewModel', lockups)
+  for (const l of lockups) {
+    if (l?.contentType !== 'LOCKUP_CONTENT_TYPE_PLAYLIST') continue
+    const lm = l?.metadata?.lockupMetadataViewModel
+    const title = typeof lm?.title?.content === 'string' ? lm.title.content : ''
+    put(l?.contentId, title, null,
+        lastThumb(l?.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image
+          ?? l?.contentImage?.thumbnailViewModel?.image))
+  }
+}
+
+/** Every playlist the account owns or saved. FEplaylist_aggregation is the dedicated
+ *  playlists surface; FElibrary is the fallback (older shells put playlist shelves
+ *  there instead). Same shape as fetchSubscribedChannels: first source that yields
+ *  anything wins. */
+export async function fetchAccountPlaylists(accessToken: string): Promise<TvPlaylist[]> {
+  const found = new Map<string, TvPlaylist>()
+  for (const browseId of ['FEplaylist_aggregation', 'FElibrary']) {
+    try {
+      let data = await tvCall('browse', accessToken, { browseId })
+      collectPlaylistsDeep(data, found)
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const token = findTvContinuation(data)
+        if (!token) break
+        const before = found.size
+        data = await tvCall('browse', accessToken, { continuation: token })
+        collectPlaylistsDeep(data, found)
+        if (found.size === before) break
+      }
+    } catch (err) {
+      if (err instanceof TvAuthError) throw err
+      logger.warn({ browseId, err: String(err) }, '[yt-tv] account playlists browse failed')
+    }
+    if (found.size > 0) break
+  }
+  return [...found.values()]
 }
 
 // ── Mutations (push) ───────────────────────────────────────────────────────────

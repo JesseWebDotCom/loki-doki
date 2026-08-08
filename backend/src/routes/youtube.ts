@@ -2713,6 +2713,30 @@ youtubeRoute.get('/account', async (c) => {
   return c.json(await accountStatePayload(user.id))
 })
 
+// The linked account's own playlists (custom ones; Watch Later and Liked have
+// their own sync and are excluded). Empty when no account is linked.
+youtubeRoute.get('/account/playlists', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ linked: false, playlists: [] })
+  const { fetchAccountPlaylists } = await import('@/lib/youtube/tvClient')
+  const playlists = await fetchAccountPlaylists(token).catch(() => [])
+  return c.json({ linked: true, playlists })
+})
+
+// One account playlist's videos, authenticated: private playlists resolve too,
+// which the public /playlist/:id endpoint cannot do.
+youtubeRoute.get('/account/playlists/:id', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  const token = await getValidAccessToken(user.id).catch(() => null)
+  if (!token) return c.json({ linked: false, videos: [] })
+  const { fetchAccountPlaylist } = await import('@/lib/youtube/tvClient')
+  const videos = await fetchAccountPlaylist(token, c.req.param('id'), 400).catch(() => [])
+  return c.json({ linked: true, videos })
+})
+
 youtubeRoute.post('/account/link', async (c) => {
   const user = c.get('user')
   try {
