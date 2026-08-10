@@ -35,6 +35,7 @@ import { kickTriviaIngest, triviaIngestStatus } from '@/lib/imdb/ingest'
 import { peekWorth, kickWorth } from '@/lib/youtube/worthIt'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, getOrFetchDeArrowThumb, deArrowThumbKey } from '@/lib/youtube/dearrow'
+import { honestTitlesFor, ensureHonestTitle } from '@/lib/youtube/honestTitle'
 import { getOrFetchImageResized } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
 import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist, hlsIframePlaylist, hlsSubtitlePlaylist, type HlsVideoVariant } from '@/lib/youtube/hls'
@@ -1276,6 +1277,9 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       await ensureTranscript(videoId, user.id, firstName)
       await ensureSummary(videoId, user.id, firstName)
       await ensureSmartDescription(videoId, user.id, firstName)
+      // Last, so the rewrite gets to read the summary it just generated: that describes
+      // what the video actually contains, which is exactly what a clickbait title hides.
+      await ensureHonestTitle(videoId)
     })().catch(() => { /* enrichment is best-effort */ })
   }, 15_000)
 
@@ -2077,8 +2081,15 @@ youtubeRoute.get('/sponsorblock/:videoId', async (c) => {
 // ── DeArrow ───────────────────────────────────────────────────────────────────
 // Crowdsourced de-clickbait titles/thumbnails. Batched by id so a feed of cards is a
 // single round-trip; thumbnails are proxied through us (separate host from /img).
+//
+// Honest Titles ride the same response: DeArrow only covers videos someone has taken
+// the trouble to retitle, so a small channel's clickbait never gets touched. When the
+// community has nothing for an id, we fall back to our own cached AI rewrite (see
+// lib/youtube/honestTitle.ts). A human vote always beats the model, and every client
+// already renders whatever title this endpoint hands back, so all of them get it.
 
 youtubeRoute.post('/dearrow', async (c) => {
+  const user = c.get('user')
   const body = await c.req.json<{ videoIds?: string[] }>().catch(() => ({ videoIds: [] }))
   const ids = (body.videoIds ?? []).filter(id => isValidVideoId(id)).slice(0, 100)
   if (!ids.length) return c.json({ branding: {} })
@@ -2090,6 +2101,10 @@ youtubeRoute.post('/dearrow', async (c) => {
       title: b.title,
       thumbnailUrl: b.thumbTime != null ? `/api/youtube/dearrow-thumb/${id}?t=${b.thumbTime}` : null,
     }
+  }
+  const honest = await honestTitlesFor(ids.filter(id => !branding[id]?.title), user.id)
+  for (const [id, title] of Object.entries(honest)) {
+    branding[id] = { title, thumbnailUrl: branding[id]?.thumbnailUrl ?? null }
   }
   return c.json({ branding })
 })
