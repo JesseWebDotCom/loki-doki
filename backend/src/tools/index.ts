@@ -158,6 +158,7 @@ import { newsTool } from './news'
 import { recipesTool } from './recipes'
 import { dictionaryTool } from './dictionary'
 import { youtubeTool } from './youtube'
+import { videoAboutTool } from './videoAbout'
 import { tvShowsTool } from './tvshows'
 import { datetimeTool } from './datetime'
 import { moonphaseTool } from './moonphase'
@@ -217,6 +218,7 @@ export const toolRegistry: Tool[] = [
   recipesTool,
   dictionaryTool,
   youtubeTool,
+  videoAboutTool,
   tvShowsTool,
   datetimeTool,
   moonphaseTool,

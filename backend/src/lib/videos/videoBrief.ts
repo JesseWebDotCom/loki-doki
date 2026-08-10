@@ -1,6 +1,12 @@
-// Condense a YouTube transcript into a third-person brief for the podcast hosts to
-// DISCUSS — an overall premise plus the video's major beats in order, each beat carrying
-// CONCRETE supporting details. The details are what keep episodes substantive: a beat list
+// Shared "read a whole video" step: condense a transcript into a third-person brief, an
+// overall premise plus the video's major beats in order, each beat carrying
+// CONCRETE supporting details. Written for the AI podcast generator (hosts who will
+// DISCUSS a video they did not make) and now the reading step behind the watch page's
+// "what happens in this video" and the companion's video_about tool as well, which is why
+// it lives under lib/videos rather than lib/podcast (Jesse, 2026-08-10: the smart summary
+// "needs to be universal and not locked to podcasts").
+//
+// The details are what keep episodes substantive: a beat list
 // alone ("they review the movie") leaves the script model ~200 words of material to stretch
 // over a 10+ minute episode, and it fills the gap with invented facts and content-free
 // waffle about the creator's "mission". Specific moments, opinions, names, and numbers from

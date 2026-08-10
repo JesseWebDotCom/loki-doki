@@ -10,20 +10,42 @@ import { getTranscriptText } from '@/lib/youtube/transcript'
 import { ytDlpBin, withYtDlpSlot } from '@/lib/ytdlp'
 import { innertubeChannelAvatar } from '@/lib/youtube/innertube'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
-import { cachedLookup } from '@/lib/lookupCache'
+import { cachedLookup, cachedLookupPut, cachedLookupStale } from '@/lib/lookupCache'
+import { summarizeVideo, type VideoBrief } from '@/lib/videos/videoBrief'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import { stripUrls } from '@/lib/youtube/textClean'
 import { logger } from '@/lib/logger'
 
+// A summary is for deciding whether to watch, so it has to understand the video rather
+// than replay it. The old prompt got a bare transcript and asked for 3-5 paragraphs,
+// which produced a play by play: a Red Letter Media review came back as "they do a skit,
+// then they discuss the film, then another skit" instead of what they actually thought of
+// the film (Jesse, 2026-08-10). Two fixes: the model is told the channel and the title so
+// it knows what KIND of video this is, and it is told to organize by subject rather than
+// by timeline, treating cold opens, skits, sponsor reads and outros as framing.
 const SUMMARY_SYSTEM =
-  'You write a 3-5 paragraph summary of a video, based on its transcript. ' +
-  'Dive straight into the content itself. Do NOT begin with meta openers like "The video transcript describes", ' +
-  '"This video", "In this video", "The speaker", "The transcript" — write as if explaining the subject directly. ' +
-  'The transcript may be auto-generated and may be cut off; summarize whatever is present, never ask the user for ' +
-  'more, never mention that it is incomplete, and never address the reader. ' +
-  'The transcript may be in any language — always write the summary in English regardless of the transcript\'s ' +
-  'language. Output only the summary.'
+  'You explain what a video is and what is in it, for someone deciding whether to watch ' +
+  'it. You are given the channel, the title, and material describing the video. ' +
+  'Open by saying what the video actually is: the channel, the kind of video (review, ' +
+  'tutorial, essay, vlog, news, comedy, interview, podcast) and its subject. Then give the ' +
+  'substance: the argument and where it lands, the verdict and the reasons behind it, the ' +
+  'findings, the steps, whatever this video is FOR. ' +
+  'Use the context to judge what counts as content. A review show that opens and closes ' +
+  'with a comedy skit is using framing, not making a video about skits: give framing a ' +
+  'clause at most, and spend the summary on the review itself. Ignore sponsor reads, merch ' +
+  'and channel plugs, intros and outros entirely. ' +
+  'Never walk through the video in order. No "starts by", "then", "goes on to", "ends ' +
+  'with", no blow by blow of the transcript. Organize by subject, not by timeline. ' +
+  'At most three short paragraphs, and fewer when the video is slight. Be concrete: use the ' +
+  'real names, numbers, opinions and conclusions in the material. Never pad with the ' +
+  'creator\'s passion, mission, or how engaging the video is. ' +
+  'Do NOT begin with meta openers like "The video transcript describes", "This video", ' +
+  '"In this video", "The speaker", "The transcript". ' +
+  'The material may be auto-generated, mistranscribed or cut off: work with what is there, ' +
+  'never say it is incomplete, never ask the user for more, never address the reader. ' +
+  'The material may be in any language, always write the summary in English. Output only ' +
+  'the summary.'
 
 // Safety net: even with the instruction above, small models sometimes lead with a meta
 // preamble. Strip a single such opening clause so the summary starts on substance.
@@ -65,21 +87,61 @@ export function ensureSummary(videoId: string, userId: string, firstName: string
   return p.finally(() => _inFlight.delete(videoId))
 }
 
+// Cached summaries carry no style marker, so bumping the prompt would otherwise leave
+// every already-summarized video on the old play by play forever. This records which
+// style a video's cached summary was written under; a video summarized under an older
+// one is regenerated the next time anything asks for it, so the library heals itself as
+// it is browsed rather than in one expensive sweep.
+const STYLE_NS = 'youtube:summary-style'
+const STYLE_VERSION = 2
+const STYLE_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000
+
+async function isCurrentStyle(videoId: string): Promise<boolean> {
+  const row = await cachedLookupStale<number>(STYLE_NS, videoId)
+  return row.value === STYLE_VERSION
+}
+
+/** Flatten the brief into the material the prose pass reasons over. */
+function briefAsSource(brief: VideoBrief): string {
+  const beats = brief.beats
+    .map(b => [`- ${b.point}`, ...b.details.map(d => `    ${d}`)].join('\n'))
+    .join('\n')
+  return [brief.premise, beats].filter(Boolean).join('\n\n')
+}
+
 async function generateSummary(videoId: string, userId: string, firstName: string): Promise<string | null> {
   const [video] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
-  if (video?.summary) return video.summary
+  if (video?.summary && await isCurrentStyle(videoId)) return video.summary
 
-  const text = (await getTranscriptText(videoId, userId, firstName))?.slice(0, 12_000)
+  // Long enough for the brief's map-reduce to cover a feature-length video; it chunks
+  // internally, so this is a sanity bound rather than the model's context window.
+  const text = (await getTranscriptText(videoId, userId, firstName))?.slice(0, 48_000)
   if (!text) { logger.info({ videoId }, 'yt summary: skipped (no captions)'); return null }
 
   logger.info({ videoId }, 'yt summary: generating')
+  const title = video?.title || videoId
+  const author = video?.author ?? undefined
+
+  // The podcast generator already solved "understand a whole video": summarizeVideo takes the
+  // title and channel as context and map-reduces the WHOLE transcript into a premise plus
+  // concrete beats, so the end of a long video is never dropped (which is exactly where a
+  // review puts its verdict). Reuse it as the reading step and write prose from that,
+  // rather than asking a small model to both read and write in one pass.
+  const brief = await summarizeVideo(title, author, text, 4).catch(() => null)
+  const source = brief ? briefAsSource(brief) : text.slice(0, 12_000)
+  const label = brief ? 'What the video contains:' : 'Transcript:'
+
   const model = await getFastModel()
   const result = await ollamaChat(model, [
     { role: 'system', content: SUMMARY_SYSTEM },
-    { role: 'user', content: text },
+    {
+      role: 'user',
+      content: `Channel: ${author ?? 'unknown'}\nTitle: ${title}\n\n${label}\n${source}`,
+    },
   ], undefined, { temperature: 0.3, num_predict: 600 })
   const summary = stripMetaOpener(result.message.content.trim())
   if (!summary) return null
+  await cachedLookupPut(STYLE_NS, videoId, STYLE_TTL_MS, STYLE_VERSION)
 
   // Upsert so search-result videos (no pre-existing row) still cache their summary. Title
   // falls back to the raw id (never blank) — a blank title would stick forever (this only
