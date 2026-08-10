@@ -7,7 +7,22 @@ const path = require('node:path')
 const { app } = require('electron')
 
 const DEFAULTS = {
+  // The address we are currently using. Still a single string because at any moment
+  // there is exactly one, but it is now chosen from `endpoints` rather than typed once
+  // and frozen forever.
   serverUrl: '',
+  // Cached copy of the hub's address book, refreshed whenever we are connected. This is
+  // what a cold start walks through, so it has to survive on disk: the launch where DNS
+  // is down is exactly the launch where we cannot go ask the server for it.
+  // [{ name, url, kind: 'lan' | 'overlay' | 'public', priority }]
+  endpoints: [],
+  // Identity of the hub these addresses belong to. Every probe must match it before we
+  // will talk to the address, so a stranger's server on the same LAN IP is rejected
+  // instead of being handed a login.
+  hubInstanceId: '',
+  hubName: '',
+  // Which address answered last time, tried first on the next launch.
+  lastGoodUrl: '',
   hotkey: 'CommandOrControl+Shift+Space',
   // System-wide dictation: press to start capturing the mic, press again (or pause)
   // to finalize; the transcript is pasted into whatever app has focus. Empty string
@@ -65,12 +80,18 @@ function migrateFromOldName() {
 migrateFromOldName()
 
 function load() {
+  let stored
   try {
-    const raw = fs.readFileSync(settingsPath(), 'utf8')
-    return { ...DEFAULTS, ...JSON.parse(raw) }
+    stored = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) }
   } catch {
     return { ...DEFAULTS }
   }
+  // Installs that predate the address book have one hand-typed URL. Seed it as the
+  // first entry so nothing changes for them until the hub sends its own list.
+  if (stored.serverUrl && !stored.endpoints?.length) {
+    stored.endpoints = [{ name: 'Saved address', url: stored.serverUrl, kind: 'lan', priority: 10 }]
+  }
+  return stored
 }
 
 function save(patch) {

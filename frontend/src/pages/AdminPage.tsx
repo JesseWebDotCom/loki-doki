@@ -27,6 +27,7 @@ import { AdminICloudTab } from '@/components/admin/AdminICloudTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { RemoteAccessPanel } from '@/components/admin/RemoteAccessPanel'
+import { HubAddressesPanel } from '@/components/admin/HubAddressesPanel'
 import { McpServerPanel } from '@/components/admin/McpServerPanel'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
 import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
@@ -215,6 +216,11 @@ export function AdminPage() {
               description="Online/offline mode and download permissions."
               openSignal={openSignal} defaultOpen contentClassName="p-0">
               <AdminSystemTab />
+            </AdminAccordion>
+            <AdminAccordion id="addresses" title="Addresses"
+              description="Every address your apps can use to reach this hub, in the order they try them."
+              openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
+              <HubAddressesPanel />
             </AdminAccordion>
             <AdminAccordion id="remote-access" title="Remote Access"
               description="Reach Loki Doki away from home through your private tailnet."

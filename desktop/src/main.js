@@ -5,13 +5,14 @@
 // A global hotkey summons the HUD and toggles hands-free listening. All features
 // live in the web app; this process only does windows, tray, hotkey, permissions.
 
-const { app, globalShortcut, net, shell, BrowserWindow, dialog } = require('electron')
+const { app, globalShortcut, net, powerMonitor, shell, BrowserWindow, dialog } = require('electron')
 const path = require('node:path')
 const settings = require('./settings')
 const windows = require('./windows')
 const tray = require('./tray')
 const ipc = require('./ipc')
 const permissions = require('./permissions')
+const connection = require('./connection')
 const resources = require('./resources')
 const dictation = require('./dictation')
 const { ipcMain } = require('electron')
@@ -29,15 +30,19 @@ let currentSettings = settings.load()
 // fails to boot. The server is the user's own home hub, so declare its origin
 // trustworthy; the renderer then gets the full secure-context APIs. localhost
 // dev setups count as secure already, which is how this stayed hidden.
-// (Must be set before app 'ready'; a server change relaunches the app, so the
-// switch always carries the current origin.)
-if (currentSettings.serverUrl) {
-  try {
-    app.commandLine.appendSwitch(
-      'unsafely-treat-insecure-origin-as-secure',
-      new URL(currentSettings.serverUrl).origin,
-    )
-  } catch { /* malformed stored URL; setup flow will replace it */ }
+//
+// The switch must be set before app 'ready' and cannot change afterwards, so it carries
+// EVERY address in the book, not just the one we happen to connect through. Failing over
+// to a sibling address mid-session must not silently cost the renderer its mic.
+{
+  const origins = new Set()
+  for (const raw of [currentSettings.serverUrl, ...(currentSettings.endpoints ?? []).map((e) => e.url)]) {
+    if (!raw) continue
+    try { origins.add(new URL(raw).origin) } catch { /* malformed stored URL; setup replaces it */ }
+  }
+  if (origins.size) {
+    app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', [...origins].join(','))
+  }
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -66,15 +71,47 @@ async function checkServer(url) {
 }
 
 // Accepts "192.168.1.10:3000", "http://host:3000/", etc.
-function normalizeServerUrl(raw) {
-  let value = String(raw ?? '').trim()
-  if (!value) return null
-  if (!/^https?:\/\//i.test(value)) value = `http://${value}`
-  try {
-    return new URL(value).origin
-  } catch {
-    return null
-  }
+const normalizeServerUrl = connection.normalizeUrl
+
+// ── Address book ───────────────────────────────────────────────────────────────
+
+/**
+ * Choose an address to connect through, out of everything we have cached. Returns the
+ * winning URL, or null when nothing in the book answers (server off, or we are on a
+ * network that can reach none of it).
+ */
+async function selectServerUrl() {
+  const candidates = connection.candidateOrder(
+    currentSettings.endpoints ?? [],
+    currentSettings.lastGoodUrl || currentSettings.serverUrl,
+  )
+  if (!candidates.length) return null
+
+  const hit = await connection.pickEndpoint(candidates, currentSettings.hubInstanceId || null)
+  if (!hit) return null
+
+  currentSettings = settings.save({
+    serverUrl: hit.url,
+    lastGoodUrl: hit.url,
+    // First successful connection adopts the hub's identity; from then on it is the
+    // thing every future probe has to match.
+    hubInstanceId: currentSettings.hubInstanceId || hit.instanceId,
+    hubName: hit.name || currentSettings.hubName,
+  })
+  return hit.url
+}
+
+/** Refresh the cached address book from the hub we are connected to. Silent on failure:
+ *  a stale book is still a working book, which is the entire reason we keep one. */
+async function syncEndpoints() {
+  if (!currentSettings.serverUrl) return
+  const book = await connection.fetchEndpoints(currentSettings.serverUrl)
+  if (!book?.endpoints.length) return
+  currentSettings = settings.save({
+    endpoints: book.endpoints,
+    hubInstanceId: currentSettings.hubInstanceId || book.instanceId || '',
+    hubName: book.name || currentSettings.hubName,
+  })
 }
 
 // ── First-run / change-server window ───────────────────────────────────────────
@@ -126,7 +163,34 @@ ipcMain.handle('setup:validate', async (_event, raw) => {
 })
 
 ipcMain.handle('setup:save', async (_event, url) => {
-  currentSettings = settings.save({ serverUrl: url })
+  // A hand-typed address is the seed, not the whole story: the hub hands us the rest of
+  // its address book on the first successful connection.
+  //
+  // Whether this is a NEW hub or just another way into the same one is decided by the
+  // hub's own id, not by the URL being different. Typing the LAN IP while connected over
+  // the public name is the same hub and must keep the cached book; a genuinely different
+  // server has to drop it, or two hubs' addresses end up interleaved in one list.
+  const identity = await connection.probe(url, null)
+  const differentHub = !!currentSettings.hubInstanceId
+    && !!identity
+    && identity.instanceId !== currentSettings.hubInstanceId
+
+  currentSettings = settings.save({
+    serverUrl: url,
+    lastGoodUrl: url,
+    ...(differentHub
+      ? { endpoints: [], hubInstanceId: identity.instanceId, hubName: identity.name }
+      : {}),
+    ...(!currentSettings.hubInstanceId && identity
+      ? { hubInstanceId: identity.instanceId, hubName: identity.name }
+      : {}),
+  })
+  if (!currentSettings.endpoints?.length) {
+    currentSettings = settings.save({
+      endpoints: [{ name: 'Saved address', url, kind: 'lan', priority: 10 }],
+    })
+  }
+  await syncEndpoints()
   if (hud || mainWin) {
     // Server changed at runtime: origin locks, permission handlers, and loaded
     // pages all point at the old origin - a clean relaunch is simpler than rewiring.
@@ -398,7 +462,13 @@ const trayActions = {
 // ── Boot ───────────────────────────────────────────────────────────────────────
 
 function bootWindows({ showMainWindow = false } = {}) {
+  // Nothing answered, but we still boot (the hub may come up in a minute). Load the
+  // top of the book so the windows have a real origin to sit on and the page's own
+  // retry can take over.
   const serverUrl = currentSettings.serverUrl
+    || currentSettings.lastGoodUrl
+    || currentSettings.endpoints?.[0]?.url
+  if (!serverUrl) return
   const serverOrigin = new URL(serverUrl).origin
   permissions.install(windows.PARTITION, serverOrigin)
 
@@ -442,6 +512,53 @@ function bootWindows({ showMainWindow = false } = {}) {
     () => currentSettings,
     (machineId) => { currentSettings = settings.save({ machineId }) },
   )
+
+  startEndpointSync()
+}
+
+// ── Keeping the book fresh ─────────────────────────────────────────────────────
+
+let syncTimer = null
+
+/**
+ * Pull the address book once the page has had time to sign in (the endpoint list is
+ * behind auth), then hourly. Also re-pick on wake and on the network coming back: a
+ * laptop that suspends at the office and opens at home must move itself onto the LAN
+ * address rather than keep tunnelling in over the public one.
+ */
+function startEndpointSync() {
+  if (syncTimer) return
+  const kick = () => { void syncEndpoints() }
+  setTimeout(kick, 30_000)
+  syncTimer = setInterval(kick, 60 * 60_000)
+
+  powerMonitor.on('resume', () => { void repickIfBetterAvailable() })
+}
+
+/**
+ * After a laptop wakes on a different network, check whether anything ABOVE the current
+ * address is now reachable and move up to it. Deliberately not a plain re-run of the
+ * startup race: that prefers the last address that worked, so coming home from the
+ * office would keep tunnelling in over the public hostname all evening.
+ *
+ * Only the higher-priority half of the book is probed, so the common case (nothing
+ * better available) costs a couple of failed pings and nothing else.
+ */
+async function repickIfBetterAvailable() {
+  const sorted = [...(currentSettings.endpoints ?? [])].sort((a, b) => a.priority - b.priority)
+  const current = sorted.findIndex((e) => e.url === currentSettings.serverUrl)
+  const better = current < 0 ? sorted : sorted.slice(0, current)
+  if (!better.length) return
+
+  const hit = await connection.pickEndpoint(better, currentSettings.hubInstanceId || null)
+  if (!hit || hit.url === currentSettings.serverUrl) return
+
+  currentSettings = settings.save({ serverUrl: hit.url, lastGoodUrl: hit.url })
+  // Origin locks, the CSP, and the loaded pages are all bound to the old origin, so the
+  // clean way onto the new one is the same relaunch a manual server change already does.
+  app.relaunch()
+  isQuitting = true
+  app.exit(0)
 }
 
 app.whenReady().then(async () => {
@@ -457,14 +574,16 @@ app.whenReady().then(async () => {
     actions: trayActions,
   })
 
-  if (!currentSettings.serverUrl) {
+  if (!currentSettings.serverUrl && !currentSettings.endpoints?.length) {
     openSetup()
     return
   }
 
-  const health = await checkServer(currentSettings.serverUrl)
-  serverReachable = health.ok
-  if (!health.ok) {
+  // Race the cached address book instead of testing one frozen URL. On the home network
+  // this lands on the LAN IP; on the road it falls through to the tailnet or public name.
+  const picked = await selectServerUrl()
+  serverReachable = !!picked
+  if (!picked) {
     // Boot anyway (the server may come up later); surface it and offer setup.
     refreshTray()
     openSetup()

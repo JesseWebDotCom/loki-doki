@@ -160,6 +160,8 @@ import adminStorage from '@/routes/adminStorage'
 import adminStorageLocations from '@/routes/adminStorageLocations'
 import adminBackups from '@/routes/adminBackups'
 import adminRemoteAccess from '@/routes/adminRemoteAccess'
+import adminHubAddresses from '@/routes/adminHubAddresses'
+import hubRoute from '@/routes/hub'
 import routinesRoute from '@/routes/routines'
 import methodsRoute from '@/routes/methods'
 import adminNetworkProtection from '@/routes/adminNetworkProtection'
@@ -654,6 +656,10 @@ app.onError((err, c) => {
 // apart from "request failed" and surface/recover instead of hanging silently.
 app.get('/api/health', (c) => c.json({ ok: true }))
 
+// Hub discovery: /api/hub/ping is what every client fires at each of its cached
+// addresses on startup, so it sits up here with health, ahead of the capability gates.
+app.route('/api/hub', hubRoute)
+
 // ── Capability gates ────────────────────────────────────────────────────────────
 // Enforce the admin feature toggles at the backend boundary: a disabled feature's HTTP
 // routes 403 and its WebSocket handshake is refused here (the upgrade is a normal GET, so
@@ -848,6 +854,7 @@ app.route('/api/admin/storage', adminStorage)
 app.route('/api/admin/storage-locations', adminStorageLocations)
 app.route('/api/admin/backups', adminBackups)
 app.route('/api/admin/remote-access', adminRemoteAccess)
+app.route('/api/admin/hub-addresses', adminHubAddresses)
 app.route('/api/routines', routinesRoute)
 app.route('/api/methods', methodsRoute)
 app.route('/api/admin/network-protection', adminNetworkProtection)

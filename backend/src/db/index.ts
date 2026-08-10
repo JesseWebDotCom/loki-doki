@@ -357,6 +357,34 @@ export function runMigrations() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS app_settings_key_unique ON app_settings(key);
 
+    CREATE TABLE IF NOT EXISTS hub_endpoints (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'lan',
+      priority INTEGER NOT NULL DEFAULT 100,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS hub_endpoints_url_unique ON hub_endpoints(url);
+    CREATE INDEX IF NOT EXISTS hub_endpoints_priority_idx ON hub_endpoints(priority);
+
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      label TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      last_seen_at INTEGER,
+      last_seen_url TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_hash_unique ON device_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS device_tokens_user_idx ON device_tokens(user_id);
+
     CREATE TABLE IF NOT EXISTS download_jobs (
       id TEXT NOT NULL PRIMARY KEY,
       type TEXT NOT NULL,

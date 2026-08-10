@@ -413,6 +413,54 @@ export const appSettings = sqliteTable('app_settings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Hub addresses ────────────────────────────────────────────────────────────
+// Every way a client can reach this server: LAN IP, local DNS name, tailnet name,
+// public hostname. Clients fetch the list, cache it to disk, and try the entries in
+// priority order until one answers with our hub id. Rows here are the admin-managed
+// ones; LAN and tailnet addresses are detected at request time and merged on top
+// (lib/hubEndpoints.ts), so the table only ever holds what a human typed.
+
+export const hubEndpoints = sqliteTable('hub_endpoints', {
+  id: text('id').primaryKey(),
+  // Human label the admin picks ("Local DNS", "Tailscale", "Away from home").
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  // Where the address works, so a client on cellular can skip LAN-only candidates
+  // instead of burning its probe budget on them.
+  kind: text('kind', { enum: ['lan', 'overlay', 'public'] }).notNull().default('lan'),
+  // Lower tries first. Sparse (10, 20, 30, ...) so a drag-to-reorder can renumber
+  // the whole list without collisions.
+  priority: integer('priority').notNull().default(100),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  urlUnique: unique().on(t.url),
+  priorityIdx: index('hub_endpoints_priority_idx').on(t.priority),
+}))
+
+// A per-device credential that survives switching addresses. Session cookies are keyed
+// to one origin, so a client that fails over from the tailnet name to the LAN IP lands
+// on a fresh cookie jar and looks signed out. Native clients keep this token in the
+// OS keystore instead and trade it for a session on whichever address answered.
+// Browsers never get one (nowhere safe to put it).
+
+export const deviceTokens = sqliteTable('device_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  // Shown in Settings → Devices so a lost phone can be revoked by name.
+  label: text('label').notNull(),
+  platform: text('platform').notNull(),  // 'desktop' | 'tv' | 'phone'
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  // Which address the device last came in on, purely for the admin display.
+  lastSeenUrl: text('last_seen_url'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userIdx: index('device_tokens_user_idx').on(t.userId),
+}))
+
 // ─── Background download jobs ────────────────────────────────────────────────
 // Durable, server-owned download queue. First-run hands the non-essential set
 // (extra models, ZIMs, maps, components) to this so the app can boot on essentials
