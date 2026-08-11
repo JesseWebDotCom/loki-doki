@@ -2,8 +2,8 @@ import { db } from '@/db'
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { setAppSetting, getAppSetting } from '@/lib/settings'
-import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel, ollamaUnloadModel, setKeepAlivePolicyResolver, type OllamaKeepAlive } from '@/llm/ollama'
-import { getEmbedModel, ROUTER_EMBED_MODEL } from '@/llm/embed'
+import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel, ollamaUnloadModel, setKeepAlivePolicyResolver, setNumCtxResolver, type OllamaKeepAlive } from '@/llm/ollama'
+import { embed, getEmbedModel, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
@@ -81,6 +81,11 @@ async function pickAvailableModel(recommended: string, pinned: string | null): P
 export function autotunedNumCtx(): number {
   return getCachedAutotune()?.recommendedNumCtx ?? 8192
 }
+// Every default-ctx Ollama call (judge, summaries, vision, warm loads) sizes its runner
+// from the SAME number as the chat turns above — in automatic mode that's the autotuned
+// window. Two different defaults alternating on one model = a full runner reload + KV
+// loss per alternation (see ollama.ts).
+setNumCtxResolver(() => (isAutomatic() ? autotunedNumCtx() : 8192))
 
 async function getSetting(key: string): Promise<string | null> {
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
@@ -89,7 +94,8 @@ async function getSetting(key: string): Promise<string | null> {
 
 // ── keep_alive residency policy (injected into the central Ollama client) ──────
 // Which models stay resident, by ROLE: the chat model is the family's primary UX and is
-// pinned (-1); the two embedders are tiny (≈0.35 GB combined) and pinned; everything else
+// pinned (-1); the two embedders are pinned (when the placement cascade exiles the
+// general embedder to CPU, its pin holds host RAM, not VRAM); everything else
 // ages out on a finite window so idle models become evictable under VRAM pressure instead
 // of forcing new loads onto the CPU. The role→tag mapping changes at runtime (admin model
 // switches, downloadJobs auto-select), so the resolver reads a sync cache that every role
@@ -190,6 +196,11 @@ export async function getExtractionModel(): Promise<string> {
 let _routerModelCache: { value: string | null } | null = null
 
 export async function getRouterModel(): Promise<string | null> {
+  // Automatic placement may fold routing into the chat model (routerShared): a
+  // dedicated router resident would overflow the card (engineAutotune's cascade).
+  // Callers already handle null as "use the chat model". Manual mode keeps the
+  // operator's explicit router regardless.
+  if (isAutomatic() && getCachedAutotune()?.routerShared) return null
   if (!_routerModelCache) {
     _routerModelCache = { value: (await getSetting('router_llm_model')) ?? process.env.ROUTER_MODEL ?? null }
   }
@@ -209,6 +220,12 @@ let _fastModelCache: { value: string } | null = null
 export async function getFastModel(): Promise<string> {
   if (_fastModelCache) { roleTags.fast = _fastModelCache.value; return _fastModelCache.value }
   const main = await getModel()
+  // routerShared placement: no dedicated small model is resident — loading one for
+  // auxiliary blurbs would recreate the exact VRAM overflow the cascade avoided.
+  if (isAutomatic() && getCachedAutotune()?.routerShared) {
+    _fastModelCache = { value: main }
+    return main
+  }
   const candidate =
     (await getSetting('router_llm_model')) ??
     process.env.ROUTER_MODEL ??
@@ -325,7 +342,10 @@ async function _doWarmup(): Promise<void> {
   // still hits a warm model in the common case; worst case it cold-loads on first call.
   void (async () => {
     const [, routerEmbedOk] = await Promise.allSettled([
-      ollamaEmbed(getEmbedModel(), 'warmup')
+      // Through embed(), not ollamaEmbed() directly: embed() carries the CPU-placement
+      // option, and a warm that omitted it would load a GPU runner the first real
+      // embed call immediately reloads on CPU.
+      embed('warmup')
         .then(() => logger.info(`[warmup] ${getEmbedModel()} ready`))
         .catch(() => {}),
       ollamaEmbed(ROUTER_EMBED_MODEL, 'warmup')

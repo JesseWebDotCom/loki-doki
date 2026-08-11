@@ -654,7 +654,10 @@ export async function replanAfterDeadEnd(
 
     const routerModel = (await getRouterModel()) ?? model
     const opts: Record<string, unknown> = { temperature: 0.1, num_predict: 200 }
-    if (routerModel === model) opts['num_ctx'] = chatNumCtx ?? 8192
+    // Sharing the chat model: match the chat turn's num_ctx exactly, or omit it and
+    // let the injected default (same resolver the chat turns use) keep them equal —
+    // a hardcoded fallback here would force a runner reload per alternation.
+    if (routerModel === model && chatNumCtx) opts['num_ctx'] = chatNumCtx
 
     const response = await ollamaChat(
       routerModel,
@@ -708,13 +711,15 @@ async function tier2Call(
     // num_ctx doesn't need to match chat.ts (different model = separate KV cache).
     // When SHARING the chat model, num_ctx must match the chat call exactly —
     // Ollama re-initializes the runner on any context-size change, so a 4096-route
-    // followed by an 8192-chat forced two model reloads per message.
+    // followed by an 8192-chat forced two model reloads per message. With no explicit
+    // chatNumCtx, OMIT the option: the injected default (same resolver as chat turns)
+    // keeps both sides equal, where a hardcoded fallback here could diverge.
     const routerModel = (await getRouterModel()) ?? model
     // num_predict: a tool call is a name + short JSON args (~50 tokens); without a
     // cap a chatty router model can ramble for hundreds of tokens before the
     // tool_calls array closes. 200 leaves room for 3 multi-intent calls.
     const opts: Record<string, unknown> = { temperature: 0.1, num_predict: 200 }
-    if (routerModel === model) opts['num_ctx'] = chatNumCtx ?? 8192
+    if (routerModel === model && chatNumCtx) opts['num_ctx'] = chatNumCtx
 
     const response = await ollamaChat(
       routerModel,

@@ -6,6 +6,7 @@ import { db } from '@/db'
 const execFileAsync = promisify(execFile)
 import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
+import { isAutomatic, resolveResourceMode } from '@/lib/resourceMode'
 
 export interface CudaDevice {
   index: number
@@ -207,7 +208,18 @@ export async function resolveGpuPlacement(hw?: HardwareInfo): Promise<GpuPlaceme
   let ollamaVisible: string | null = null
   if (h.cudaDevices.length >= 2) {
     const mode = await getSetting('gpu.placement_mode')
-    if (mode === 'segregated') {
+    // Automatic resource mode confines Ollama away from ComfyUI's card by default:
+    // an unpinned Ollama was observed splitting an over-budget chat model across
+    // Thunderbolt onto the imaging GPU — image gen lost its VRAM and every chat
+    // token crossed the TB link. The autotune placement cascade right-sizes the
+    // resident stack to the remaining card(s), so genuine overflow goes visibly to
+    // CPU instead of silently onto the imaging card. `gpu.placement_mode` still
+    // forces either behavior: 'segregated' confines in manual mode too, 'spread'
+    // restores the old spread-everywhere default. The VRAM guard is unchanged:
+    // never confine when it would leave the LLM less VRAM than image gen keeps.
+    await resolveResourceMode()
+    const confine = mode === 'segregated' || (mode !== 'spread' && isAutomatic())
+    if (confine) {
       const others = h.cudaDevices.filter((d) => d.index !== comfy.index)
       const othersVram = others.reduce((s, d) => s + d.vramBytes, 0)
       if (othersVram >= comfy.vramBytes) ollamaVisible = others.map((d) => d.index).join(',')

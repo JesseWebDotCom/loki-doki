@@ -12,16 +12,26 @@
 import { detectCudaDevices } from '@/lib/hwfit'
 import { CATALOG, inSet, type CatalogModel } from '@/lib/catalog'
 import { getActiveModelSetSync } from '@/lib/modelSetState'
+import { getCachedEngineGuards } from '@/lib/engineGuards'
 import { logger } from '@/lib/logger'
 
 const GB = 1_000_000_000
-// VRAM the chat model can't have: display/compositor + CUDA context + safety margin.
-const OVERHEAD_BYTES = 1.3 * GB
-// Fraction of total VRAM we're willing to fill (leave a little slack for fragmentation).
-const USABLE_FRACTION = 0.94
-// Rough KV-cache reserve for a given context window (q8_0 cache, ~8B class). Generous
-// on purpose: better to under-promise context than to spill.
-function kvReserveBytes(numCtx: number): number { return (numCtx / 4096) * 0.6 * GB }
+// VRAM the chat model can't have: display/compositor + CUDA context. Calibrated against
+// the reference dev box (Windows compositor + browser accel ≈ 0.65 GB); the old 1.3 GB
+// figure re-counted a "safety margin" that USABLE_FRACTION already provides, and the
+// stacked margins misclassified PROVEN co-resident lineups (8B chat + 3B router + embeds
+// live on one 8 GB card) as not fitting — which pushed the placement cascade into
+// offloading residents that demonstrably fit.
+const OVERHEAD_BYTES = 0.7 * GB
+// Fraction of total VRAM we're willing to fill (slack for fragmentation).
+const USABLE_FRACTION = 0.96
+// KV-cache reserve for a given context window (~8B class): ≈0.3 GB per 4k tokens at
+// q8_0 (the previous 0.6 figure was the fp16 number mislabeled as q8). Reads the
+// engine guards so an operator who rolls KV back to f16 gets the honest reserve.
+function kvReserveBytes(numCtx: number): number {
+  const q8 = getCachedEngineGuards().kvCacheType.startsWith('q8')
+  return (numCtx / 4096) * (q8 ? 0.3 : 0.6) * GB
+}
 
 const FALLBACK_MODEL = 'llama3.1:8b'
 
@@ -32,6 +42,10 @@ export interface EngineFit {
   budgetBytes: number        // what's left for the chat model + its KV cache
   recommendedModel: string   // ollama tag
   recommendedNumCtx: number  // advisory (applying it must keep warmup in sync)
+  /** Run the general embedder on CPU (num_gpu 0): the GPU residents didn't co-fit. */
+  embedOnCpu: boolean
+  /** No dedicated router-LLM resident: T2 routing shares the chat model's runner. */
+  routerShared: boolean
   reason: string
 }
 
@@ -43,12 +57,14 @@ function chatLlms(): CatalogModel[] {
   return CATALOG.filter((m) => (m.role === 'uncensored_llm' || m.role === 'llm') && m.backend === 'ollama' && inSet(m, set))
 }
 
-// Router LLM + router embed + embeddings are kept resident and share the card.
-function residentSmallBytes(): number {
+// The small always-resident roles, split per role so the placement cascade can
+// offload them one at a time when they don't co-fit with the chat model.
+function residentParts(): { router: number; embed: number; minilm: number } {
   const set = getActiveModelSetSync()
-  const roles = new Set(['router_llm', 'router', 'embeddings'])
-  return CATALOG.filter((m) => roles.has(m.role) && m.backend === 'ollama' && inSet(m, set))
+  const sum = (role: string) => CATALOG
+    .filter((m) => m.role === role && m.backend === 'ollama' && inSet(m, set))
     .reduce((s, m) => s + (m.approxBytes ?? 0), 0)
+  return { router: sum('router_llm'), embed: sum('embeddings'), minilm: sum('router') }
 }
 
 // Speed-first ordering among candidates: 'fast'-tagged first, then smaller (faster).
@@ -64,20 +80,38 @@ const gib = (n: number) => (n / GB).toFixed(1)
 /** Pure recommendation from a VRAM figure (no I/O), so it's easy to reason about/test. */
 export function recommend(vramBytes: number): EngineFit {
   const hasGpu = vramBytes > 0
-  const overhead = OVERHEAD_BYTES + residentSmallBytes()
-  const budget = Math.max(0, vramBytes * USABLE_FRACTION - overhead)
+  const parts = residentParts()
   const llms = chatLlms()
   const smallest = [...llms].sort((a, b) => (a.approxBytes ?? 0) - (b.approxBytes ?? 0))[0]
   const smallestTag = smallest?.ollamaTag ?? FALLBACK_MODEL
 
   if (!hasGpu) {
     return {
-      vramBytes, hasGpu, overheadBytes: overhead, budgetBytes: budget,
-      recommendedModel: smallestTag, recommendedNumCtx: 4096,
+      vramBytes, hasGpu, overheadBytes: OVERHEAD_BYTES + parts.router + parts.embed + parts.minilm,
+      budgetBytes: 0, recommendedModel: smallestTag, recommendedNumCtx: 4096,
+      embedOnCpu: false, routerShared: false,
       reason: 'No NVIDIA GPU detected; using the lightest chat model + 4k context as a safe default (Mac unified memory is not probed here).',
     }
   }
 
+  // Placement cascade: when the small residents + the lightest chat model overflow the
+  // card, offload residents in latency-tolerance order instead of letting Ollama spread
+  // them (observed: an over-budget stack split the chat model across Thunderbolt onto
+  // the imaging GPU). The general embedder goes first — short texts embed fine on CPU
+  // and bulk re-embeds stop competing for the GPU. The dedicated router LLM goes next —
+  // T2 routing falls back to the chat model's runner (the pre-granite behavior: slower
+  // per T2 call, but it only fires on tier-1 misses and never pays a cold load). The T1
+  // embedder (all-minilm, ~45MB) always stays.
+  const usable = vramBytes * USABLE_FRACTION - OVERHEAD_BYTES
+  const minChat = (smallest?.approxBytes ?? 0) + kvReserveBytes(2048)
+  let embedOnCpu = false
+  let routerShared = false
+  let gpuResidents = parts.router + parts.embed + parts.minilm
+  if (minChat + gpuResidents > usable) { embedOnCpu = true; gpuResidents -= parts.embed }
+  if (minChat + gpuResidents > usable) { routerShared = true; gpuResidents -= parts.router }
+
+  const overhead = OVERHEAD_BYTES + gpuResidents
+  const budget = Math.max(0, vramBytes * USABLE_FRACTION - overhead)
   const fitting = llms
     .filter((m) => (m.approxBytes ?? 0) + kvReserveBytes(2048) <= budget)
     .sort(bySpeed)
@@ -88,21 +122,35 @@ export function recommend(vramBytes: number): EngineFit {
   // + character + memory + briefing can run ~1-2k tokens on its own).
   const numCtx = headroom >= kvReserveBytes(8192) ? 8192 : 4096
 
+  const moved = [
+    ...(embedOnCpu ? ['embeddings → CPU'] : []),
+    ...(routerShared ? ['T2 routing → chat model'] : []),
+  ]
+  const placementNote = moved.length ? ` Offloaded to fit: ${moved.join(', ')}.` : ''
+
   // Note: this is a boot-time ESTIMATE from one card's VRAM; on a multi-GPU box the
   // router/embeds may sit on a different card, so the live "on GPU" figure is the
   // truth. The wording avoids a definitive spill claim the live data often contradicts.
-  const reason = fitting.length
-    ? `${gib(vramBytes)}GB VRAM, ~${gib(overhead)}GB reserved for router/embeds + overhead → ${pick?.label} (${gib(pick?.approxBytes ?? 0)}GB) at ${numCtx / 1024}k context.`
-    : `${gib(vramBytes)}GB per GPU is tight for ${pick?.label} plus the router and embedders; it should still fit on most setups, but watch the "on GPU" figure and pick a smaller model if it starts offloading.`
+  const reason = (fitting.length
+    ? `${gib(vramBytes)}GB VRAM, ~${gib(overhead)}GB reserved for GPU residents + overhead → ${pick?.label} (${gib(pick?.approxBytes ?? 0)}GB) at ${numCtx / 1024}k context.`
+    : `${gib(vramBytes)}GB per GPU is tight for ${pick?.label} even alone; watch the "on GPU" figure and pick a smaller model if it starts offloading.`
+  ) + placementNote
 
-  return { vramBytes, hasGpu, overheadBytes: overhead, budgetBytes: budget, recommendedModel: pickTag, recommendedNumCtx: numCtx, reason }
+  return {
+    vramBytes, hasGpu, overheadBytes: overhead, budgetBytes: budget,
+    recommendedModel: pickTag, recommendedNumCtx: numCtx, embedOnCpu, routerShared, reason,
+  }
 }
 
 /** Whether a specific model tag fits the detected card. Unknown size / no GPU → no warning. */
 export function checkFit(modelTag: string, vramBytes: number): { fits: boolean; willSpill: boolean; sizeBytes: number } {
   const size = CATALOG.find((c) => c.ollamaTag === modelTag)?.approxBytes ?? 0
   if (vramBytes <= 0 || size === 0) return { fits: true, willSpill: false, sizeBytes: size }
-  const budget = vramBytes * USABLE_FRACTION - (OVERHEAD_BYTES + residentSmallBytes())
+  // Use the resolved fit's overhead when available — it reflects the placement
+  // cascade (an offloaded embedder/router no longer counts against the card).
+  const parts = residentParts()
+  const overhead = cache?.overheadBytes ?? (OVERHEAD_BYTES + parts.router + parts.embed + parts.minilm)
+  const budget = vramBytes * USABLE_FRACTION - overhead
   const fits = size + kvReserveBytes(2048) <= budget
   return { fits, willSpill: !fits, sizeBytes: size }
 }

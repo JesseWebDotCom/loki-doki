@@ -139,20 +139,22 @@ export async function ollamaWarmModel(model: string): Promise<void> {
       signal: AbortSignal.timeout(OLLAMA_FIRST_BYTE_MS),
       // num_ctx must match what real calls use — a bare load request sizes the
       // runner at Ollama's 4096 default, and the first real call (which gets
-      // DEFAULT_NUM_CTX injected) then pays a full ~3s runner reload, defeating
+      // the default ctx injected) then pays a full ~3s runner reload, defeating
       // the warm entirely.
-      body: JSON.stringify({ model, ...keepAliveFields(model), options: { num_ctx: DEFAULT_NUM_CTX } }),
+      body: JSON.stringify({ model, ...keepAliveFields(model), options: { num_ctx: defaultNumCtx() } }),
     })
   } catch { /* best-effort */ }
 }
 
-export async function ollamaEmbed(model: string, input: string): Promise<number[]> {
+export async function ollamaEmbed(model: string, input: string, options?: Record<string, unknown>): Promise<number[]> {
   // ollamaEmbed is on the companion-turn hot path (router/RAG). Without a timeout, a stalled
-  // Ollama hangs every turn indefinitely.
+  // Ollama hangs every turn indefinitely. `options` carries load-time placement params
+  // (num_gpu 0 for a CPU-exiled embedder) — every call site for a given model must send
+  // the same values or Ollama reloads the runner on each flip (see embed.ts).
   const res = await fetch(`${ollamaUrl()}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input, ...keepAliveFields(model) }),
+    body: JSON.stringify({ model, input, ...keepAliveFields(model), ...(options && { options }) }),
     signal: AbortSignal.timeout(20_000),
   })
   if (!res.ok) throw new Error('Embedding request failed')
@@ -171,8 +173,17 @@ export async function ollamaEmbed(model: string, input: string): Promise<number[
 // kills the whole class of bug for any future call site.
 export const DEFAULT_NUM_CTX = 8192
 
+// The default num_ctx is resolver-injected (models.ts registers autotunedNumCtx, same
+// setter-injection pattern as the keep-alive policy): in automatic mode the autotuner
+// may fit the chat window at 4096, and any call site still defaulting to a different
+// number forces a ~1s runner reload + total KV loss on every alternation. One resolver
+// means every default-ctx call agrees with the chat turns.
+let numCtxResolver: (() => number) | null = null
+export function setNumCtxResolver(fn: () => number): void { numCtxResolver = fn }
+function defaultNumCtx(): number { return numCtxResolver ? numCtxResolver() : DEFAULT_NUM_CTX }
+
 function withDefaultCtx(options?: Record<string, unknown>): Record<string, unknown> {
-  return { num_ctx: DEFAULT_NUM_CTX, ...options }
+  return { num_ctx: defaultNumCtx(), ...options }
 }
 
 export async function ollamaChat(

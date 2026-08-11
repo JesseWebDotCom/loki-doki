@@ -1,5 +1,7 @@
 import { ollamaEmbed } from './ollama'
 import { CATALOG } from '@/lib/catalog'
+import { getCachedAutotune } from '@/lib/engineAutotune'
+import { isAutomatic } from '@/lib/resourceMode'
 
 export const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 // Dedicated router encoder — wider similarity spread than nomic, better separation
@@ -45,8 +47,19 @@ function mrlTruncate(vec: number[]): number[] {
   return cut.map((v) => v / norm)
 }
 
+// Automatic placement can exile the general embedder to the CPU (num_gpu: 0) when the
+// GPU residents don't co-fit alongside the chat model (engineAutotune's placement
+// cascade). Embedding tolerates it well: inputs are short, the model is ~0.6B, and bulk
+// re-embeds stop competing with chat for the card. num_gpu is a LOAD-time param, so
+// EVERY embed call for this model must route through here — a call site that omits it
+// would flip the runner back onto the GPU (full reload each direction). The T1 router
+// embedder (all-minilm, ~45MB) is latency-critical and always stays on the GPU.
+function embedPlacement(): Record<string, unknown> | undefined {
+  return isAutomatic() && getCachedAutotune()?.embedOnCpu ? { num_gpu: 0 } : undefined
+}
+
 export async function embed(text: string): Promise<number[]> {
-  return mrlTruncate(await ollamaEmbed(activeEmbedModel, text))
+  return mrlTruncate(await ollamaEmbed(activeEmbedModel, text, embedPlacement()))
 }
 
 export async function embedForRouter(text: string): Promise<number[]> {
