@@ -20,7 +20,7 @@ import { logger } from '@/lib/logger'
 
 export type PrecomputeKind =
   | 'podcast-insights'   // pre-listen summary/takeaways/chapters for a new episode
-  | 'yt-summary'         // transcript summary + Smart Description for a subscribed upload
+  | 'yt-summary'         // transcript summary, Smart Description and honest title for a subscribed upload
   | 'news-summary'       // article TL;DR persisted onto the feed item
   | 'smart-title'        // caption→title for caption-only sources (TikTok)
   | 'title-extras'       // trivia + reviews digest for a watchlist title
@@ -62,6 +62,13 @@ export async function runPrecomputeJob(refId: string): Promise<void> {
       // all sponsor read. Both are shared caches; the per-user args pick caption language.
       await ensureSummary(p.videoId, p.userId, p.firstName)
       await ensureSmartDescription(p.videoId, p.userId, p.firstName)
+      // Then the honest title, in the same job rather than a kind of its own: it reads
+      // the summary this job just wrote, so it has to run after it, and riding along
+      // means a fresh upload arrives with its title already de-clickbaited instead of
+      // waiting for someone to scroll past its card (Jesse, 2026-08-10: "ideally this
+      // stuff is there before I access it").
+      const { ensureHonestTitle } = await import('@/lib/youtube/honestTitle')
+      await ensureHonestTitle(p.videoId)
       return
     }
     case 'news-summary': {
