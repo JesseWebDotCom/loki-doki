@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { resolveYouTubeInput } from '@/lib/youtube/resolve'
 import { applySubscriptionAutomation } from '@/lib/youtube/automation'
+import { warmYoutubeCardImages } from '@/lib/youtube/imageCache'
 
 const YT_FEED_BASE = 'https://www.youtube.com/feeds/videos.xml'
 const FEED_INTERVAL_MS = 15 * 60 * 1000   // poll every 15 min
@@ -231,6 +232,15 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
 
   // Fetch channel name/avatar/description the first time we see this subscription (or repair it).
   if (!sub.thumbnailUrl || !sub.description || /^https?:\/\//i.test(sub.title)) void backfillChannelMeta(sub).catch(() => {})
+
+  // Pull the new uploads' thumbnails (and this channel's avatar) into the image cache now,
+  // while nobody is waiting on them. Without this the cache is filled purely by clients:
+  // the first person to scroll past a new video paid a live fetch to Google with the card
+  // already on screen, which is exactly what "the image loads as I reach it" looks like.
+  if (fresh.length) {
+    void warmYoutubeCardImages(fresh.map(e => e.videoId), [sub.thumbnailUrl])
+      .catch(err => logger.warn(`[youtube] image warm failed for "${sub.title}": ${err}`))
+  }
 
   return fresh.length
 }

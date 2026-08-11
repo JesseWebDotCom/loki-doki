@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/cn'
-import { proxyImgAuto } from '@/lib/img'
+import { AVATAR_W, avatarImgUrl, imgLoad } from '@/lib/img'
 
 // design-ok(raw-palette-semantic): deterministic letter-avatar palette (identity data, not a UI accent)
 export const AVATAR_COLORS = ['bg-red-500/20 text-red-400', 'bg-blue-500/20 text-blue-400', 'bg-green-500/20 text-green-400',
@@ -12,10 +12,15 @@ export const AVATAR_COLORS = ['bg-red-500/20 text-red-400', 'bg-blue-500/20 text
  *  proxyImgAuto host-sniffs the URL, so Google-CDN avatars ride YouTube's own cache
  *  (/api/youtube/img, Google-hosts-only allowlist) and everything else rides the generic
  *  SSRF-guarded /api/img. Callers never pick a proxy. */
-export function CreatorAvatar({ title, src, className }: {
+export function CreatorAvatar({ title, src, className, width = AVATAR_W, eager }: {
   title: string
   src?: string | null
   className?: string
+  /** Device-pixel width to request (see AVATAR_W / AVATAR_W_LARGE). */
+  width?: number
+  /** Above-the-fold: load immediately at high priority. Off-screen avatars stay lazy so a
+   *  long feed cannot spend the browser's ~6 connections on avatars nobody is looking at. */
+  eager?: boolean
 }) {
   // Track the URL that failed (not a bare boolean) so navigating to a different creator with
   // a new src gets a fresh chance to load instead of staying stuck on the letter fallback.
@@ -25,7 +30,8 @@ export function CreatorAvatar({ title, src, className }: {
     // hotlinked requests carrying a localhost Referer - avatars silently became letters.
     // No key={src}: the element must survive src changes so navigating creator-to-creator
     // keeps the previous avatar painted until the next one decodes (no blank flash).
-    return <img src={proxyImgAuto(src)} alt={title} referrerPolicy="no-referrer" decoding="async" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
+    return <img src={avatarImgUrl(src, width)} alt={title} referrerPolicy="no-referrer" decoding="async" {...imgLoad(eager)}
+      className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
   }
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0

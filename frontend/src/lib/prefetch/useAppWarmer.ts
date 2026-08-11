@@ -13,22 +13,9 @@ import { useConnectivity } from '@/hooks/useConnectivity'
 import { getAppByPath } from '@/lib/appCategories'
 import { APP_PREFETCHERS, type WarmCtx } from './registry'
 import { useWarmPrefs } from './useWarmContext'
+import { onIdle } from './onIdle'
 
 const CONCURRENCY = 2
-
-type IdleHandle = number
-function onIdle(cb: () => void): () => void {
-  const w = window as unknown as {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => IdleHandle
-    cancelIdleCallback?: (id: IdleHandle) => void
-  }
-  if (w.requestIdleCallback) {
-    const id = w.requestIdleCallback(cb, { timeout: 3000 })
-    return () => w.cancelIdleCallback?.(id)
-  }
-  const t = setTimeout(cb, 1500)
-  return () => clearTimeout(t)
-}
 
 async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let cursor = 0

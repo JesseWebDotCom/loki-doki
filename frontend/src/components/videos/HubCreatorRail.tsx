@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { HScroll } from '@/components/youtube/shelves'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { AVATAR_W_LARGE } from '@/lib/img'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import type { VideoSource } from '@/lib/videos/api'
 
@@ -23,7 +24,7 @@ export function HubCreatorRail({ title, source, creators }: { title: string; sou
         {creators.map((c) => (
           <Link key={c.id} to={HUB_PATHS[source].creator(c.id)}
             className="group flex w-28 shrink-0 flex-col items-center gap-2 text-center">
-            <CreatorAvatar title={c.title} src={c.thumbnailUrl} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+            <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <p className="line-clamp-1 w-full text-sm font-semibold">{c.title}</p>
           </Link>
         ))}

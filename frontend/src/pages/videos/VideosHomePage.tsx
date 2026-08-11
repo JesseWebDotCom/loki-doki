@@ -17,6 +17,8 @@ import { useCardStyle } from '@/hooks/useCardStyle'
 import { ShelfSkeleton } from '@/components/youtube/shelves'
 import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
 import { HubCard, HubRow, hubHistoryToItem, ytItemToHub } from '@/components/videos/HubCard'
+import { EAGER_CARDS, hubItemImageUrls } from '@/lib/prefetch/cardImageUrls'
+import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 import { HubMediaShelf } from '@/components/videos/HubMediaShelf'
 import { MineCard, MineRow } from '@/components/videos/MineCard'
 import { InfiniteLoadMore } from '@/components/videos/InfiniteLoadMore'
@@ -133,6 +135,15 @@ function HubLanding() {
     }
     return out
   }, [homeQuery.data])
+
+  // Warm every shelf's art ahead of the scroll, in the order the page reads: resume rail,
+  // suggestions, then the mixed feed (which keeps growing as infinite scroll appends pages -
+  // each new page gets warmed as it lands, so page 2 is cached before you reach it).
+  useScrollAheadImages([
+    ...hubItemImageUrls(continueWatching),
+    ...hubItemImageUrls(suggested),
+    ...hubItemImageUrls(feedItems),
+  ])
 
   const activeCategory = category ? getVideoCategory(category) : null
 
@@ -270,8 +281,8 @@ function HubLanding() {
             ) : feedItems.length > 0 ? (
               <>
                 <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
-                  {feedItems.map((it) => (
-                    <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />
+                  {feedItems.map((it, i) => (
+                    <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} index={i} />
                   ))}
                 </div>
                 <InfiniteLoadMore
@@ -298,6 +309,7 @@ function CategoryBody({ category, activeSources, view }: {
   view: 'big' | 'grid' | 'list'
 }) {
   const { items, isLoading, isSettling, hasSources } = useCategoryFeed(category, activeSources)
+  useScrollAheadImages(hubItemImageUrls(items))
   return (
     <section>
       <div className="mb-4 flex items-center gap-2">
@@ -310,7 +322,7 @@ function CategoryBody({ category, activeSources, view }: {
         <SkeletonCards count={12} className="xl:grid-cols-4" />
       ) : items.length > 0 ? (
         <div className={view === 'list' ? 'space-y-1' : view === 'big' ? YT_SHORTS_GRID : YT_GRID}>
-          {items.map((it) => <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} />)}
+          {items.map((it, i) => <FeedCard key={`${it.source}:${it.id}`} item={it} view={view} index={i} />)}
         </div>
       ) : (
         <p className="py-20 text-center text-sm text-muted-foreground">
@@ -333,9 +345,12 @@ function EmptyMine() {
 
 /** One mixed-feed card: HubCard renders YouTube items as the richer VideoCard (hover
  *  preview, save, progress) and every other source as HubVideoCard, all one size via `view`. */
-function FeedCard({ item, view }: { item: HubVideoItem; view: 'big' | 'grid' | 'list' }) {
-  if (view === 'list') return <HubRow item={item} />
-  return <HubCard item={item} shape={view === 'big' ? 'tall' : 'wide'} />
+function FeedCard({ item, view, index }: { item: HubVideoItem; view: 'big' | 'grid' | 'list'; index?: number }) {
+  // The first screenful loads immediately; the rest stay lazy and get warmed ahead of the
+  // scroll by useScrollAheadImages on the surface that renders them.
+  const eager = index !== undefined && index < EAGER_CARDS
+  if (view === 'list') return <HubRow item={item} eager={eager} />
+  return <HubCard item={item} shape={view === 'big' ? 'tall' : 'wide'} eager={eager} />
 }
 
 function EmptyFeed() {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { proxyImgAuto } from '@/lib/img'
+import { AVATAR_W_LARGE, proxyImgAuto } from '@/lib/img'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -57,7 +57,7 @@ export function ChannelHeader({
             (inline actions crushed the title to a couple of characters at 393pt). */}
         {actions && <div className="absolute right-3 top-3 flex items-center gap-2 sm:right-5 sm:top-auto sm:bottom-5">{actions}</div>}
         <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-4 sm:gap-4 sm:p-6 sm:pr-44">
-          <CreatorAvatar title={title} src={avatarUrl} className="size-14 shrink-0 text-2xl shadow-lg ring-2 ring-white/20 sm:size-20 sm:text-3xl" />
+          <CreatorAvatar title={title} src={avatarUrl} width={AVATAR_W_LARGE} eager className="size-14 shrink-0 text-2xl shadow-lg ring-2 ring-white/20 sm:size-20 sm:text-3xl" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               {/* design-ok(raw-h1-in-pages): channel identity header (content title, not app chrome) */}

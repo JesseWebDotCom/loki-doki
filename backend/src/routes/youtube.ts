@@ -36,7 +36,7 @@ import { peekWorth, kickWorth } from '@/lib/youtube/worthIt'
 import { getVotes } from '@/lib/youtube/returndislike'
 import { getDeArrowBatch, getOrFetchDeArrowThumb, deArrowThumbKey } from '@/lib/youtube/dearrow'
 import { honestTitlesFor, ensureHonestTitle } from '@/lib/youtube/honestTitle'
-import { getOrFetchImageResized } from '@/lib/youtube/imageCache'
+import { getOrFetchImageResized, sizedChannelArtUrl } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, resolveStreamPreviewUrl, resolveSplitStreamUrls, invalidateSplitStreamUrls, probeKeyframeBefore, isValidVideoId, parseQuality, REMUX_QUALITIES, type StreamKind } from '@/lib/youtube/stream'
 import { getHlsPresentation, refreshHlsTrackUrl, hlsMasterPlaylist, hlsMediaPlaylist, hlsIframePlaylist, hlsSubtitlePlaylist, type HlsVideoVariant } from '@/lib/youtube/hls'
 import { getTranscodePlan, getTranscodeSegment, getTranscodeInit, hevcMasterPlaylist, hevcMediaPlaylist, TRANSCODE_HEIGHTS, type SegmentResult } from '@/lib/youtube/hlsTranscode'
@@ -302,7 +302,12 @@ youtubeRoute.get('/img', async (c) => {
     })
   }
 
-  const img = await getOrFetchImageResized(url.toString(), w)
+  // Channel art with a width hint: let Google's CDN serve the small square directly
+  // (=sNNN) rather than pulling the ~900px original and downscaling it here. The rewritten
+  // URL is a real URL, so it caches under its own key with no special casing; when it is
+  // not rewritable (banners, odd URLs) we fall back to the vips path with `w`.
+  const sized = sizedChannelArtUrl(url.toString(), w)
+  const img = await getOrFetchImageResized(sized ?? url.toString(), sized ? undefined : w)
   if (!img) return c.json({ error: 'upstream' }, 502)
   // Buffer is a valid body at runtime; the cast sidesteps a TS Buffer-generic mismatch.
   return new Response(img.data as unknown as BodyInit, {

@@ -3,6 +3,8 @@ import { cn } from '@/lib/cn'
 import type { CardListView } from '@/components/shared/ViewToggle'
 import type { VideoItem } from '@/lib/youtube/types'
 import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
+import { EAGER_CARDS, ytItemImageUrls } from '@/lib/prefetch/cardImageUrls'
+import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 
 // The card-grid layouts shared by every YouTube video section. Kept here so pages render the
 // same grid whether or not they use the toggle.
@@ -28,10 +30,16 @@ export function VideoCollection({ items, view, aspect = 'video', className, wrap
   const shorts = aspect === 'short'
   const gridClass = isList ? 'space-y-1' : (shorts || view === 'big') ? YT_SHORTS_GRID : YT_GRID
   const shape: 'wide' | 'tall' | undefined = shorts ? undefined : view === 'big' ? 'tall' : 'wide'
+  // Every YouTube grid warms its own images ahead of the scroll from here, so no page has
+  // to remember to ask for it (and appended infinite-scroll pages are warmed as they land).
+  useScrollAheadImages(ytItemImageUrls(items))
   return (
     <div className={cn(gridClass, className)}>
-      {items.map(i => {
-        const node = isList ? <VideoListRow item={i} aspect={aspect} /> : <VideoCard item={i} aspect={aspect} shape={shape} />
+      {items.map((i, idx) => {
+        const eager = idx < EAGER_CARDS
+        const node = isList
+          ? <VideoListRow item={i} aspect={aspect} eager={eager} />
+          : <VideoCard item={i} aspect={aspect} shape={shape} eager={eager} />
         return <Fragment key={keyOf(i)}>{wrap ? wrap(i, node) : node}</Fragment>
       })}
     </div>

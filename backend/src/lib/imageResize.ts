@@ -35,6 +35,31 @@ const RESIZABLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image
 
 const inFlight = new Map<string, Promise<Buffer | null>>()
 
+/** Path a bucket's variant lands at, beside its original. */
+export const variantPath = (srcPath: string, bucket: number): string => `${srcPath}.w${bucket}.webp`
+
+/**
+ * Fast path for an ALREADY-rendered variant: returns its bytes without reading the
+ * original at all. This is the common case on a warm cache (a 40-thumbnail grid is 40
+ * of these), and reading a multi-MB original just to hand back a 15KB downscale was
+ * doubling the disk I/O and peak memory of every card render.
+ * Returns null when there is no usable variant - the caller must then go through
+ * getResizedVariant (which needs the original anyway, to render one).
+ */
+export async function readCachedVariant(srcPath: string, bucket: number): Promise<{ data: Buffer; contentType: string } | null> {
+  const outPath = variantPath(srcPath, bucket)
+  if (!existsSync(outPath)) return null
+  try {
+    // Proxy-cache sources are immutable per hash, but direct-file sources (uploaded
+    // podcast covers) can be replaced in place: a variant older than its source is stale.
+    // A missing source also throws here, so an orphaned variant is never served.
+    const [src, out] = await Promise.all([stat(srcPath), stat(outPath)])
+    if (out.mtimeMs >= src.mtimeMs) return { data: await readFile(outPath), contentType: 'image/webp' }
+    await unlink(outPath).catch(() => {})
+  } catch { /* fall through - caller re-renders */ }
+  return null
+}
+
 /**
  * Get (rendering on first demand) the webp downscale of an already-cached original.
  * `srcPath` is the original's cache file; the variant lands at `${srcPath}.w${bucket}.webp`.
@@ -42,6 +67,8 @@ const inFlight = new Map<string, Promise<Buffer | null>>()
  */
 export async function getResizedVariant(srcPath: string, contentType: string, bucket: number): Promise<{ data: Buffer; contentType: string } | null> {
   if (!RESIZABLE_TYPES.has(contentType)) return null
+  const cached = await readCachedVariant(srcPath, bucket)
+  if (cached) return cached
   if (contentType === 'image/webp') {
     // Animated webp can't be sniffed from the content-type alone; VP8X animation flag
     // check is cheap enough to do on the first bytes.
@@ -50,16 +77,7 @@ export async function getResizedVariant(srcPath: string, contentType: string, bu
       if (head.includes(Buffer.from('ANIM'))) return null
     } catch { return null }
   }
-  const outPath = `${srcPath}.w${bucket}.webp`
-  if (existsSync(outPath)) {
-    // Proxy-cache sources are immutable per hash, but direct-file sources (uploaded
-    // podcast covers) can be replaced in place: a variant older than its source is stale.
-    try {
-      const [src, out] = await Promise.all([stat(srcPath), stat(outPath)])
-      if (out.mtimeMs >= src.mtimeMs) return { data: await readFile(outPath), contentType: 'image/webp' }
-      await unlink(outPath).catch(() => {})
-    } catch { /* re-render */ }
-  }
+  const outPath = variantPath(srcPath, bucket)
 
   const key = outPath
   const existing = inFlight.get(key)

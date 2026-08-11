@@ -19,7 +19,7 @@ import { useCardStyle } from '@/hooks/useCardStyle'
  *  `row` = 2-line title, then a meta line with a small inline avatar (list views).
  *  The synced card-style pref (shared with the iPhone and Apple TV apps) applies here so
  *  it reaches every card at once: Classic Minimal keeps only the title. */
-export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix, ghosted, layout = 'grid' }: {
+export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix, ghosted, layout = 'grid', eager }: {
   title: string
   creatorName?: string | null
   creatorAvatarUrl?: string | null
@@ -27,6 +27,8 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
   metaSuffix?: string | null
   ghosted?: boolean
   layout?: 'grid' | 'row'
+  /** Above the fold - load the creator avatar immediately instead of on scroll-in. */
+  eager?: boolean
 }) {
   const [cardStyle] = useCardStyle()
   const minimal = cardStyle === 'classicMinimal'
@@ -42,7 +44,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
         <p className={cn('line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
         {!minimal && (creatorName || metaSuffix) && (
           <div className="mt-1.5 flex items-center gap-2 overflow-hidden">
-            {creatorName && <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-white/10', ghosted && 'grayscale')} />}
+            {creatorName && <CreatorAvatar title={creatorName} src={creatorAvatarUrl} eager={eager} className={cn('size-5 shrink-0 text-[9px] ring-1 ring-white/10', ghosted && 'grayscale')} />}
             {metaLine}
           </div>
         )}
@@ -53,7 +55,7 @@ export function CardMetaBlock({ title, creatorName, creatorAvatarUrl, metaSuffix
     <div className="space-y-1">
       <div className="flex items-start gap-2.5">
         {!minimal && creatorName && (
-          <CreatorAvatar title={creatorName} src={creatorAvatarUrl} className={cn('mt-0.5 size-8 shrink-0 text-[11px] ring-1 ring-white/10', ghosted && 'grayscale')} />
+          <CreatorAvatar title={creatorName} src={creatorAvatarUrl} eager={eager} className={cn('mt-0.5 size-8 shrink-0 text-[11px] ring-1 ring-white/10', ghosted && 'grayscale')} />
         )}
         <p className={cn('line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
       </div>

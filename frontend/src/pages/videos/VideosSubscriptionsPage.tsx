@@ -15,6 +15,7 @@ import { HScroll } from '@/components/youtube/shelves'
 import { YT_GRID, YT_SHORTS_GRID } from '@/components/youtube/VideoCollection'
 import { HubCard, HubRow, ytItemToHub } from '@/components/videos/HubCard'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { AVATAR_W_LARGE } from '@/lib/img'
 import { HUB_PATHS } from '@/components/videos/HubVideoCard'
 import { useYtSubs, useYtFeed } from '@/lib/youtube/useData'
 import { getChannelAbout } from '@/lib/youtube/api'
@@ -200,7 +201,7 @@ function ChannelsRow({ channels }: { channels: UnifiedChannel[] }) {
         <Link key={c.id} to={HUB_PATHS[c.source].creator(c.externalId)}
           className="group flex w-28 shrink-0 flex-col items-center gap-2 text-center">
           <span className="relative">
-            <CreatorAvatar title={c.title} src={c.thumbnailUrl}
+            <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE}
               className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <span className={cn('absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full ring-2 ring-background', SOURCE_META[c.source].dotClass)} />
           </span>

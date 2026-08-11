@@ -17,7 +17,6 @@ import {
   ytPopularQueryOptions,
   ytTrendingQueryOptions,
   ytSubsQueryOptions,
-  ytImageProxy,
   type ItVideo,
 } from '@/lib/youtube/api'
 import { whereToWatchPopularQueryOptions, type TitleCard } from '@/lib/whereToWatch'
@@ -34,6 +33,7 @@ import { prewarmWeather } from '@/lib/weatherCache'
 import type { NewsItem } from '@/components/shared/NewsCard'
 import type { UserLocation } from '@/hooks/useUserLocation'
 import { preloadImages } from './preloadImages'
+import { hubItemImageUrls, ytItemImageUrls } from './cardImageUrls'
 
 export interface WarmCtx {
   /** External network features are available (Standard mode + device online). */
@@ -83,7 +83,9 @@ export const APP_PREFETCHERS: Record<string, Prefetcher> = {
       qc.prefetchQuery(ytSubsQueryOptions()),
     ])
     const popular = qc.getQueryData<ItVideo[]>(popularOpts.queryKey as QueryKey) ?? []
-    preloadImages(popular.map((v) => (v.thumbnailUrl ? ytImageProxy(v.thumbnailUrl) : null)))
+    // Through the shared mapper so these are the exact URLs VideoCard requests (thumbnail
+    // AND channel avatar), not a hand-rolled variant that warms a URL nothing asks for.
+    preloadImages(ytItemImageUrls(popular.slice(0, 8)))
   },
 
   // Where to Watch — the "Popular Right Now" landing grid + its posters.
@@ -168,7 +170,7 @@ export const APP_PREFETCHERS: Record<string, Prefetcher> = {
       initialPageParam: null as string | null,
     })
     const pages = qc.getQueryData<{ pages: { items: HubVideoItem[] }[] }>(homeKey as QueryKey)
-    preloadImages((pages?.pages?.[0]?.items ?? []).slice(0, 8).map((i) => (i.thumbnailUrl ? proxyImg(i.thumbnailUrl, 640) : null)))
+    preloadImages(hubItemImageUrls((pages?.pages?.[0]?.items ?? []).slice(0, 8)))
   },
 
   // Weather — fills the cross-route module cache the page reads on mount (instant paint).

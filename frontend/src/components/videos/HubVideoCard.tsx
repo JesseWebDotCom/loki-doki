@@ -2,9 +2,10 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
-import { proxyImg } from '@/lib/img'
+import { imgLoad, proxyImg } from '@/lib/img'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { Spinner } from '@/components/ui/spinner'
+import { HUB_THUMB_W } from '@/lib/prefetch/cardImageUrls'
 import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, SaveOfflineButton, WatchProgressBar } from '@/components/videos/cardParts'
 import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
 import { toast } from '@/lib/toast'
@@ -31,10 +32,13 @@ export const HUB_PATHS = {
 
 /** Card for non-YouTube hub items (YouTube items keep the richer VideoCard). Shows a
  *  source badge in mixed contexts; omit it inside a single source's own browse area. */
-export function HubVideoCard({ item, showSource = true, shape, interactive = true, savingLabel }: {
+export function HubVideoCard({ item, showSource = true, shape, interactive = true, savingLabel, eager }: {
   item: HubVideoItem
   showSource?: boolean
   shape?: 'wide' | 'tall'
+  /** Above the fold: load the thumbnail immediately at high priority instead of waiting
+   *  for it to scroll into view. Only the first screenful of any surface should set this. */
+  eager?: boolean
   /** Show the hover preview + one-click Save. Off where the card is display-only (e.g. the
    *  Offline page, which manages its own saving/remove state). */
   interactive?: boolean
@@ -102,18 +106,18 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         {item.thumbnailUrl && (
           letterbox ? (
             <>
-              <img src={proxyImg(item.thumbnailUrl, 640)} aria-hidden alt="" loading="lazy"
+              <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} aria-hidden alt="" {...imgLoad(eager)}
                 className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
               <div className="pointer-events-none absolute inset-0 bg-black/20" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="relative aspect-video w-full overflow-hidden">
-                  <img src={proxyImg(item.thumbnailUrl, 640)} alt="" loading="lazy"
+                  <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)}
                     className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
                 </div>
               </div>
             </>
           ) : (
-            <img src={proxyImg(item.thumbnailUrl, 640)} alt="" loading="lazy"
+            <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)}
               className="relative size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
           )
         )}
@@ -147,7 +151,7 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
           />
         )}
       </div>
-      <CardMetaBlock title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} />
+      <CardMetaBlock title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} eager={eager} />
     </Link>
   )
 }

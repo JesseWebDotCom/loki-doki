@@ -35,7 +35,21 @@ function hashUrl(url: string): string {
 // Negative-cache TTL: 7 days. CoverArtArchive 404s are stable (art either exists or doesn't).
 const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {
+// In-flight dedupe, mirroring the YouTube image cache's. It matters now that the server
+// warms card art in the background (warmProxyImages): without it, a warm and the client's
+// own request for the same uncached URL both fetch it upstream.
+const inflight = new Map<string, Promise<{ data: Buffer; contentType: string } | null>>()
+
+export function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {
+  const pending = inflight.get(rawUrl)
+  if (pending) return pending
+  const p = fetchProxyImage(rawUrl)
+  inflight.set(rawUrl, p)
+  void p.finally(() => inflight.delete(rawUrl))
+  return p
+}
+
+async function fetchProxyImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {
   const hash = hashUrl(rawUrl)
   const bytesPath = join(CACHE_DIR, hash)
   const typePath = join(CACHE_DIR, `${hash}.t`)
@@ -100,13 +114,39 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
  *  downscale rendered beside the original, or the original when resizing isn't
  *  possible (no vips, animated/vector source, bad width). */
 export async function getOrFetchProxyImageResized(rawUrl: string, w: string | undefined): Promise<{ data: Buffer; contentType: string } | null> {
+  const { bucketFor, getResizedVariant, readCachedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(w)
+  const srcPath = join(CACHE_DIR, hashUrl(rawUrl))
+  // Warm path first: an already-rendered variant is served without touching the original,
+  // which on a card grid is the difference between reading 40 downscales and reading 40
+  // downscales PLUS their 40 full-size originals.
+  if (bucket) {
+    const hit = await readCachedVariant(srcPath, bucket)
+    if (hit) return hit
+  }
   const orig = await getOrFetchProxyImage(rawUrl)
   if (!orig) return null
-  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
-  const bucket = bucketFor(w)
   if (!bucket) return orig
-  const variant = await getResizedVariant(join(CACHE_DIR, hashUrl(rawUrl)), orig.contentType, bucket)
+  const variant = await getResizedVariant(srcPath, orig.contentType, bucket)
   return variant ?? orig
+}
+
+// Background warming ─────────────────────────────────────────────────────────────
+// How many warms run at once. Small on purpose: a warm must never crowd out the real
+// requests the user's browser is making at the same time.
+const WARM_CONCURRENCY = 3
+
+/** Pre-fill the disk cache (and the `w` variant) for images a client is ABOUT to ask for,
+ *  so the first view is a disk hit instead of a live fetch to some CDN while the card is
+ *  already on screen. Already-cached URLs cost one existsSync. Fire and forget: this
+ *  never throws and its result is not awaited by request handlers. */
+export async function warmProxyImages(urls: (string | null | undefined)[], w?: string): Promise<void> {
+  const list = urls.filter((u): u is string => !!u)
+  for (let i = 0; i < list.length; i += WARM_CONCURRENCY) {
+    await Promise.allSettled(
+      list.slice(i, i + WARM_CONCURRENCY).map((u) => getOrFetchProxyImageResized(u, w)),
+    )
+  }
 }
 
 /** Bound the cache: if total bytes exceed the ceiling, delete oldest files first. */

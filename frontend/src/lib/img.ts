@@ -1,3 +1,5 @@
+import type { ImgHTMLAttributes } from 'react'
+
 // App-wide image proxy helper. Route any remote image the UI renders through the backend's
 // /api/img read-through cache instead of letting the browser hit the upstream host. This
 // keeps the user's IP/Referer off third-party CDNs (privacy), survives signed/hotlink-
@@ -38,11 +40,40 @@ export function proxyImgAuto(url: string | null | undefined, w?: number): string
   try {
     const u = new URL(url, window.location.origin)
     if ((u.protocol === 'https:' || u.protocol === 'http:') && YT_IMG_HOSTS.test(u.hostname)) {
-      // The YouTube proxy serves its own DB-cached bytes and has no resize path; YouTube
-      // thumbnails are already size-tiered upstream (mqdefault/hqdefault), so `w` is
-      // intentionally ignored on this branch.
-      return `/api/youtube/img?u=${encodeURIComponent(u.toString())}`
+      // Video thumbnails are already size-tiered upstream (mqdefault/hqdefault), so `w`
+      // rarely matters for them. Channel avatars are the opposite: YouTube hands them over
+      // at up to 900px square for a 20px circle, so the proxy uses `w` to ask Google's CDN
+      // for the right `=sNNN` size (falling back to its own downscale). Pass the DEVICE-
+      // pixel width, same contract as proxyImg.
+      return `/api/youtube/img?u=${encodeURIComponent(u.toString())}${w ? `&w=${Math.round(w)}` : ''}`
     }
   } catch { /* fall through to the generic proxy's own handling */ }
   return proxyImg(url, w)
+}
+
+/** Device-pixel width a card-sized creator avatar (size-4 through size-8, at up to 3x)
+ *  asks for. Anything bigger - channel headers, creator rails - passes AVATAR_W_LARGE. */
+export const AVATAR_W = 96
+/** Device-pixel width for header/rail avatars (size-14 through size-24 at up to 3x). */
+export const AVATAR_W_LARGE = 288
+
+/** The exact URL CreatorAvatar renders. Preloaders MUST build their URLs through this,
+ *  with the same width, or they warm a URL no card ever requests. */
+export function avatarImgUrl(url: string | null | undefined, width: number = AVATAR_W): string {
+  return proxyImgAuto(url, width)
+}
+
+/** Loading attributes for a card image. `eager` is for the first screenful of a surface
+ *  only: those load immediately at high priority so the page paints with real art. Every
+ *  card below stays lazy and is warmed ahead of the scroll instead
+ *  (lib/prefetch/useScrollAheadImages), which keeps the browser's handful of connections
+ *  to the hub pointed at what the user is actually looking at.
+ *
+ *  `fetchpriority` is spelled lowercase and cast: React 18 forwards unknown all-lowercase
+ *  attributes to the DOM untouched, so this behaves the same before and after React 19
+ *  learned the camelCase prop. */
+export function imgLoad(eager?: boolean): ImgHTMLAttributes<HTMLImageElement> {
+  return (eager
+    ? { loading: 'eager', fetchpriority: 'high' }
+    : { loading: 'lazy' }) as ImgHTMLAttributes<HTMLImageElement>
 }

@@ -34,6 +34,19 @@ const TTL_MS = 24 * 60 * 60 * 1000
 // just forces a pointless re-fetch of identical bytes on the next view, so they get a month.
 const VIDEO_THUMB_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const isVideoThumbUrl = (url: string): boolean => url.includes('i.ytimg.com/vi/')
+// Channel avatars + banners (yt3.ggpht.com / yt3.googleusercontent.com). These are the
+// images the UI paints on EVERY card, and they are the ones Google's CDN 429s when
+// hotlinked, so evicting them 24h after they were fetched just guaranteed a cold,
+// rate-limited re-fetch the next time you scrolled a feed. Keep them for a month like
+// video thumbnails (they are a few KB each at the avatar sizes we request) and refresh
+// them in the background instead, so a channel that rebrands still updates.
+const CHANNEL_ART_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const isChannelArtUrl = (url: string): boolean => url.includes('ggpht.com') || url.includes('googleusercontent.com')
+// Background refresh for non-subscribed channel art: revalidate once a week, bounded per
+// pass so a big browsing history can't turn one maintenance run into thousands of
+// requests. Each is conditional, so an unchanged avatar costs a 304 and no bytes.
+const CHANNEL_ART_RENEW_MS = 7 * 24 * 60 * 60 * 1000
+const CHANNEL_ART_RENEW_BATCH = 200
 const FETCH_TIMEOUT_MS = 10_000
 
 // Only fetch from YouTube's own image hosts — same allow-list the proxy route enforces.
@@ -41,6 +54,24 @@ const ALLOWED_HOST = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtub
 
 function hashUrl(url: string): string {
   return createHash('sha256').update(url).digest('hex')
+}
+
+// Sizes Google's avatar CDN serves directly via the URL's `=sNNN` segment.
+const AVATAR_SIZES = [48, 96, 176, 288, 480, 800] as const
+
+/** Rewrite a Google channel-avatar URL's `=sNNN` size segment to the smallest size that
+ *  covers `w` device pixels. YouTube hands us avatars at up to 900px square and the UI
+ *  paints them into 20-32px circles, so asking the CDN for the right size beats
+ *  downloading the original and downscaling it here (and it is the one image the whole
+ *  card grid needs at once). Returns null when the URL has no size segment - banners use
+ *  `=w<width>-fcrop…` and must not be touched - or when `w` is unusable; the caller then
+ *  falls back to the generic vips downscale. */
+export function sizedChannelArtUrl(rawUrl: string, w: string | undefined): string | null {
+  const want = Number(w)
+  if (!Number.isFinite(want) || want <= 0) return null
+  if (!/=s\d+(-|$)/.test(rawUrl)) return null
+  const size = AVATAR_SIZES.find(s => s >= want) ?? AVATAR_SIZES[AVATAR_SIZES.length - 1]!
+  return rawUrl.replace(/=s\d+(?=-|$)/, `=s${size}`)
 }
 
 type Fetched = { data: Buffer; contentType: string; etag: string | null; lastModified: string | null }
@@ -137,13 +168,49 @@ export async function getOrFetchImage(rawUrl: string): Promise<{ data: Buffer; c
  *  serves a bucketed webp downscale rendered beside the original, or the original when
  *  resizing isn't possible (no vips, animated source, bad width). */
 export async function getOrFetchImageResized(rawUrl: string, w: string | undefined): Promise<{ data: Buffer; contentType: string } | null> {
+  const { bucketFor, getResizedVariant, readCachedVariant } = await import('@/lib/imageResize')
+  const bucket = bucketFor(w)
+  const srcPath = join(CACHE_DIR, hashUrl(rawUrl))
+  // Warm path first: serve an already-rendered variant without reading (or DB-looking-up)
+  // the original. readCachedVariant stats the source too, so an orphaned variant whose
+  // original was evicted falls through to the full path instead of being served.
+  if (bucket) {
+    const hit = await readCachedVariant(srcPath, bucket)
+    if (hit) return hit
+  }
   const orig = await getOrFetchImage(rawUrl)
   if (!orig) return null
-  const { bucketFor, getResizedVariant } = await import('@/lib/imageResize')
-  const bucket = bucketFor(w)
   if (!bucket) return orig
-  const variant = await getResizedVariant(join(CACHE_DIR, hashUrl(rawUrl)), orig.contentType, bucket)
+  const variant = await getResizedVariant(srcPath, orig.contentType, bucket)
   return variant ?? orig
+}
+
+// ── Background warming ─────────────────────────────────────────────────────────
+
+// Kept small so a warm never crowds out the real requests a browser is making at the
+// same time (and never looks like a burst to Google's CDNs).
+const WARM_CONCURRENCY = 3
+
+/**
+ * Pre-fill the cache for card art a client is ABOUT to request, so the first view is a
+ * disk hit rather than a live fetch to Google with the card already on screen.
+ *
+ * CONTRACT: these must be the exact URLs the UI asks for, or the warm fills keys nobody
+ * reads. The frontend builds a video thumbnail as `i.ytimg.com/vi/<id>/mqdefault.jpg`
+ * (lib/youtube/format thumbUrl, quality 'mq') - NOT whatever thumbnail URL a feed
+ * happened to carry - and requests channel avatars with a width, which this route rewrites
+ * to Google's own `=sNNN` size (see sizedChannelArtUrl / lib/img AVATAR_W).
+ */
+export async function warmYoutubeCardImages(videoIds: string[], avatarUrls: (string | null | undefined)[] = []): Promise<void> {
+  // Deduped: an avatar URL with no `=sNNN` segment resolves to the same key at both widths.
+  const urls = [...new Set([
+    ...videoIds.map((id) => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`),
+    // Both avatar sizes the UI can ask for: cards (AVATAR_W) and headers (AVATAR_W_LARGE).
+    ...avatarUrls.flatMap((u) => (u ? ['96', '288'].map((w) => sizedChannelArtUrl(u, w) ?? u) : [])),
+  ])]
+  for (let i = 0; i < urls.length; i += WARM_CONCURRENCY) {
+    await Promise.allSettled(urls.slice(i, i + WARM_CONCURRENCY).map((u) => getOrFetchImage(u)))
+  }
 }
 
 // ── Maintenance ────────────────────────────────────────────────────────────────
@@ -212,13 +279,39 @@ async function renewSubscribed(now: number): Promise<void> {
   }
 }
 
+// Conditionally re-validate non-subscribed channel art that has gone a week without a
+// check. Mirrors renewSubscribed, but bounded per pass (CHANNEL_ART_RENEW_BATCH) because
+// this set grows with everything you have ever browsed, not with what you subscribed to.
+async function renewChannelArt(now: number): Promise<void> {
+  const due = (await db.select().from(ytImageCache)
+    .where(and(eq(ytImageCache.subscribed, false), lt(ytImageCache.checkedAt, new Date(now - CHANNEL_ART_RENEW_MS)))))
+    .filter(r => isChannelArtUrl(r.url))
+    .slice(0, CHANNEL_ART_RENEW_BATCH)
+  for (const row of due) {
+    const res = await fetchUpstream(row.url, { etag: row.etag, lastModified: row.lastModified })
+    if (res === 'not-modified') {
+      await db.update(ytImageCache).set({ checkedAt: new Date(now) }).where(eq(ytImageCache.urlHash, row.urlHash))
+    } else if (res) {
+      await persist(row.urlHash, row.url, res)
+    }
+    // res === null → upstream hiccup (a 429 included); keep the bytes and retry next pass.
+  }
+}
+
 // Delete non-subscribed entries past their TTL (24h, or 30 days for immutable video
-// thumbnails — see VIDEO_THUMB_TTL_MS), plus any orphaned files on disk.
+// thumbnails and for channel art — see VIDEO_THUMB_TTL_MS / CHANNEL_ART_TTL_MS), plus
+// any orphaned files on disk.
+function ttlFor(url: string): number {
+  if (isVideoThumbUrl(url)) return VIDEO_THUMB_TTL_MS
+  if (isChannelArtUrl(url)) return CHANNEL_ART_TTL_MS
+  return TTL_MS
+}
+
 async function evictExpired(now: number): Promise<void> {
   const stale = await db.select().from(ytImageCache)
     .where(and(eq(ytImageCache.subscribed, false), lt(ytImageCache.fetchedAt, new Date(now - TTL_MS))))
   for (const row of stale) {
-    if (isVideoThumbUrl(row.url) && row.fetchedAt.getTime() > now - VIDEO_THUMB_TTL_MS) continue
+    if (row.fetchedAt.getTime() > now - ttlFor(row.url)) continue
     if (row.filePath) { try { await unlink(join(CACHE_DIR, row.filePath)) } catch { /* already gone */ } }
     await db.delete(ytImageCache).where(eq(ytImageCache.urlHash, row.urlHash))
   }
@@ -234,7 +327,8 @@ async function evictExpired(now: number): Promise<void> {
 }
 
 let _running = false
-/** One maintenance pass: reconcile subscribed flags → renew subscribed art → evict stale. */
+/** One maintenance pass: reconcile subscribed flags → renew subscribed art → refresh
+ *  non-subscribed channel art → evict stale. */
 export async function runImageCacheMaintenance(): Promise<void> {
   if (_running) return
   _running = true
@@ -242,6 +336,7 @@ export async function runImageCacheMaintenance(): Promise<void> {
   try {
     await reconcileSubscribed()
     await renewSubscribed(now)
+    await renewChannelArt(now)
     await evictExpired(now)
   } catch (err) {
     logger.warn(`[youtube] image cache maintenance error: ${err}`)

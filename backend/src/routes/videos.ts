@@ -37,6 +37,7 @@ import { resolveClip } from '@/lib/clipper/resolve'
 import { resolveVideoTranscript, resolveVideoVtt } from '@/lib/podcast/transcript'
 import { summarizeTranscriptText } from '@/lib/youtube/summarize'
 import { stampSmartTitles } from '@/lib/videos/smartTitle'
+import { warmHubCardImages } from '@/lib/videos/imageWarm'
 import { serveVideosSuggested } from '@/lib/interests/videos'
 import { cachedLookup, cachedLookupStale } from '@/lib/lookupCache'
 import type { Pager, Playlist, VideoItem, VideoSource } from '@/lib/videos/types'
@@ -193,7 +194,12 @@ videosRoute.get('/home', async (c) => {
   // kid tier) over the merged feed. The per-feed adult filters above are a cheap first cut;
   // this is the authoritative gate every hub list route shares.
   const safe = await filterVideosForUser(user.id, items)
-  return c.json({ items: await stampSmartTitles(safe, user.id), cursor })
+  const stamped = await stampSmartTitles(safe, user.id)
+  // Fire and forget: pull this page's card art into the image caches while the browser is
+  // still parsing the response, so the thumbnails and channel logos are already on disk by
+  // the time the cards ask for them (rather than being fetched as each one scrolls in).
+  void warmHubCardImages(stamped)
+  return c.json({ items: stamped, cursor })
 })
 
 // ── Suggested for you: interest-engine rail across every source ────────────────

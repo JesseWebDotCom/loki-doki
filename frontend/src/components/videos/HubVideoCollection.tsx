@@ -3,6 +3,8 @@ import { cn } from '@/lib/cn'
 import type { CardListView } from '@/components/shared/ViewToggle'
 import type { HubVideoItem } from '@/lib/videos/api'
 import { HubCard, HubRow } from '@/components/videos/HubCard'
+import { EAGER_CARDS, hubItemImageUrls } from '@/lib/prefetch/cardImageUrls'
+import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 
 // Same grid metrics as YT_GRID/YT_SHORTS_GRID (components/youtube/VideoCollection.tsx)
 // so every source page's grid measures identically to YouTube's.
@@ -25,11 +27,16 @@ export function HubVideoCollection({ items, view, showSource, className }: {
   const tall = view === 'big'
   const gridClass = isList ? 'space-y-1' : tall ? VERTICAL_GRID : GRID
   const shape: 'wide' | 'tall' = tall ? 'tall' : 'wide'
+  // Every page that renders a hub grid gets scroll-ahead warming from here, so no page has
+  // to remember to ask for it (and appended infinite-scroll pages are warmed as they land).
+  useScrollAheadImages(hubItemImageUrls(items))
   return (
     <div className={cn(gridClass, className)}>
-      {items.map((i) => (
+      {items.map((i, idx) => (
         <Fragment key={keyOf(i)}>
-          {isList ? <HubRow item={i} showSource={showSource} /> : <HubCard item={i} showSource={showSource} shape={shape} />}
+          {isList
+            ? <HubRow item={i} showSource={showSource} eager={idx < EAGER_CARDS} />
+            : <HubCard item={i} showSource={showSource} shape={shape} eager={idx < EAGER_CARDS} />}
         </Fragment>
       ))}
     </div>

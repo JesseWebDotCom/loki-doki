@@ -10,6 +10,9 @@ import { ytImageProxy } from '@/lib/youtube/api'
 import type { VideoItem } from '@/lib/youtube/types'
 import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
+import { AVATAR_W_LARGE } from '@/lib/img'
+import { EAGER_RAIL_CARDS, ytItemImageUrls } from '@/lib/prefetch/cardImageUrls'
+import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 import { PlaylistCard as GenericPlaylistCard, PlaylistListRow as GenericPlaylistListRow, type PlaylistCardData } from '@/components/videos/PlaylistCard'
 import type { CardListView } from '@/components/shared/ViewToggle'
 
@@ -47,6 +50,8 @@ export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid', 
   view?: CardListView
   onDismiss?: (item: VideoItem) => void
 }) {
+  // Before the empty guard: hooks cannot run conditionally, and an empty list is a no-op here.
+  useScrollAheadImages(ytItemImageUrls(items))
   if (!items.length) return null
   // The toggle drives the rail's card shape too, so a shelf matches the grid below it: a
   // dedicated Shorts shelf stays tall; otherwise Tall = 9:16 cells, Wide = 16:9 cells.
@@ -60,17 +65,17 @@ export function MediaShelf({ title, to, items, aspect = 'video', view = 'grid', 
       <SectionHeader title={title} to={to} className="mb-4" />
       {view === 'list' ? (
         <div className="space-y-1">
-          {items.map(i => (
+          {items.map((i, idx) => (
             <div key={i.videoId + (i.localKind ?? '')}>
-              {wrap(i, <VideoListRow item={i} aspect={aspect} />)}
+              {wrap(i, <VideoListRow item={i} aspect={aspect} eager={idx < EAGER_RAIL_CARDS} />)}
             </div>
           ))}
         </div>
       ) : (
         <HScroll>
-          {items.map(i => (
+          {items.map((i, idx) => (
             <div key={i.videoId + (i.localKind ?? '')} className={cn('shrink-0', tall ? 'w-44' : 'w-72')}>
-              {wrap(i, <VideoCard item={i} aspect={aspect} shape={shape} />)}
+              {wrap(i, <VideoCard item={i} aspect={aspect} shape={shape} eager={idx < EAGER_RAIL_CARDS} />)}
             </div>
           ))}
         </HScroll>
@@ -127,7 +132,7 @@ export function ChannelRail({ title = 'Top channels', to, channels }: { title?: 
           <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`}
             state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
             className="group flex w-28 shrink-0 flex-col items-center gap-2 text-center">
-            <CreatorAvatar title={c.title} src={c.thumbnailUrl} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+            <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <p className="line-clamp-1 w-full text-sm font-semibold">{c.title}</p>
             {c.subtitle && <p className="line-clamp-1 w-full text-xs text-muted-foreground">{c.subtitle}</p>}
           </Link>

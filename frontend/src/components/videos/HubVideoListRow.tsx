@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/cn'
-import { proxyImg } from '@/lib/img'
+import { imgLoad, proxyImg } from '@/lib/img'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { toast } from '@/lib/toast'
 import type { HubVideoItem } from '@/lib/videos/api'
 import { SOURCE_META } from '@/lib/videos/sources'
+import { HUB_THUMB_W } from '@/lib/prefetch/cardImageUrls'
 import { CardMetaBlock, DurationBadge, OnlineOnlyBadge, WatchProgressBar } from '@/components/videos/cardParts'
 import { HUB_PATHS, useOfflineSet } from '@/components/videos/HubVideoCard'
 import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
@@ -12,7 +13,7 @@ import { useYoutubeModeOptional } from '@/components/videos/VideosLayout'
 
 /** Full-width horizontal list row, matching HubVideoCard's grid card layout: the list
  *  counterpart used when the view toggle is set to "list" (mirrors youtube's VideoListRow). */
-export function HubVideoListRow({ item, showSource = true }: { item: HubVideoItem; showSource?: boolean }) {
+export function HubVideoListRow({ item, showSource = true, eager }: { item: HubVideoItem; showSource?: boolean; eager?: boolean }) {
   const dur = fmtDur(item.durationSec)
   const progress = item.watch && !item.watch.completed && item.durationSec ? Math.min(1, item.watch.positionSec / item.durationSec) : 0
   // Kept apart (not one joined+truncated string) so a very long creator name only eats
@@ -36,8 +37,10 @@ export function HubVideoListRow({ item, showSource = true }: { item: HubVideoIte
           vertical item's thumbnail simply crops to fit (matches youtube's VideoListRow). */}
       <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-card shadow-md ring-1 ring-white/10 sm:w-56">
         <VideoPlaceholderArt source={item.source} />
+        {/* Same width as the grid card so switching views reuses the warmed bytes instead
+            of pulling a second size (this row used to request the ORIGINAL bytes). */}
         {item.thumbnailUrl && (
-          <img src={proxyImg(item.thumbnailUrl)} alt="" loading="lazy" className="relative size-full object-cover transition group-hover:scale-105" />
+          <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)} className="relative size-full object-cover transition group-hover:scale-105" />
         )}
         {showSource && (
           <span className={cn('absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>
@@ -48,7 +51,7 @@ export function HubVideoListRow({ item, showSource = true }: { item: HubVideoIte
         <DurationBadge label={dur} />
         <WatchProgressBar progress={progress} completed={item.watch?.completed} />
       </div>
-      <CardMetaBlock layout="row" title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} />
+      <CardMetaBlock layout="row" title={item.title} creatorName={creatorName} creatorAvatarUrl={item.creator?.avatarUrl} metaSuffix={metaSuffix} ghosted={ghosted} eager={eager} />
     </Link>
   )
 }

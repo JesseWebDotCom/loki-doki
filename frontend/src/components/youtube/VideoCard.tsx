@@ -69,7 +69,7 @@ function useCardSave(item: Pick<VideoItem, 'videoId' | 'localKind'>, title: stri
   return { saveState, onSave }
 }
 
-function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, onSave }: { i: VideoItem; aspect: 'video' | 'short'; shape?: 'wide' | 'tall'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void }) {
+function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, onSave, eager }: { i: VideoItem; aspect: 'video' | 'short'; shape?: 'wide' | 'tall'; ghosted?: boolean; overrideSrc?: string | null; previewSrc?: string | null; saveState?: 'saved' | 'saving' | null; onSave?: (e: MouseEvent) => void; eager?: boolean }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   // Fades in once the preview clip is actually decoding a frame, rather than the instant
@@ -82,7 +82,7 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
   const letterbox = cardTall && aspect !== 'short'
   const media = (
     <>
-      <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('relative size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
+      <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} eager={eager} className={cn('relative size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       {previewSrc && !ghosted && (
         <video
           key={previewSrc} src={previewSrc} muted autoPlay loop playsInline preload="auto"
@@ -99,7 +99,7 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
       <VideoPlaceholderArt source="youtube" />
       {letterbox ? (
         <>
-          <VideoThumb videoId={i.videoId} title="" overrideSrc={overrideSrc} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
+          <VideoThumb videoId={i.videoId} title="" overrideSrc={overrideSrc} eager={eager} className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
           <div className="pointer-events-none absolute inset-0 bg-black/20" />
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="relative aspect-video w-full overflow-hidden">{media}</div>
@@ -150,7 +150,7 @@ function Thumb({ i, aspect, shape, ghosted, overrideSrc, previewSrc, saveState, 
 }
 
 /** Vertical video card: thumbnail, title, channel · age. Click opens the watch (or Shorts) page. */
-export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; aspect?: 'video' | 'short'; shape?: 'wide' | 'tall' }) {
+export function VideoCard({ item, aspect = 'video', shape, eager }: { item: VideoItem; aspect?: 'video' | 'short'; shape?: 'wide' | 'tall'; eager?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   // Kept apart (not one joined+truncated string) so a very long channel name only eats
   // into itself — views/age stay fully visible instead of getting truncated away with it.
@@ -166,8 +166,8 @@ export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; 
   const to = aspect === 'short' && !item.localKind ? `/videos/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} shape={shape} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
-      <CardMetaBlock title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} />
+      <Thumb i={item} aspect={aspect} shape={shape} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} eager={eager} />
+      <CardMetaBlock title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} eager={eager} />
     </>
   )
   if (ghosted) {
@@ -186,7 +186,7 @@ export function VideoCard({ item, aspect = 'video', shape }: { item: VideoItem; 
 
 /** Full-width horizontal list row: wide thumbnail + title, channel · age. Used by the
  *  channel page's list view; mirrors VideoCard's ghost/save/navigation behavior. */
-export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
+export function VideoListRow({ item, aspect = 'video', eager }: { item: VideoItem; aspect?: 'video' | 'short'; eager?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   // Kept apart (not one joined+truncated string) so a very long channel name only eats
   // into itself — views/age stay fully visible instead of getting truncated away with it.
@@ -200,9 +200,9 @@ export function VideoListRow({ item, aspect = 'video' }: { item: VideoItem; aspe
   const body = (
     <>
       <div className={cn('shrink-0', aspect === 'short' ? 'w-24 sm:w-28' : 'w-40 sm:w-56')}>
-        <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} />
+        <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} previewSrc={previewSrc} saveState={saveState} onSave={onSave} eager={eager} />
       </div>
-      <CardMetaBlock layout="row" title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} />
+      <CardMetaBlock layout="row" title={title} creatorName={item.author} creatorAvatarUrl={item.channelThumb} metaSuffix={metaSuffix} ghosted={ghosted} eager={eager} />
     </>
   )
   if (ghosted) {

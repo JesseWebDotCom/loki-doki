@@ -64,8 +64,8 @@ export function hubHistoryToItem(h: HubHistoryRow): HubVideoItem {
  *  the full VideoCard — so hover-to-preview works everywhere, not just the main grid — with
  *  a source badge added (VideoCard has none of its own); every other source uses HubVideoCard.
  *  `shape` keeps them the same size. */
-export function HubCard({ item, shape, showSource = true }: { item: HubVideoItem; shape?: 'wide' | 'tall'; showSource?: boolean }) {
-  if (item.source !== 'youtube') return <HubVideoCard item={item} shape={shape} showSource={showSource} />
+export function HubCard({ item, shape, showSource = true, eager }: { item: HubVideoItem; shape?: 'wide' | 'tall'; showSource?: boolean; eager?: boolean }) {
+  if (item.source !== 'youtube') return <HubVideoCard item={item} shape={shape} showSource={showSource} eager={eager} />
   return (
     <div className="relative">
       {showSource && (
@@ -73,14 +73,14 @@ export function HubCard({ item, shape, showSource = true }: { item: HubVideoItem
           <SOURCE_META.youtube.icon className="size-2.5" aria-hidden /> YouTube
         </span>
       )}
-      <VideoCard item={hubToYtItem(item)} shape={shape} />
+      <VideoCard item={hubToYtItem(item)} shape={shape} eager={eager} />
     </div>
   )
 }
 
 /** List-row counterpart of HubCard. */
-export function HubRow({ item, showSource = true }: { item: HubVideoItem; showSource?: boolean }) {
+export function HubRow({ item, showSource = true, eager }: { item: HubVideoItem; showSource?: boolean; eager?: boolean }) {
   return item.source === 'youtube'
-    ? <VideoListRow item={hubToYtItem(item)} />
-    : <HubVideoListRow item={item} showSource={showSource} />
+    ? <VideoListRow item={hubToYtItem(item)} eager={eager} />
+    : <HubVideoListRow item={item} showSource={showSource} eager={eager} />
 }
