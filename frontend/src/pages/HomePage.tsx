@@ -289,7 +289,7 @@ function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDo
         {/* article thumbnail */}
         {item.imageUrl && (
           <div className="shrink-0 w-[26px] h-[26px] overflow-hidden rounded bg-muted">
-            <img src={proxyImg(item.imageUrl)} alt="" loading="lazy" className="size-full object-cover" />
+            <img src={proxyImg(item.imageUrl, 240)} alt="" loading="lazy" className="size-full object-cover" />
           </div>
         )}
         {/* favicon */}
@@ -595,7 +595,7 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
                 {item.imageUrl ? (
                   <div className="w-full aspect-video overflow-hidden rounded-card bg-muted ring-1 ring-inset ring-border/40 transition-shadow group-hover:shadow-lg group-hover:shadow-black/20">
                     <img
-                      src={item.imageUrl} alt="" loading="lazy"
+                      src={proxyImg(item.imageUrl, 480)} alt="" loading="lazy"
                       className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                     />
                   </div>
@@ -778,7 +778,7 @@ function BriefingRow({ item, icon: Icon, tint, label }: { item: NewsItem; icon: 
   const inner = (
     <div className="group flex items-center gap-2.5 py-2.5">
       {item.imageUrl
-        ? <img src={proxyImg(item.imageUrl)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover ring-1 ring-inset ring-border/40" />
+        ? <img src={proxyImg(item.imageUrl, 240)} alt="" loading="lazy" className="size-9 shrink-0 rounded-control object-cover ring-1 ring-inset ring-border/40" />
         : <div className={cn("grid size-9 shrink-0 place-items-center rounded-control", tint)}><Icon className="size-4" /></div>}
       <div className="min-w-0 flex-1">
         <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/50">{label}</p>
@@ -860,7 +860,7 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
                     {t.weather
                       ? <BriefingWeatherArt />
                       : t.item.imageUrl
-                      ? <img src={proxyImg(t.item.imageUrl)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                      ? <img src={proxyImg(t.item.imageUrl, 480)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       : <div className="grid size-full place-items-center bg-muted"><Icon className="size-7 text-muted-foreground/40" /></div>}
                     {t.item.imageUrl && <div className="absolute inset-0 bg-gradient-to-b from-black/45 to-transparent" />}
                     <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -948,9 +948,11 @@ const ytThumb = (videoId: string) => ytImageProxy(`https://i.ytimg.com/vi/${vide
 
 // Hub items don't carry a YouTube thumbnail URL (ytItemToHub omits it); derive it from
 // the id, and proxy everything else through the generic image cache.
-function hubThumb(it: HubVideoItem): string | null {
+/** `w` is the DEVICE-pixel width the card renders at. Without it the proxy hands back the
+ *  ORIGINAL bytes, so a 200px rail card was downloading a full-size thumbnail. */
+function hubThumb(it: HubVideoItem, w: number): string | null {
   if (it.source === 'youtube') return ytThumb(it.id);
-  return it.thumbnailUrl ? proxyImg(it.thumbnailUrl) : null;
+  return it.thumbnailUrl ? proxyImg(it.thumbnailUrl, w) : null;
 }
 
 /** Full-width editorial shelf for row-mode widgets: the section title sits
@@ -993,7 +995,7 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
           <div className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {vids.map((it) => {
               const age = it.publishedText ?? fmtAge(it.publishedAt);
-              const thumb = hubThumb(it);
+              const thumb = hubThumb(it, 480);
               return (
                 <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group shrink-0 w-[200px] flex flex-col gap-2">
                   <div className="relative aspect-video w-full overflow-hidden rounded-card bg-muted ring-1 ring-inset ring-border/40 transition-shadow group-hover:shadow-lg group-hover:shadow-black/20">
@@ -1037,7 +1039,7 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
       <div className="space-y-2 flex-1">
           {vids.map((it) => {
             const age = it.publishedText ?? fmtAge(it.publishedAt);
-            const thumb = hubThumb(it);
+            const thumb = hubThumb(it, 240);
             return (
               <Link key={`${it.source}:${it.id}`} to={HUB_PATHS[it.source].watch(it.id)} className="group flex gap-2.5">
                 <div className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-control bg-muted">

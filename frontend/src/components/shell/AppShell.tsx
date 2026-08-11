@@ -34,6 +34,7 @@ import { useArtifactState } from "@/lib/canvas/artifactStore";
 import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
+import { useLazyImageWarmer } from "@/lib/prefetch/useLazyImageWarmer";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
 import { useDropReceiver } from "@/hooks/useDropReceiver";
 
@@ -63,6 +64,9 @@ function PageLoading() {
 export function AppShell() {
   // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
   useAppWarmer();
+  // Warm every deferred <img> on whatever page is open, so card art is already cached by
+  // the time you scroll to it instead of starting its request as the card appears.
+  useLazyImageWarmer();
   // Controller / Tab5 button commands over SSE.
   useBrowserSession();
   // Device-to-device Drop: receive files/links pushed from another of your devices.
