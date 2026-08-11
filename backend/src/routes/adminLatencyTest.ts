@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
 import { ollamaChatStream } from '@/llm/ollama'
-import { embed, EMBED_MODEL } from '@/llm/embed'
+import { embed, getEmbedModel } from '@/llm/embed'
 import { recallMemories, formatMemoriesForPrompt, countActiveMemories } from '@/memory/recall'
 import { routePrompt } from '@/llm/router'
 import { getModel } from '@/lib/models'
@@ -83,7 +83,7 @@ adminLatencyTest.get('/stream', requireAdmin, async (c) => {
         return { chatLoaded, embedLoaded }
       })
       const detail = error ?? (value
-        ? `${model}: ${value.chatLoaded ? 'in VRAM' : 'NOT in VRAM'} | ${EMBED_MODEL}: ${value.embedLoaded ? 'in VRAM' : 'NOT in VRAM'}`
+        ? `${model}: ${value.chatLoaded ? 'in VRAM' : 'NOT in VRAM'} | ${getEmbedModel()}: ${value.embedLoaded ? 'in VRAM' : 'NOT in VRAM'}`
         : undefined)
       await emit({
         id: 'model-residency',

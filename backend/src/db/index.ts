@@ -648,6 +648,25 @@ export function runMigrations() {
     console.warn('[migrations] vision QAT migration failed:', err instanceof Error ? err.message : err)
   }
 
+  // One-time: backfill the model_set setting for installs that predate model sets.
+  // Derive from the current chat model — a Qwen 3.5 chat pin means the 'latest' set,
+  // anything else (or nothing) is 'original'. Skipped when model_set already exists.
+  try {
+    const done = sqlite.query(`SELECT 1 FROM app_settings WHERE key='migr.model_set_backfill'`).get()
+    if (!done) {
+      const existing = sqlite.query(`SELECT 1 FROM app_settings WHERE key='model_set'`).get()
+      if (!existing) {
+        const modelRow = sqlite.query(`SELECT value FROM app_settings WHERE key='model'`).get() as { value?: string } | null
+        const set = modelRow?.value?.includes('qwen3.5-abliterated') ? 'latest' : 'original'
+        sqlite.exec(`INSERT OR IGNORE INTO app_settings (id, key, value, updated_at) VALUES (lower(hex(randomblob(16))), 'model_set', '"${set}"', ${Date.now()});`)
+        console.warn(`[migrations] backfilled model_set='${set}' from the active chat model`)
+      }
+      sqlite.exec(`INSERT OR IGNORE INTO app_settings (id, key, value, updated_at) VALUES (lower(hex(randomblob(16))), 'migr.model_set_backfill', '"done"', ${Date.now()});`)
+    }
+  } catch (err) {
+    console.warn('[migrations] model_set backfill failed:', err instanceof Error ? err.message : err)
+  }
+
   // Music Studio: source-fetch state (added after the table shipped — belt-and-suspenders).
   addColumn('music_studio_tracks', 'source_status', "TEXT NOT NULL DEFAULT 'ready'")
   addColumn('music_studio_tracks', 'source_error', 'TEXT')

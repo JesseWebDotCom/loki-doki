@@ -48,14 +48,19 @@ interface CatalogEntry {
   builtinVision?: boolean
   linkedWith?: string[]
   requires?: string[]
+  sets?: string[]
 }
 
 interface CatalogTier { id: string; label: string; detail: string }
+
+interface CatalogModelSet { id: string; label: string; description: string }
 
 interface CatalogResponse {
   hardware: { totalRamGb: number; isAppleSilicon: boolean; platform: string }
   recommendedTier: string
   tiers: CatalogTier[]
+  sets?: CatalogModelSet[]
+  activeSet?: string
   models: CatalogEntry[]
   disk: { freeBytes: number; totalBytes: number }
   ollamaRunning: boolean
@@ -872,25 +877,27 @@ function AreaStep({ onNext }: { onNext: () => void }) {
 // ── Components (models) step - preserved logic, restyled header ─────────────────
 
 interface ModelsStepProps {
-  onNext: (modelIds: string[], componentIds: string[], tier: string, ollamaInstalled: boolean) => void
+  onNext: (modelIds: string[], componentIds: string[], tier: string, ollamaInstalled: boolean, modelSet: string) => void
   initialTier?: string
   initialIds?: string[]
   initialComponents?: string[] | null
+  initialModelSet?: string
 }
 
 const LLM_ROLES: ModelRole[] = ['llm', 'uncensored_llm']
 
-function defaultsForTier(models: CatalogEntry[], tier: string): string[] {
+function defaultsForTier(models: CatalogEntry[], tier: string, set: string): string[] {
   return models
-    .filter((m) => m.tiers.includes(tier) && m.recommended)
+    .filter((m) => m.tiers.includes(tier) && m.recommended && (!m.sets || m.sets.includes(set)))
     .map((m) => m.id)
 }
 
-function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: ModelsStepProps) {
+function ModelsStep({ onNext, initialTier, initialIds, initialComponents, initialModelSet }: ModelsStepProps) {
   const [catalog, setCatalog]         = useState<CatalogResponse | null>(null)
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState('')
   const [selectedTier, setTier]       = useState('')
+  const [modelSet, setModelSet]       = useState('original')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   // Default to all capabilities selected; users uncheck what they don't want.
   // On revisit, restore the previously chosen capabilities.
@@ -946,9 +953,10 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
       .then((data: CatalogResponse) => {
         setCatalog(data); setOllamaRunning(data.ollamaRunning); setOllamaInstalled(data.ollamaInstalled)
         const tier = initialTier || data.recommendedTier
-        setTier(tier)
+        const set = initialModelSet || data.activeSet || 'original'
+        setTier(tier); setModelSet(set)
         // Restore prior selections on revisit; otherwise pick the tier defaults.
-        setSelectedIds(initialIds && initialIds.length ? initialIds : defaultsForTier(data.models, tier))
+        setSelectedIds(initialIds && initialIds.length ? initialIds : defaultsForTier(data.models, tier, set))
       })
       .catch(() => setError('Could not load model catalog.'))
       .finally(() => setLoading(false))
@@ -966,8 +974,18 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 
   function onTierChange(tier: string) {
     if (!catalog) return
-    setTier(tier); setSelectedIds(defaultsForTier(catalog.models, tier))
+    setTier(tier); setSelectedIds(defaultsForTier(catalog.models, tier, modelSet))
   }
+
+  // Switching sets swaps the whole Ollama lineup, so the selection resets to the new
+  // set's defaults (image/video/voice picks are shared and re-selected by default).
+  function onSetChange(set: string) {
+    if (!catalog) return
+    setModelSet(set); setSelectedIds(defaultsForTier(catalog.models, selectedTier, set))
+  }
+
+  // Entries outside the chosen set are hidden everywhere in this step.
+  const inChosenSet = (m: CatalogEntry) => !m.sets || m.sets.includes(modelSet)
 
   function toggle(model: CatalogEntry) {
     const { id, role } = model
@@ -981,7 +999,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
         let next = prev.filter((x) => { const m = catalog?.models.find((c) => c.id === x); return !m || !LLM_ROLES.includes(m.role) })
         if (nextModel?.builtinVision) next = next.filter((x) => { const m = catalog?.models.find((c) => c.id === x); return m?.role !== 'vision' })
         if (currentLlm?.builtinVision && !nextModel?.builtinVision) {
-          const defaultVision = catalog?.models.find((m) => m.role === 'vision' && m.tiers.includes(selectedTier))
+          const defaultVision = catalog?.models.find((m) => m.role === 'vision' && m.tiers.includes(selectedTier) && inChosenSet(m))
           if (defaultVision && !next.includes(defaultVision.id)) next = [...next, defaultVision.id]
         }
         return [...next, id]
@@ -1021,12 +1039,12 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 
   const tierModels = ROLE_ORDER
     .filter((role) => !LLM_ROLES.includes(role))
-    .map((role) => catalog.models.find((m) => m.role === role && m.tiers.includes(selectedTier)))
+    .map((role) => catalog.models.find((m) => m.role === role && m.tiers.includes(selectedTier) && inChosenSet(m)))
     .filter((m): m is CatalogEntry => !!m)
   const chatModels  = tierModels.filter((m) => CHAT_ROLES.has(m.role))
   const imageModels = tierModels.filter((m) => IMAGE_GEN_ROLES.has(m.role))
   const voiceModels = tierModels.filter((m) => m.role === 'voice')
-  const llmCandidates = catalog.models.filter((m) => LLM_ROLES.includes(m.role) && m.tiers.includes(selectedTier))
+  const llmCandidates = catalog.models.filter((m) => LLM_ROLES.includes(m.role) && m.tiers.includes(selectedTier) && inChosenSet(m))
   const activeLlmId = selectedIds.find((id) => llmCandidates.some((m) => m.id === id))
   const activeLlm   = llmCandidates.find((m) => m.id === activeLlmId)
   const selectedVision = !activeLlm?.builtinVision ? catalog.models.find((m) => m.role === 'vision' && selectedIds.includes(m.id)) : null
@@ -1168,6 +1186,26 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
           <Button type="button" variant="ghost" size="sm" onClick={() => setCustomizing(false)} className="text-muted-foreground">Done</Button>
         </div>
 
+        {/* Model set */}
+        {(catalog.sets?.length ?? 0) > 1 && (
+          <div className="space-y-1.5 rounded-card border border-border bg-card px-4 py-3">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Model set</label>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {catalog.sets!.map((s) => (
+                <button key={s.id} type="button" onClick={() => onSetChange(s.id)}
+                  className={cn(
+                    'rounded-control border px-3 py-2 text-left transition-colors',
+                    modelSet === s.id ? 'border-brand bg-brand/10' : 'border-border hover:border-border/80',
+                  )}>
+                  <p className="text-sm font-medium">{s.label}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground/70">{s.description}</p>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground/60">You can switch sets later in Admin &rarr; Features - the app downloads the new lineup and cleans up the old one.</p>
+          </div>
+        )}
+
         {/* Model size */}
         <div className="space-y-1.5 rounded-card border border-border bg-card px-4 py-3">
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Model size</label>
@@ -1195,7 +1233,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
           {activeLlm && <ModelRow roleKey="llm" label="Language Model" model={activeLlm} allModels={llmCandidates} checked radio icon={ROLE_ICONS[activeLlm.role]} />}
           {chatModels.filter((m) => !(m.role === 'vision' && activeLlm?.builtinVision)).map((m) => (
             <ModelRow key={m.role} roleKey={m.role} label={ROLE_LABELS[m.role]} model={m}
-              allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier))}
+              allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier) && inChosenSet(c))}
               checked={selectedIds.includes(m.id)} required={m.required || m.role === 'embeddings' || m.role === 'router'} icon={ROLE_ICONS[m.role]} />
           ))}
           {activeLlm?.builtinVision && (
@@ -1221,7 +1259,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
             </div>
             {imageModels.map((m) => (
               <ModelRow key={m.role} roleKey={m.role} label={ROLE_LABELS[m.role]} model={m}
-                allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier))}
+                allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier) && inChosenSet(c))}
                 checked={selectedIds.includes(m.id)} required={!!m.required}
                 blocked={(m.requires ?? []).some(r => !selectedIds.includes(r))} icon={ROLE_ICONS[m.role]} />
             ))}
@@ -1233,7 +1271,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
             <p style={{ top: titleH }} className="sticky z-10 -mx-6 glass-chrome px-6 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 sm:-mx-10 sm:px-10">Voice</p>
             {voiceModels.map((m) => (
               <ModelRow key={m.role} roleKey={m.role} label={ROLE_LABELS[m.role]} model={m}
-                allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier))}
+                allModels={catalog.models.filter((c) => c.role === m.role && c.tiers.includes(selectedTier) && inChosenSet(c))}
                 checked={selectedIds.includes(m.id)} icon={ROLE_ICONS[m.role]} />
             ))}
           </div>
@@ -1307,7 +1345,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
             )}
             <div className="flex justify-end pt-1">
               <Button type="button" onClick={() => {
-                onNext(selectedIds, selectedComponents, selectedTier, ollamaRunning)
+                onNext(selectedIds, selectedComponents, selectedTier, ollamaRunning, modelSet)
               }} disabled={!canProceed} size="xl">
                 Continue <ChevronRight className="size-4" />
               </Button>
@@ -1322,7 +1360,7 @@ function ModelsStep({ onNext, initialTier, initialIds, initialComponents }: Mode
 // ── Download step (essentials only) ─────────────────────────────────────────────
 
 interface DownloadStepProps {
-  modelIds: string[]; componentIds: string[]; tier: string; ollamaInstalled: boolean
+  modelIds: string[]; componentIds: string[]; tier: string; modelSet: string; ollamaInstalled: boolean
   onComplete: () => void
 }
 
@@ -1394,7 +1432,7 @@ function jobTitle(j: JobsSetupSummary['jobs'][number]): string {
   return COMPONENT_FRIENDLY[j.refId] ?? RUNTIME_FRIENDLY[j.refId] ?? j.label
 }
 
-function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplete }: DownloadStepProps) {
+function DownloadStep({ modelIds, componentIds, tier, modelSet, ollamaInstalled, onComplete }: DownloadStepProps) {
   const [downloads, setDownloads] = useState<Map<string, ModelDownload>>(() => {
     const m = new Map<string, ModelDownload>()
     // Only the essentials install inline here (Ollama + chat LLM + embeddings + router);
@@ -1475,7 +1513,7 @@ function DownloadStep({ modelIds, componentIds, tier, ollamaInstalled, onComplet
       // home-inventory OCR) is chosen later in the post-boot welcome wizard.
       const res = await fetch('/api/setup/download', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, modelIds, componentIds, essentialOnly: true }), signal: ctrl.signal,
+        body: JSON.stringify({ tier, modelIds, componentIds, modelSet, essentialOnly: true }), signal: ctrl.signal,
       })
       if (!res.ok || !res.body) {
         const r = noteFail('setup-request')
@@ -1889,6 +1927,7 @@ interface SavedState {
   componentIds?: string[]
   tier?: string
   ollamaInstalled?: boolean
+  modelSet?: string
 }
 
 // Fire-and-forget persist of wizard progress so an interruption resumes here.
@@ -1907,6 +1946,7 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
   const [downloadIds, setDownloadIds] = useState<string[]>([])
   const [downloadComponentIds, setDownloadComponentIds] = useState<string[]>([])
   const [downloadTier, setDownloadTier] = useState('')
+  const [downloadModelSet, setDownloadModelSet] = useState('original')
   const [ollamaInstalled, setOllamaInstalled] = useState(false)
   const [maxIdx, setMaxIdx] = useState(0)
   const restoredRef = useRef(false)
@@ -1932,6 +1972,7 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
         if (s.modelIds) setDownloadIds(s.modelIds)
         if (s.componentIds) setDownloadComponentIds(s.componentIds)
         if (s.tier) setDownloadTier(s.tier)
+        if (s.modelSet) setDownloadModelSet(s.modelSet)
         if (typeof s.ollamaInstalled === 'boolean') setOllamaInstalled(s.ollamaInstalled)
         setStep(s.step); setMaxIdx(STEP_ORDER.indexOf(s.step))
       })
@@ -1963,9 +2004,9 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
 
   // Offline content (library, maps, OCR) is chosen later in the post-boot welcome wizard,
   // so the install jumps straight to downloading the essentials.
-  function handleModelsNext(ids: string[], componentIds: string[], tier: string, ollama: boolean) {
-    setDownloadIds(ids); setDownloadComponentIds(componentIds); setDownloadTier(tier); setOllamaInstalled(ollama)
-    saveSetupState({ step: 'download', modelIds: ids, componentIds, tier, ollamaInstalled: ollama })
+  function handleModelsNext(ids: string[], componentIds: string[], tier: string, ollama: boolean, modelSet: string) {
+    setDownloadIds(ids); setDownloadComponentIds(componentIds); setDownloadTier(tier); setOllamaInstalled(ollama); setDownloadModelSet(modelSet)
+    saveSetupState({ step: 'download', modelIds: ids, componentIds, tier, ollamaInstalled: ollama, modelSet })
     goTo('download')
   }
 
@@ -1983,10 +2024,11 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
       {step === 'pin' && (pendingProfile || userId) && <PinStep onSubmit={handlePinComplete} onNext={() => goTo('consent')} onSkip={() => goTo('consent')} canSkip={false} />}
       {step === 'consent'  && <ConsentStep onNext={() => goTo('area')} />}
       {step === 'area'     && <AreaStep onNext={() => goTo('components')} />}
-      {step === 'components' && <ModelsStep onNext={handleModelsNext} initialTier={downloadTier} initialIds={downloadIds} initialComponents={downloadComponentIds.length ? downloadComponentIds : null} />}
+      {step === 'components' && <ModelsStep onNext={handleModelsNext} initialTier={downloadTier} initialIds={downloadIds} initialComponents={downloadComponentIds.length ? downloadComponentIds : null} initialModelSet={downloadModelSet} />}
       {step === 'download' && (
         <DownloadStep
           modelIds={downloadIds} componentIds={downloadComponentIds} tier={downloadTier}
+          modelSet={downloadModelSet}
           ollamaInstalled={ollamaInstalled}
           onComplete={handleDownloadComplete}
         />

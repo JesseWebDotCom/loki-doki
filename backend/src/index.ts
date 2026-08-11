@@ -44,6 +44,7 @@ import { adminQueue } from '@/routes/adminQueue'
 import { adminGpu } from '@/routes/adminGpu'
 import { adminMedia } from '@/routes/adminMedia'
 import { adminInstall } from '@/routes/adminInstall'
+import { adminModelSets } from '@/routes/adminModelSets'
 import { adminUninstall } from '@/routes/adminUninstall'
 import { adminServer } from '@/routes/adminServer'
 import { registerSidecarStopper } from '@/lib/gracefulExit'
@@ -258,6 +259,11 @@ if (firstBoot) {
     if ((await getAppSetting('first_run_complete')) === true) await setAppSetting('welcome_complete', true)
     await setAppSetting('welcome_flag_migrated', true)
   })()
+  // Prime the model-set + embedder caches (sync reads on hot paths) and resume any
+  // switch that was mid-flight at shutdown. Runs before autotune-dependent warmups.
+  import('@/lib/modelSets').then((m) => m.initModelSets()).catch(() => {})
+  import('@/llm/embed').then((m) => m.initEmbedModel()).catch(() => {})
+  import('@/lib/reembed').then((m) => m.resumeReembedIfPending()).catch(() => {})
   startMemorySweep()
   startBriefingRefresh()
   startCompanionCheckins()
@@ -699,6 +705,7 @@ app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/gpu', adminGpu)
 app.route('/api/admin/media', adminMedia)
 app.route('/api/admin/install', adminInstall)
+app.route('/api/admin/model-sets', adminModelSets)
 app.route('/api/admin/uninstall', adminUninstall)
 app.route('/api/admin/server', adminServer)
 app.route('/api/archives', archives)

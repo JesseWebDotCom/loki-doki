@@ -9,9 +9,11 @@ import { issueSession } from '@/lib/session'
 import { hashPin } from '@/lib/pin'
 import { requireAuth } from '@/middleware/auth'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { warmupModel, setModelSettingAndUnloadDisplaced } from '@/lib/models'
+import { warmupModel } from '@/lib/models'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
-import { CATALOG, TIERS, recommendedTier, ROLE_SETTINGS_KEY } from '@/lib/catalog'
+import { CATALOG, TIERS, MODEL_SETS, DEFAULT_MODEL_SET, recommendedTier, ROLE_SETTINGS_KEY } from '@/lib/catalog'
+import { getActiveModelSet, getPendingModelSet, applyModelRoleSelection } from '@/lib/modelSets'
+import { setActiveModelSetSync } from '@/lib/modelSetState'
 import { ollamaList } from '@/llm/ollama'
 import { pullOllama, downloadHfFile, downloadAndStartOllama, downloadComfyUIModel, setupComfyUIBase, installComfyUINodes, downloadTaesdModels, downloadSdxlVae, downloadEsrganModel, findSystemOllama, OLLAMA_BIN_APPROX_BYTES, dataDir, currentOllamaVersion } from '@/lib/download'
 import { spawnComfyUI, isComfyUIInstalled } from '@/lib/comfyui'
@@ -207,6 +209,9 @@ setup.get('/catalog', requireAuth, async (c) => {
     },
     recommendedTier: tier,
     tiers: TIERS,
+    sets: MODEL_SETS,
+    activeSet: await getActiveModelSet(),
+    pendingSet: await getPendingModelSet(),
     models,
     disk: {
       freeBytes:  disk.freeBytes,
@@ -230,6 +235,9 @@ setup.get('/catalog', requireAuth, async (c) => {
 setup.post('/download', requireAuth, async (c) => {
   const body = (await c.req.json()) as {
     tier: string; modelIds: string[]; componentIds?: string[]
+    // Which model set the wizard's selection came from — persisted so autotune,
+    // the admin set switcher, and future cleanups know the active lineup.
+    modelSet?: string
     // Background handoff: when essentialOnly is set we install just the essentials inline
     // (boot the app fast) and enqueue everything else to the background job manager.
     essentialOnly?: boolean
@@ -237,6 +245,9 @@ setup.post('/download', requireAuth, async (c) => {
     maps?: { regionId: string; label: string } | null
   }
   const { modelIds } = body
+  const chosenSet = MODEL_SETS.find((s) => s.id === body.modelSet)?.id ?? DEFAULT_MODEL_SET
+  await setAppSetting('model_set', chosenSet)
+  setActiveModelSetSync(chosenSet)
   const essentialOnly = body.essentialOnly === true
   // Optional capabilities the wizard chose (kiwix/voice/maps/tesseract/wakeword).
   // Default to the offline-library runtime for backward compatibility with older clients.
@@ -410,23 +421,9 @@ setup.post('/download', requireAuth, async (c) => {
           }
         }
 
-        // Persist chosen model to app_settings
-        const settingsKey = ROLE_SETTINGS_KEY[model.role]
-        if (settingsKey) {
-          await setAppSetting(settingsKey, model.id)
-        }
-        // Keep the canonical 'model' key (what getModel() reads) pointing at the active LLM.
-        // ROLE_SETTINGS_KEY maps uncensored_llm → 'uncensored_model', so without this,
-        // switching to an uncensored model leaves 'model' stale and chat ignores the change.
-        // Goes through the displaced-unload helper so the outgoing model's runner is
-        // released instead of squatting VRAM pinned forever.
-        if (model.role === 'llm' || model.role === 'uncensored_llm') {
-          await setModelSettingAndUnloadDisplaced('model', model.id)
-        }
-        // If this LLM handles vision natively, route vision queries to it too
-        if ((model.role === 'llm' || model.role === 'uncensored_llm') && model.builtinVision) {
-          await setModelSettingAndUnloadDisplaced('vision_model', model.id)
-        }
+        // Persist chosen model to app_settings (shared helper: role key + canonical
+        // 'model'/'vision_model' keys via the displaced-unload path + cache refreshes).
+        await applyModelRoleSelection(model)
 
         console.log(`[models] ✓ ${model.label} complete`)
         await emit('complete', { ...base, status: 'complete' })

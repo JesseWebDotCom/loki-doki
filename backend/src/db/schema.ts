@@ -3662,6 +3662,9 @@ export const adminAuditLog = sqliteTable('admin_audit_log', {
       // AI engine control actions (Admin → System → AI engine). TS-level enum only -
       // the column is plain text, so extending this list needs no migration.
       'engine_restart', 'engine_unload', 'engine_guards_update', 'engine_sweep',
+      // Model-set switches (Admin → Features): which lineup was applied and what it
+      // downloaded/removed.
+      'model_set_switch',
     ],
   }).notNull(),
   detail: text('detail'), // JSON string

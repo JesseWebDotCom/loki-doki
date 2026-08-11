@@ -12,6 +12,7 @@ export type ModelRole =
   | 'voice'
 export type ModelBackend = 'ollama' | 'huggingface' | 'url'
 export type Tier = 'apple-24' | 'apple-36' | 'pc-32'
+export type ModelSetId = 'original' | 'latest'
 
 export interface HfSource {
   repo: string   // e.g. 'guoyww/animatediff'
@@ -44,6 +45,39 @@ export interface CatalogModel {
   builtinVision?: boolean // LLM handles vision natively; no separate vision model needed
   linkedWith?: string[]  // other model IDs that must be selected alongside this one
   requires?: string[]    // parent model IDs that must be selected before this one can be chosen
+  sets?: ModelSetId[]    // which model sets include this entry; absent = every set
+  mrlDims?: number       // embeddings only: Matryoshka-truncate vectors to this many dims
+                         // (keeps the vector-store width stable across embedder swaps)
+}
+
+// ── Model sets ────────────────────────────────────────────────────────────────
+// A "set" is a coherent, tested combination of the Ollama-backed roles. Only those
+// roles differ between sets — the image/video/face stack is identical in both
+// (SDXL is the only uncensored ecosystem with community-wide LoRA support that runs
+// on 8 GB cards, and AnimateDiff shares its checkpoints/LoRAs — the unity we want).
+export interface ModelSetInfo {
+  id: ModelSetId
+  label: string
+  description: string
+}
+
+export const MODEL_SETS: ModelSetInfo[] = [
+  {
+    id: 'original',
+    label: 'Original',
+    description: 'The proven Western-origin lineup: Llama 3.1 8B abliterated chat, Gemma 3 vision, Granite router, Nomic embeddings.',
+  },
+  {
+    id: 'latest',
+    label: 'Latest',
+    description: 'Newest-generation lineup (includes Chinese-lab models): Qwen 3.5 9B abliterated chat with built-in vision, Qwen 3.5 4B router, Qwen3 embeddings. Same image/video stack.',
+  },
+]
+
+export const DEFAULT_MODEL_SET: ModelSetId = 'original'
+
+export function inSet(m: CatalogModel, set: ModelSetId): boolean {
+  return !m.sets || m.sets.includes(set)
 }
 
 export const TIERS: { id: Tier; label: string; detail: string }[] = [
@@ -75,6 +109,7 @@ export const CATALOG: CatalogModel[] = [
     format: 'Q4_K_M',
     backendLabel: 'Ollama',
     required: true,
+    sets: ['original'],
   },
   {
     // huihui_ai is the most established Gemma abliterator; verify tag at https://ollama.com/huihui_ai
@@ -91,6 +126,26 @@ export const CATALOG: CatalogModel[] = [
     backendLabel: 'Ollama',
     required: true,
     builtinVision: true,
+    sets: ['original'],
+  },
+  {
+    // Qwen 3.5 is natively multimodal, so the abliterated 9B covers chat AND vision
+    // in one resident model — no separate vision entry exists in the 'latest' set.
+    // Verified tag/size at https://ollama.com/huihui_ai/qwen3.5-abliterated (2026-08).
+    id: 'huihui_ai/qwen3.5-abliterated:9b',
+    role: 'uncensored_llm',
+    label: 'Qwen 3.5 9B',
+    description: 'Qwen 3.5 9B abliterated via Ollama. Chat, routing, memory, and summaries — plus native vision understanding built in. No separate vision model needed. 256K context.',
+    backend: 'ollama',
+    ollamaTag: 'huihui_ai/qwen3.5-abliterated:9b',
+    approxBytes: 6_600_000_000,
+    tiers: ['apple-24', 'apple-36', 'pc-32'],
+    tags: ['recommended', 'quality', 'multimodal'],
+    format: 'Q4_K',
+    backendLabel: 'Ollama',
+    required: true,
+    builtinVision: true,
+    sets: ['latest'],
   },
 
   // ── Vision ─────────────────────────────────────────────────────────────────
@@ -106,6 +161,7 @@ export const CATALOG: CatalogModel[] = [
     tags: ['accurate', 'fast'],
     format: 'Q4_0 (QAT)',
     backendLabel: 'Ollama',
+    sets: ['original'],
   },
 
   // ── Coding ─────────────────────────────────────────────────────────────────
@@ -116,7 +172,7 @@ export const CATALOG: CatalogModel[] = [
     description: 'DeepReinforce Ornith 1.0 9B via Ollama. Agentic coding model with native tool-calling, powers the Coding app and companion coding tool through the real Claude Code CLI (via Ollama\'s Anthropic-compatible endpoint).',
     backend: 'ollama',
     ollamaTag: 'ornith:9b',
-    approxBytes: 5_900_000_000,
+    approxBytes: 5_600_000_000,
     tiers: ['apple-24', 'apple-36', 'pc-32'],
     tags: ['recommended', 'agentic'],
     format: 'Q4_K_M',
@@ -135,6 +191,25 @@ export const CATALOG: CatalogModel[] = [
     tiers: ['apple-24', 'apple-36', 'pc-32'],
     tags: ['fast', 'recommended'],
     backendLabel: 'Ollama',
+    sets: ['original'],
+  },
+  {
+    // Qwen3-Embedding emits 1024-dim vectors by default but is Matryoshka-trained
+    // (32–1024), so we truncate+renormalize to 768 to match the store width used by
+    // nomic-embed-text. Switching embedders still invalidates every stored vector —
+    // the set switch triggers a full re-embed.
+    id: 'qwen3-embedding:0.6b',
+    role: 'embeddings',
+    label: 'Qwen3 Embedding 0.6B',
+    description: 'Qwen3 embedding model via Ollama. Higher retrieval quality than Nomic v1.5; 32K context. Powers semantic memory search and recall.',
+    backend: 'ollama',
+    ollamaTag: 'qwen3-embedding:0.6b',
+    approxBytes: 639_000_000,
+    tiers: ['apple-24', 'apple-36', 'pc-32'],
+    tags: ['recommended', 'quality'],
+    backendLabel: 'Ollama',
+    sets: ['latest'],
+    mrlDims: 768,
   },
 
   // ── Router embedding ────────────────────────────────────────────────────────
@@ -165,6 +240,21 @@ export const CATALOG: CatalogModel[] = [
     tags: ['fast', 'recommended'],
     backendLabel: 'Ollama',
     required: true,
+    sets: ['original'],
+  },
+  {
+    id: 'qwen3.5:4b',
+    role: 'router_llm',
+    label: 'Qwen 3.5 4B',
+    description: 'Qwen 3.5 4B via Ollama. Dedicated model for T2 routing and fast auxiliary tasks (summaries, classification). Tool calling + 256K context.',
+    backend: 'ollama',
+    ollamaTag: 'qwen3.5:4b',
+    approxBytes: 3_400_000_000,
+    tiers: ['apple-24', 'apple-36', 'pc-32'],
+    tags: ['fast', 'recommended'],
+    backendLabel: 'Ollama',
+    required: true,
+    sets: ['latest'],
   },
 
   // ── Image gen ──────────────────────────────────────────────────────────────
@@ -324,16 +414,23 @@ export function recommendedTier(hw: HardwareInfo): Tier {
   return 'pc-32'
 }
 
-/** Returns one recommended CatalogModel per role for the given tier. */
-export function catalogForTier(tier: Tier): CatalogModel[] {
+/** Returns one recommended CatalogModel per role for the given tier and set.
+ *  A role can be legitimately absent (e.g. no separate vision model in a set
+ *  whose chat LLM has builtinVision). */
+export function catalogForTier(tier: Tier, set: ModelSetId = DEFAULT_MODEL_SET): CatalogModel[] {
   const roles: ModelRole[] = [
     'uncensored_llm', 'vision', 'embeddings', 'router', 'router_llm',
     'image_gen', 'face_id', 'face_embed', 'video_motion', 'video_gen', 'bg_remove', 'voice',
   ]
   return roles.map((role) => {
-    const match = CATALOG.find((m) => m.role === role && m.tiers.includes(tier))
+    const match = CATALOG.find((m) => m.role === role && m.tiers.includes(tier) && inSet(m, set))
     return match!
   }).filter(Boolean)
+}
+
+/** All catalog entries visible in a set (entries with no `sets` field are in every set). */
+export function catalogForSet(set: ModelSetId): CatalogModel[] {
+  return CATALOG.filter((m) => inSet(m, set))
 }
 
 /** appSettings key for each role */

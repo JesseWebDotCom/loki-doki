@@ -1,12 +1,52 @@
 import { ollamaEmbed } from './ollama'
+import { CATALOG } from '@/lib/catalog'
 
-export const EMBED_MODEL = 'nomic-embed-text'
+export const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 // Dedicated router encoder — wider similarity spread than nomic, better separation
 // between conversational and tool-intent messages for threshold-based routing.
+// Shared by every model set on purpose: swapping it would invalidate the tool-router
+// index for near-zero quality gain.
 export const ROUTER_EMBED_MODEL = 'all-minilm'
 
+// The general embedder is set-switchable. Hot paths need it synchronously (keep-alive
+// policy) and embed() runs at high volume, so the resolved tag lives in a module cache:
+// primed at boot via initEmbedModel(), updated by the model-set orchestrator on switch.
+let activeEmbedModel = DEFAULT_EMBED_MODEL
+let activeMrlDims: number | undefined
+
+export function getEmbedModel(): string {
+  return activeEmbedModel
+}
+
+/** Point embed() at a catalog embeddings entry (id === ollama tag for these). */
+export function setEmbedModelCache(modelId: string): void {
+  activeEmbedModel = modelId
+  activeMrlDims = CATALOG.find((m) => m.id === modelId && m.role === 'embeddings')?.mrlDims
+}
+
+/** Prime the cache from the persisted setting. Call once at boot. */
+export async function initEmbedModel(): Promise<void> {
+  const { getAppSetting } = await import('@/lib/settings')
+  const setting = await getAppSetting('embed_model')
+  if (typeof setting === 'string' && setting.trim()) setEmbedModelCache(setting)
+}
+
+// Matryoshka truncation: models trained with MRL (e.g. Qwen3-Embedding) stay valid
+// when sliced to a prefix, as long as the result is re-normalized. Keeps the vector
+// store at a stable width across embedder swaps.
+function mrlTruncate(vec: number[]): number[] {
+  const dims = activeMrlDims
+  if (!dims || vec.length <= dims) return vec
+  const cut = vec.slice(0, dims)
+  let mag = 0
+  for (const v of cut) mag += v * v
+  const norm = Math.sqrt(mag)
+  if (norm === 0) return cut
+  return cut.map((v) => v / norm)
+}
+
 export async function embed(text: string): Promise<number[]> {
-  return ollamaEmbed(EMBED_MODEL, text)
+  return mrlTruncate(await ollamaEmbed(activeEmbedModel, text))
 }
 
 export async function embedForRouter(text: string): Promise<number[]> {
@@ -37,6 +77,13 @@ export function cachedVector(key: string, json: string): number[] | null {
   } catch {
     return null
   }
+}
+
+/** Flush the parsed-vector cache. Required after a re-embed: several tables key the
+ *  cache on `${id}:${createdAt}` (no updatedAt column), so rewritten embeddings would
+ *  otherwise keep serving the old model's vectors until the process restarts. */
+export function clearVectorCache(): void {
+  _vecCache.clear()
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

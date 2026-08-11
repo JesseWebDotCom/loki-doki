@@ -20,12 +20,11 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, notInArray, or } from 'd
 import { db } from '@/db'
 import { downloadJobs } from '@/db/schema'
 import { emitNotification } from '@/lib/notify'
-import { CATALOG, ROLE_SETTINGS_KEY } from '@/lib/catalog'
+import { CATALOG } from '@/lib/catalog'
 import { pullOllama, downloadHfFile, validateSafetensorsFile, dataDir, SDXL_VAE_DEST } from '@/lib/download'
 import type { DownloadProgress } from '@/lib/download'
 import { downloadArchive, syncKiwixWithArchives } from '@/lib/archives'
 import { getKiwixState } from '@/lib/kiwix'
-import { setModelSettingAndUnloadDisplaced } from '@/lib/models'
 import { buildRegion } from '@/lib/maps/build'
 import { getInstallComponent, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
@@ -523,13 +522,13 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
           }
         }
       }
-      // Persist the chosen model for its role (mirrors setup.ts). The canonical 'model' /
-      // 'vision_model' keys go through the displaced-unload helper so the outgoing model's
-      // runner is released instead of squatting VRAM pinned forever.
-      const key = ROLE_SETTINGS_KEY[m.role]
-      if (key) await setAppSetting(key, m.id)
-      if (m.role === 'llm' || m.role === 'uncensored_llm') await setModelSettingAndUnloadDisplaced('model', m.id)
-      if ((m.role === 'llm' || m.role === 'uncensored_llm') && m.builtinVision) await setModelSettingAndUnloadDisplaced('vision_model', m.id)
+      // Persist the chosen model for its role — unless a set switch is pending and this
+      // model is part of it: then the switch finalizer flips every role at once, so the
+      // app never runs a half-mixed set (e.g. new embedder + old chat). Dynamic import:
+      // modelSets pulls in models/settings and imports this module back dynamically.
+      const { applyModelRoleSelection, maybeFinalizeSetSwitch, shouldDeferRoleSelection } = await import('@/lib/modelSets')
+      if (!(await shouldDeferRoleSelection(m))) await applyModelRoleSelection(m)
+      await maybeFinalizeSetSwitch().catch(() => {})
       return
     }
     case 'archive':

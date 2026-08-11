@@ -131,6 +131,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     keywords: ['features', 'models', 'downloads', 'capabilities', 'install'],
     description: 'Enable capabilities and manage model downloads',
     subsections: [
+      { id: 'model-set', label: 'Model Set', kind: 'anchor', anchorId: 'section-model-set',
+        keywords: ['model set', 'preset', 'lineup', 'original', 'latest', 'switch models', 'qwen', 'llama'],
+        description: 'Switch between the Original and Latest model lineups' },
       { id: 'chat', label: 'Chat & Intelligence', kind: 'anchor', anchorId: 'section-chat',
         keywords: ['chat', 'llm', 'language model', 'smart tools', 'vision', 'see images', 'embeddings', 'ollama'],
         description: 'Language model, vision, embeddings, and routing' },

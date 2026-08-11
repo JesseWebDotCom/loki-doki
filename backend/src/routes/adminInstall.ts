@@ -3,9 +3,8 @@ import { streamSSE } from 'hono/streaming'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { requireAdmin } from '@/middleware/auth'
-import { CATALOG, ROLE_SETTINGS_KEY } from '@/lib/catalog'
-import { setAppSetting } from '@/lib/settings'
-import { invalidateRouterModelCache } from '@/lib/models'
+import { CATALOG } from '@/lib/catalog'
+import { applyModelRoleSelection } from '@/lib/modelSets'
 import { pullOllama, dataDir, isWeatherIconsInstalled } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR } from '@/lib/comfyui'
 import { isGpuTuningApplied } from '@/lib/gpuTuning'
@@ -275,11 +274,9 @@ adminInstall.post('/model', requireAdmin, async (c) => {
     await emit('start', { status: 'downloading' })
     try {
       await pullOllama(model.ollamaTag!, async (p) => emit('progress', p), ctrl.signal)
-      const settingsKey = ROLE_SETTINGS_KEY[model.role]
-      if (settingsKey) {
-        await setAppSetting(settingsKey, model.id)
-        if (model.role === 'router_llm') invalidateRouterModelCache()
-      }
+      // Shared persist helper: role key + canonical 'model'/'vision_model' keys +
+      // router/fast/embed cache refreshes.
+      await applyModelRoleSelection(model)
       await emit('complete', { status: 'complete' })
       await stream.writeSSE({ event: 'done', data: '{}' })
     } catch (err) {

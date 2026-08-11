@@ -3,7 +3,7 @@ import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { setAppSetting, getAppSetting } from '@/lib/settings'
 import { ollamaChat, ollamaEmbed, ollamaList, ollamaWarmModel, ollamaUnloadModel, setKeepAlivePolicyResolver, type OllamaKeepAlive } from '@/llm/ollama'
-import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
+import { getEmbedModel, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
@@ -103,7 +103,7 @@ function keepAlivePolicy(model: string): OllamaKeepAlive {
   // Chat first: when the chat model has builtinVision, getVisionModel() returns the chat
   // tag - the chat pin must win over the vision window.
   if (roleTags.chat && normTag(roleTags.chat) === m) return -1
-  if (m === normTag(EMBED_MODEL) || m === normTag(ROUTER_EMBED_MODEL)) return -1
+  if (m === normTag(getEmbedModel()) || m === normTag(ROUTER_EMBED_MODEL)) return -1
   if (roleTags.fast && normTag(roleTags.fast) === m) return '30m'
   if (roleTags.vision && normTag(roleTags.vision) === m) return '15m'
   // Unknown/auxiliary (script/book/extraction stand-ins, one-offs): finite, never pinned -
@@ -325,8 +325,8 @@ async function _doWarmup(): Promise<void> {
   // still hits a warm model in the common case; worst case it cold-loads on first call.
   void (async () => {
     const [, routerEmbedOk] = await Promise.allSettled([
-      ollamaEmbed(EMBED_MODEL, 'warmup')
-        .then(() => logger.info(`[warmup] ${EMBED_MODEL} ready`))
+      ollamaEmbed(getEmbedModel(), 'warmup')
+        .then(() => logger.info(`[warmup] ${getEmbedModel()} ready`))
         .catch(() => {}),
       ollamaEmbed(ROUTER_EMBED_MODEL, 'warmup')
         .then(() => { logger.info(`[warmup] ${ROUTER_EMBED_MODEL} ready`); return true })

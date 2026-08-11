@@ -10,7 +10,8 @@
 // biggest; bigger-but-quality is a deliberate opt-in, never an auto-pick.
 
 import { detectCudaDevices } from '@/lib/hwfit'
-import { CATALOG, type CatalogModel } from '@/lib/catalog'
+import { CATALOG, inSet, type CatalogModel } from '@/lib/catalog'
+import { getActiveModelSetSync } from '@/lib/modelSetState'
 import { logger } from '@/lib/logger'
 
 const GB = 1_000_000_000
@@ -34,14 +35,19 @@ export interface EngineFit {
   reason: string
 }
 
+// Both helpers filter by the ACTIVE model set: with multiple sets in the catalog,
+// summing every entry per role would double-count residents and shrink the chat
+// budget for everyone, and the candidate pool would offer models from inactive sets.
 function chatLlms(): CatalogModel[] {
-  return CATALOG.filter((m) => (m.role === 'uncensored_llm' || m.role === 'llm') && m.backend === 'ollama')
+  const set = getActiveModelSetSync()
+  return CATALOG.filter((m) => (m.role === 'uncensored_llm' || m.role === 'llm') && m.backend === 'ollama' && inSet(m, set))
 }
 
 // Router LLM + router embed + embeddings are kept resident and share the card.
 function residentSmallBytes(): number {
+  const set = getActiveModelSetSync()
   const roles = new Set(['router_llm', 'router', 'embeddings'])
-  return CATALOG.filter((m) => roles.has(m.role) && m.backend === 'ollama')
+  return CATALOG.filter((m) => roles.has(m.role) && m.backend === 'ollama' && inSet(m, set))
     .reduce((s, m) => s + (m.approxBytes ?? 0), 0)
 }
 

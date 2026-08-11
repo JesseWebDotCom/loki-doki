@@ -143,17 +143,35 @@ interface CatalogEntry {
   backend: 'ollama' | 'huggingface' | 'url'; approxBytes: number; tags: string[]
   format?: string; backendLabel?: string; required?: boolean; installed: boolean
   recommended: boolean; tiers: string[]; builtinVision?: boolean
-  linkedWith?: string[]; requires?: string[]
+  linkedWith?: string[]; requires?: string[]; sets?: string[]
 }
 
 interface CatalogTier { id: string; label: string; detail: string }
 
+interface ModelSetInfo { id: string; label: string; description: string }
+
 interface FullCatalogResponse {
   hardware: { totalRamGb: number; isAppleSilicon: boolean; platform: string; gpuVendor?: string; cudaDeviceCount?: number }
   recommendedTier: string; tiers: CatalogTier[]; models: CatalogEntry[]
+  sets?: ModelSetInfo[]; activeSet?: string; pendingSet?: string | null
   disk: { freeBytes: number; totalBytes: number }; ollamaRunning: boolean
   ollamaInstallBytes: number; activeModelIds: Record<string, string | null>
   ollamaVersion: string | null
+}
+
+// ── Model-set switcher (mirrors /api/admin/model-sets) ───────────────────────
+
+interface SetPlanItem { id: string; label: string; approxBytes: number; role: string }
+interface SetSwitchPlan {
+  target: string; toInstall: SetPlanItem[]; toRemove: SetPlanItem[]
+  downloadBytes: number; reclaimBytes: number; embedderChanges: boolean
+}
+interface ModelSetsResponse {
+  active: string; pending: string | null; tier: string
+  sets: (ModelSetInfo & {
+    models: { id: string; label: string; role: string; approxBytes: number; builtinVision: boolean }[]
+    plan: SetSwitchPlan | null
+  })[]
 }
 
 interface AdminCapDef {
@@ -672,6 +690,7 @@ export function ToolsSection({ query, focusToolId }: { query: string; focusToolI
 // ── AdminFeaturesTab ──────────────────────────────────────────────────────────
 
 const SECTION_ANCHOR: Record<string, string> = {
+  'model-set': 'section-model-set',
   chat: 'section-chat',
   images: 'section-images',
   voice: 'section-voice',
@@ -686,6 +705,127 @@ const FEATURE_DETAILS_ANCHOR: Record<string, string> = {
   music_studio: 'section-capabilities',
   web_search: 'section-capabilities',
   reference: 'section-capabilities',
+}
+
+function ModelSetSection({ onSwitched }: { onSwitched: () => void }) {
+  const [data, setData] = useState<ModelSetsResponse | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const [error, setError] = useState('')
+  const hadPendingRef = useRef(false)
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/model-sets', { credentials: 'include' })
+      if (!r.ok) return
+      const next = await r.json() as ModelSetsResponse
+      setData(next)
+      // A pending switch just finished - refresh the parent's catalog-driven rows.
+      if (hadPendingRef.current && !next.pending) onSwitched()
+      hadPendingRef.current = !!next.pending
+    } catch { /* section renders nothing until it loads */ }
+  }, [onSwitched])
+  useEffect(() => { void load() }, [load])
+
+  // While a switch is pending, its pulls run in the background job queue - poll so
+  // the section flips to the new set when the finalizer lands.
+  useEffect(() => {
+    if (!data?.pending) return
+    const t = setInterval(() => { void load() }, 5000)
+    return () => clearInterval(t)
+  }, [data?.pending, load])
+
+  async function startSwitch(setId: string) {
+    setSwitching(true); setError('')
+    try {
+      const r = await fetch('/api/admin/model-sets/switch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ set: setId }), credentials: 'include',
+      })
+      if (!r.ok) { setError('Switch failed to start.'); return }
+      setConfirming(null)
+      await load()
+    } catch { setError('Switch failed to start.') }
+    finally { setSwitching(false) }
+  }
+
+  if (!data || data.sets.length < 2) return null
+
+  return (
+    <div id="section-model-set" className="space-y-2">
+      <Card variant="surface">
+        <div className="px-4 py-3 space-y-3">
+          <div>
+            <span className="text-overline text-muted-foreground">Model set</span>
+            <p className="text-[11px] text-muted-foreground/70">
+              A coherent, tested lineup of the chat, vision, router and embedding models.
+              Switching downloads the new lineup in the background, then removes the old
+              one to free disk - image and video models are shared and stay put.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {data.sets.map((s) => {
+              const isActive = data.active === s.id && !data.pending
+              const isPending = data.pending === s.id
+              const totalBytes = s.models.reduce((sum, m) => sum + m.approxBytes, 0)
+              return (
+                <div key={s.id} className={cn(
+                  'rounded-card border px-3 py-2.5 space-y-2',
+                  isActive ? 'border-success/40 bg-success/5' : isPending ? 'border-brand/40 bg-brand/5' : 'border-border',
+                )}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">{s.label}</p>
+                    {isActive && (
+                      <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-success bg-success/10">
+                        <CheckCircle2 className="size-2.5" /> Active
+                      </span>
+                    )}
+                    {isPending && (
+                      <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-brand bg-brand/10">
+                        <Spinner size="sm" className="size-2.5" /> Switching…
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/80">{s.description}</p>
+                  <ul className="space-y-0.5">
+                    {s.models.map((m) => (
+                      <li key={m.id} className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="truncate">{m.label}{m.builtinVision ? ' (chat + vision)' : ''}</span>
+                        <span className="shrink-0 tabular-nums">{fmtCatalogBytes(m.approxBytes)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-muted-foreground/60 tabular-nums">Total ~{fmtCatalogBytes(totalBytes)}</p>
+                  {!isActive && !isPending && !data.pending && s.plan && (
+                    confirming === s.id ? (
+                      <div className="space-y-1.5 border-t border-border/50 pt-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Downloads ~{fmtCatalogBytes(s.plan.downloadBytes)}
+                        {s.plan.reclaimBytes > 0 && <> · frees ~{fmtCatalogBytes(s.plan.reclaimBytes)} after cleanup</>}
+                        {s.plan.embedderChanges && <> · rebuilds the semantic search index in the background (search quality dips until it finishes)</>}
+                      </p>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" disabled={switching} onClick={() => void startSwitch(s.id)} className="gap-1 px-2">
+                            <Download className="size-3" /> Switch now
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(null)} className="px-2 text-muted-foreground">Cancel</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(s.id)} className="px-2 text-muted-foreground">
+                        Switch to {s.label}
+                      </Button>
+                    )
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+      </Card>
+    </div>
+  )
 }
 
 export function AdminFeaturesTab({ view }: { view?: string } = {}) {
@@ -861,7 +1001,11 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
     </div>
   )
 
-  const tierModels = catalog.models.filter(m => m.tiers.includes(selectedTier))
+  // Only show the ACTIVE set's models in the per-role rows - with two sets in the
+  // catalog, an unfiltered list would mix both lineups' chat/router/embed models.
+  const activeSet = catalog.activeSet ?? 'original'
+  const tierModels = catalog.models.filter(m =>
+    m.tiers.includes(selectedTier) && (!m.sets || m.sets.includes(activeSet)))
   const llmCandidates = tierModels.filter(m => LLM_ROLES_SET.has(m.role))
   const activeTierLlm = llmCandidates.find(m => m.id === activeLlmId) ?? llmCandidates.find(m => m.recommended) ?? llmCandidates[0]
   const chatModels = tierModels.filter(m => CHAT_ROLES_SET.has(m.role))
@@ -940,6 +1084,8 @@ export function AdminFeaturesTab({ view }: { view?: string } = {}) {
         {/* Chat & Intelligence */}
         <div id="section-chat" className="space-y-2">
           <p className="text-overline text-muted-foreground/60">Chat &amp; Intelligence</p>
+
+          <ModelSetSection onSwitched={() => void loadAll()} />
 
           {/* Ollama runtime row */}
           <Card variant="surface" className={cn('transition-colors', catalog.ollamaRunning ? 'border-success/30' : 'border-border')}>
