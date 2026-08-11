@@ -146,15 +146,28 @@ function evidenceFrom(v: { summary: string | null; descriptionClean: string | nu
   return short.length >= 40 ? short.slice(0, 4000) : null
 }
 
+/**
+ * "Ask me again later", as an exception rather than a value. cachedLookup caches whatever
+ * the fetcher RETURNS, including null, but never caches a throw. That distinction is the
+ * whole point here: "this title is fine" is a verdict worth keeping for 30 days, while
+ * "we do not know what this video contains yet" must not be, or the first grid render
+ * that sees a brand new upload (before the hub has its description, let alone a summary)
+ * would settle the question for a month. That is exactly what happened to "finally..."
+ * (Jesse, 2026-08-10).
+ */
+class NotYet extends Error {}
+
 async function generate(videoId: string): Promise<string | null> {
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
   const original = v?.title?.trim()
-  if (!original || !looksClickbaity(original)) return null
+  // No row yet means no title to judge, which is a "later", not a "no".
+  if (!original) throw new NotYet(videoId)
+  if (!looksClickbaity(original)) return null
 
   const evidence = evidenceFrom(v)
   if (!evidence) {
-    logger.info({ videoId }, 'honest title: skipped (nothing describing the video yet)')
-    return null
+    logger.info({ videoId }, 'honest title: not yet (nothing describing the video)')
+    throw new NotYet(videoId)
   }
 
   logger.info({ videoId }, 'honest title: generating')
