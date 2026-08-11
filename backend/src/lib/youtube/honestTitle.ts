@@ -12,15 +12,19 @@
 //
 // Two rules keep this cheap. First, a lexical gate (looksClickbaity) means an already
 // honest title is never sent to a model, so a normal feed costs nothing. Second,
-// generation and display are split the way lib/videos/smartTitle.ts splits them: the
-// batch route only ever PEEKS the cache (zero added latency) and warms misses in the
-// background, so a card keeps its original title until the rewrite is ready and then
-// re-renders, exactly like DeArrow branding landing late.
+// generation and display are split the way lib/videos/smartTitle.ts splits them: every
+// read path only ever PEEKS the cache (zero added latency) and warms misses in the
+// background.
+//
+// Display happens twice over, deliberately. stampHonestTitles runs at the list choke
+// point (lib/videos/policy.ts) so cards arrive already correct, and the DeArrow batch
+// carries the same titles for anything that asks about ids it did not get from a list.
+// Precompute (lib/precompute.ts) writes them for new uploads before anyone looks.
 
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
 import { ytVideos, userPreferences } from '@/db/schema'
-import { cachedLookup, cachedLookupStale, THIRTY_DAYS_MS } from '@/lib/lookupCache'
+import { cachedLookupPut, cachedLookupStale, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import { stripUrls } from '@/lib/youtube/textClean'
@@ -147,7 +151,7 @@ function evidenceFrom(v: { summary: string | null; descriptionClean: string | nu
 }
 
 /**
- * "Ask me again later", as an exception rather than a value. cachedLookup caches whatever
+ * "Ask me again later", as an exception rather than a value. The cache stores whatever
  * the fetcher RETURNS, including null, but never caches a throw. That distinction is the
  * whole point here: "this title is fine" is a verdict worth keeping for 30 days, while
  * "we do not know what this video contains yet" must not be, or the first grid render
@@ -198,25 +202,42 @@ async function generate(videoId: string): Promise<string | null> {
   return title
 }
 
-const NS = 'youtube:honest-title'
+// v2: the namespace carries the ruleset version, so tuning the gate or the prompt
+// retires every verdict written under the old one instead of leaving videos judged by
+// rules that no longer exist.
+const NS = 'youtube:honest-title-v2'
+/** A rewrite (or a title that reads fine) is settled: neither the upload's title nor
+ *  its content is going to change. */
+const KEEP_MS = THIRTY_DAYS_MS
+/** A "no" is softer than a yes. The model declining, or a rewrite that came back still
+ *  reading as a hook, is a verdict about a model on a particular day, and re-deciding
+ *  costs one cheap gate check for titles that were simply fine. */
+const RETRY_MS = 3 * 24 * 60 * 60 * 1000
 
 /**
- * Generate and cache the honest title for a video if absent (30 days: an upload's title
- * and content never change). Returns null when the title is already fine, when we have
- * nothing describing the video yet, or when the model declined. Safe on single-item
- * paths only (one model call, 1 to 3s); grids must use honestTitlesFor.
+ * Generate and cache the honest title for a video if absent. Returns null when the title
+ * is already fine, when we have nothing describing the video yet, or when the model
+ * declined. Safe on single-item paths only (one model call, 1 to 3s); lists must use
+ * stampHonestTitles.
  */
 export async function ensureHonestTitle(videoId: string): Promise<string | null> {
-  return cachedLookup<string | null>(NS, videoId, THIRTY_DAYS_MS, () => generate(videoId))
-    .catch(() => null)
+  const cached = await cachedLookupStale<string | null>(NS, videoId)
+  if (cached.value !== undefined && cached.fresh) return cached.value
+  try {
+    const title = await generate(videoId)
+    await cachedLookupPut(NS, videoId, title ? KEEP_MS : RETRY_MS, title)
+    return title
+  } catch {
+    // NotYet, or the model failed: cache nothing so the next pass tries again.
+    return null
+  }
 }
 
-/** Read-only cache peek. Never generates, so it is always safe on a batch path.
- *  `undefined` means we have never looked at this video; `null` means we have, and it
- *  needs no rewrite (so it must not be queued again). */
-export async function peekHonestTitle(videoId: string): Promise<string | null | undefined> {
+/** Read-only cache peek. Never generates, so it is always safe on a batch path. A stale
+ *  entry still hands back its title (a card keeps a good title while we re-decide). */
+async function peekHonestTitle(videoId: string): Promise<{ title: string | null; settled: boolean }> {
   const cached = await cachedLookupStale<string | null>(NS, videoId)
-  return cached.value
+  return { title: cached.value ?? null, settled: cached.value !== undefined && cached.fresh }
 }
 
 // Background warming for cache misses seen by the batch route. Bounded hard: a feed
@@ -256,11 +277,11 @@ export async function honestTitlesFor(videoIds: string[], userId: string): Promi
   const out: Record<string, string> = {}
   const misses: string[] = []
   await Promise.all(videoIds.map(async id => {
-    const cached = await peekHonestTitle(id)
-    if (cached) out[id] = cached
-    // A cached null is a settled verdict (title is fine, or the model declined), so only
-    // a video we have never looked at is worth queueing.
-    else if (cached === undefined) misses.push(id)
+    const { title, settled } = await peekHonestTitle(id)
+    if (title) out[id] = title
+    // Queue anything not settled: never looked at, or a soft "no" whose retry window
+    // has passed. A stale-but-present title still shows above while we re-decide.
+    if (!settled) misses.push(id)
   }))
 
   if (misses.length) {
@@ -273,4 +294,21 @@ export async function honestTitlesFor(videoIds: string[], userId: string): Promi
     }
   }
   return out
+}
+
+/**
+ * Swap each item's title for its honest one before the list ever leaves the server.
+ * The DeArrow batch the clients run after first paint can do this too, but only after
+ * the card has already painted the clickbait, so you watch the title change under you.
+ * Stamping here means a card arrives correct (Jesse, 2026-08-10: "I see the old titles
+ * and then quickly see the new"), and it reaches surfaces that never call that endpoint
+ * at all. Peek-only, so it adds no model latency to a list response.
+ */
+export async function stampHonestTitles<T extends { videoId: string; title: string }>(
+  items: T[], userId: string,
+): Promise<T[]> {
+  if (!items.length) return items
+  const titles = await honestTitlesFor(items.map(i => i.videoId), userId)
+  if (!Object.keys(titles).length) return items
+  return items.map(i => (titles[i.videoId] ? { ...i, title: titles[i.videoId]! } : i))
 }

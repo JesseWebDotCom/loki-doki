@@ -111,7 +111,13 @@ export async function filterYtItemsForUser<T extends { videoId: string; title: s
   }))
   const kept = await filterVideosForUser(userId, asItems)
   const keepIds = new Set(kept.map((i) => i.id))
-  return visible.filter((v) => keepIds.has(v.videoId))
+  const allowed = visible.filter((v) => keepIds.has(v.videoId))
+  // Same choke point, same reasoning: stamping honest titles here means every YouTube
+  // list surface hands back de-clickbaited titles already, instead of every client
+  // painting the clickbait and swapping it a moment later. Cache peek only, so a list
+  // response never waits on a model.
+  const { stampHonestTitles } = await import('@/lib/youtube/honestTitle')
+  return stampHonestTitles(allowed, userId)
 }
 
 /** Single-item gate for the playback/detail routes — the hard guarantee that a direct link
