@@ -494,10 +494,17 @@ export async function formatMemoriesForPrompt(
   characterId: string | null,
   promptEmbedding?: number[],
   prompt?: string,
+  opts?: {
+    /** Skip the proactive "Open threads" section — e.g. while the user is
+     *  traveling, when raising home-life chores is exactly the wrong move. */
+    suppressOpenThreads?: boolean
+  },
 ): Promise<string | null> {
   const { getKnowledgeProfile } = await import('./profile')
   const [openThreads, profile, previously] = await Promise.all([
-    recallOpenThreads(userId, characterId, new Set(mems.map((m) => m.id))).catch(() => [] as string[]),
+    opts?.suppressOpenThreads
+      ? Promise.resolve([] as string[])
+      : recallOpenThreads(userId, characterId, new Set(mems.map((m) => m.id))).catch(() => [] as string[]),
     getKnowledgeProfile(userId).catch(() => null),
     previouslyMap(mems.map((m) => m.id)).catch(() => new Map<string, string>()),
   ])
@@ -546,7 +553,7 @@ export async function formatMemoriesForPrompt(
   }
 
   if (openThreads.length > 0) {
-    lines.push('Open threads — recent things going on in their life. You MAY bring one up naturally, once, when there\'s a lull or a greeting ("how\'d the interview go?"). Don\'t force it if they\'re focused on something else, and never repeat one they\'ve already updated you on:')
+    lines.push('Open threads — recent things going on in their life. You MAY bring ONE up, only when they greet you with nothing else going on or the conversation has stalled ("how\'d the interview go?"). Never when they are sharing news, asking something, or mid-topic — and never more than one. Skip any they\'ve already updated you on:')
     for (const t of openThreads) lines.push(`- ${t}`)
   }
 
@@ -559,16 +566,32 @@ export async function formatMemoriesForPrompt(
     }
   }
 
+  // Closing reminder AFTER the facts: the opening instruction sits far from the
+  // generation point and small models drift toward the freshest tokens — which
+  // were the facts themselves. Caught live: the companion wove a stored allergy
+  // into travel small talk. Repeating the contract as the LAST line of the block
+  // puts the prohibition, not the facts, in the recency-biased position. Also the
+  // honest-answer rule for "why did you mention X" / "how do you know that".
+  const CLOSING_REMINDER =
+    '[Reminder: everything above is silent background, including the long-term summary. ' +
+    'Do not mention, hint at, or ask about any of it unless the user has brought that topic up ' +
+    'themselves in THIS conversation. If they ask why you said something or how you know ' +
+    'something, answer honestly: you remember it from an earlier conversation, and say which fact.]'
+  lines.push(CLOSING_REMINDER)
+
   const full = lines.join('\n')
-  // Enforce prompt budget — truncate gracefully at a line boundary
+  // Enforce prompt budget — truncate gracefully at a line boundary, but the
+  // closing reminder always survives (it is the behavioral contract; dropping it
+  // under budget pressure is how fact-parroting sneaks back in).
   if (full.length <= PROMPT_CHAR_BUDGET) return full
 
   const truncated: string[] = []
-  let budget = PROMPT_CHAR_BUDGET
-  for (const line of lines) {
+  let budget = PROMPT_CHAR_BUDGET - (CLOSING_REMINDER.length + 1)
+  for (const line of lines.slice(0, -1)) {
     if (line.length + 1 > budget) break
     truncated.push(line)
     budget -= line.length + 1
   }
+  truncated.push(CLOSING_REMINDER)
   return truncated.join('\n')
 }

@@ -371,6 +371,35 @@ function looksLikeArtifactEdit(msg: string): boolean {
   return hasEditVerb || ARTIFACT_REF_RE.test(m)
 }
 
+// ── Stated-location override (travel awareness) ───────────────────────────────
+// "I'm in Tokyo right now" must beat the saved home location EVERYWHERE — not
+// just in prose (the prompt says to believe them) but in the location-aware
+// tools, which read default_location from prefs. Caught live: a user in Belo
+// Horizonte was recommended Milford burlesque shows by localEvents. A tight
+// regex over the current + recent user messages extracts where they SAID they
+// are; the blocklist keeps non-places ("i'm at work", "i'm in trouble") out.
+// Geocode failures downstream degrade gracefully (tools return empty + the
+// honest no-results guard), so a weird capture costs little.
+const STATED_LOCATION_RE = /\b(?:i'?m|im|we'?re|we are)\s+(?:actually\s+|currently\s+)?(?:in|visiting|travell?ing (?:in|through|around)|staying (?:in|at)|down in|over in|out in|at)\s+(?!the\b|a\b|an\b|my\b|our\b|his\b|her\b|their\b|some\b)([a-z][\w\s'-]{2,40}?)(?=\s+(?:right now|now|this week|at the moment|until|for (?:the|a)\b|with\b)|[,.!?]|$)/i
+const NON_PLACES = new Set([
+  'work', 'school', 'bed', 'class', 'church', 'home', 'house', 'town', 'line', 'lunch',
+  'dinner', 'breakfast', 'trouble', 'love', 'pain', 'shock', 'debt', 'charge', 'meetings',
+  'therapy', 'practice', 'surgery', 'labor', 'recovery', 'quarantine', 'jail', 'prison',
+])
+
+function statedLocationFromConversation(message: string, history: OllamaChatMessage[]): string | null {
+  // Newest first: the current message, then recent user turns.
+  const texts = [message, ...[...history].reverse().filter((m) => m.role === 'user').map((m) => m.content).slice(0, 8)]
+  for (const t of texts) {
+    const m = STATED_LOCATION_RE.exec(t)
+    if (!m) continue
+    const place = m[1]!.trim().replace(/\s+/g, ' ')
+    if (place.length < 3 || NON_PLACES.has(place.toLowerCase())) continue
+    return place
+  }
+  return null
+}
+
 /** Does this message look like it's about / acting on the conversation's attached document? */
 function refersToAttachedDocument(msg: string): boolean {
   if (DOC_NOUN_RE.test(msg)) return true
@@ -406,6 +435,12 @@ export async function runCompanionTurn(
   const includeSkills = p.includeSkills ?? true
   const includeDocs = p.includeDocs ?? true
   const includeBriefing = p.includeBriefing ?? true
+
+  // Where the user SAID they are (travel awareness). Beats the saved home
+  // location for tools (buildToolConfig) AND suppresses the home-town briefing
+  // below — prompt instructions alone could not stop a small model from
+  // narrating the Milford weather block at a user in Tokyo.
+  const statedLocation = p.primeOnly ? null : statedLocationFromConversation(p.message, history)
 
   // Allowed tools must be known BEFORE routing so denied tools never occupy
   // candidate slots or silently swallow a turn. Two fast indexed queries. The
@@ -450,7 +485,7 @@ export async function runCompanionTurn(
             // embedding; notes/methods failures never cost the turn its memory block.
             const [memory, notes, methods] = await Promise.all([
               recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
-                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding, p.message)),
+                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding, p.message, { suppressOpenThreads: !!statedLocation })),
               recallNotesBlock(p.message, p.userId, embedding).catch(() => null),
               recallMethodBlock(p.message, p.userId, embedding).catch(() => null),
             ])
@@ -670,6 +705,13 @@ export async function runCompanionTurn(
     } else if (hasClientCoords) {
       cfg['_lat'] = p.clientLat
       cfg['_lng'] = p.clientLng
+    }
+    // Travel override LAST: where the user SAID they are beats the saved home
+    // location and its coordinates for every location-aware tool this turn.
+    if (statedLocation) {
+      cfg['default_location'] = statedLocation
+      delete cfg['_lat']
+      delete cfg['_lng']
     }
     return cfg
   }
@@ -1011,9 +1053,12 @@ export async function runCompanionTurn(
 
     // Ambient world/local briefing: a SYNCHRONOUS warm-cache read (never blocks the
     // turn) that keeps the companion world-aware on every surface. The block only
-    // changes every ~cadence, so the prompt prefix stays KV-stable.
+    // changes every ~cadence, so the prompt prefix stays KV-stable. Suppressed
+    // entirely while the user says they are AWAY from the saved location: its
+    // home-town weather/news/events are wrong there, and a small model narrates
+    // whatever sits in its prompt.
     let briefingBlock: string | null = null
-    if (includeBriefing && !offlineMode) {
+    if (includeBriefing && !offlineMode && !statedLocation) {
       const briefingKey = _storedLoc?.displayName ?? DEFAULT_BRIEFING_KEY
       briefingBlock = getCachedBriefing(briefingKey)?.block || null
       ensureBriefingWarm(
@@ -1170,12 +1215,16 @@ export async function runCompanionTurn(
 
     // Volatile date/time/location goes LAST so the heavy stable prefix above stays
     // KV-cached across turns (the time string changes every minute).
+    // The location is their SAVED home location, not ground truth: when the user
+    // says they are somewhere else ("I'm in Brazil right now"), their statement
+    // outranks this line AND the local briefing/weather above — caught live when
+    // the companion kept reciting Connecticut weather at a user in Belo Horizonte.
     systemParts.push(
       [
         `Today is ${_date}, and the current time is ${_time}.`,
         `It's ${_partOfDay} for them. Mention the time or the hour only if they ask about it.`,
         p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
-        _loc ? `They are located in ${_loc}.` : null,
+        _loc ? `Their saved home location is ${_loc}; the local briefing above assumes they are there. If they say they are somewhere else right now, believe them — their statement outranks this line and any local weather or events above. While they are away, talk about where they are; do not bring up the saved location or its weather even as a contrast.` : null,
       ].filter(Boolean).join(' '),
     )
     return systemParts

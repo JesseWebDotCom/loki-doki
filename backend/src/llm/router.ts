@@ -163,6 +163,15 @@ function isAnaphoricFollowUp(prompt: string, historyLen: number): boolean {
   return historyLen > 0 && trimmed.length <= ANAPHORIC_MAX_LEN && ANAPHORIC_RE.test(trimmed)
 }
 
+// Meta-questions about the assistant's own behavior ("why did you mention a
+// peanut allergy", "what made you say that", "how do you know that"). These are
+// the user asking the companion to explain ITSELF — the answer lives in the
+// conversation + memory context, never in a tool. Caught live: "why did you
+// mention X" scored 0.55 on the remember tool ("mention" ≈ its examples), so
+// tier 2 STORED the neighboring message and replied "Got it — I'll remember
+// that" instead of answering. Not length-anchored: the subject can be long.
+const META_QUESTION_RE = /^(?:wait[,\s]+|hey[,\s]+|um[,\s]+)?(?:why (?:did|do|would|are) you (?:mention|say|saying|bring|ask|asking|assume|think|talk)|what made you (?:say|mention|bring up|think|ask)|where did (?:that|this) come from|how (?:do|did) you know (?:that|about|my)|why do you know)\b/i
+
 // Clarification follow-ups about the assistant's own last reply ("what did you
 // mean?", "what does that mean?", "say that again"). These need NO tool — the
 // chat model answers them from conversation history — but they are question-
@@ -423,6 +432,14 @@ export async function routePrompt(
   if (CLARIFY_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=clarify msg="${excerpt}"`)
     return { tool: null, args: {}, path: 'clarify' }
+  }
+
+  // Fast path: "why did you mention/say X" — the user is asking the companion to
+  // explain its own behavior. Conversational, always; the memory block's closing
+  // reminder tells it to answer honestly ("I remember it from an earlier chat").
+  if (META_QUESTION_RE.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=meta-question msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'meta-question' }
   }
 
   // Fast path: persona/self questions ("tell me about yourself", "whats your
