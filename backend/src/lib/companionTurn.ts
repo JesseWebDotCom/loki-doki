@@ -1168,6 +1168,25 @@ export async function runCompanionTurn(
       if (p.characterId && p.firstMetAt !== undefined) {
         const fl = friendshipLine(p.firstMetAt)
         if (fl) systemParts.push(fl)
+
+        // First-meeting behavior: meeting a new person like a person would. Active
+        // only during the opening exchanges of a brand-new relationship (met today
+        // or right now, few turns of history), then it retires forever — the
+        // curiosity engine's gap detection takes over and is naturally self-
+        // limiting as facts accumulate. Suppressed for big moments/disengagement
+        // like every other proactive behavior.
+        const justMet = p.firstMetAt === null || Date.now() - p.firstMetAt.getTime() < 24 * 60 * 60 * 1000
+        if (justMet && history.length < 6 && turnMode === null && !disengaged) {
+          systemParts.push(
+            'You are just meeting this person. Do what a warm person does with someone new: ' +
+            'somewhere in your first reply, introduce yourself in ONE line (your name plus one ' +
+            'true detail about you), and over these first few exchanges get to know them a ' +
+            'little — their name if you don\'t have it, what they\'re into. ALWAYS answer what ' +
+            'they actually asked first; the introduction rides along after. At most one ' +
+            'getting-to-know-you question per reply, woven in naturally — never a questionnaire, ' +
+            'and drop it entirely if they just want something done.',
+          )
+        }
       }
     }
     // NOTE — stable→volatile ordering, refined: the memory block is recalled per
@@ -1727,7 +1746,7 @@ export async function resolveTurnContext(
     ? opts.replyStyleOverride as 'brief' | 'balanced' | 'detailed' | 'auto'
     : charRow?.replyStyle
   let characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig, personaExamples: charRow.personaExamples, backstory: charRow.backstory })
+    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig, personaExamples: charRow.personaExamples, backstory: charRow.backstory, interests: charRow.interests })
     : null
 
   // Persona ↔ clamped-dials reconciliation: when the user's profile clamps a

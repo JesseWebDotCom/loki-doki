@@ -21,11 +21,22 @@ function slugify(name: string): string {
   return `${base}-${crypto.randomUUID().slice(0, 6)}`
 }
 
+function serializeInterests(v: { loves?: string[]; dislikes?: string[] } | null | undefined): string | null {
+  if (!v) return null
+  const clean = (a: unknown) => (Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim()).slice(0, 6) : [])
+  const loves = clean(v.loves)
+  const dislikes = clean(v.dislikes)
+  if (loves.length === 0 && dislikes.length === 0) return null
+  return JSON.stringify({ loves, dislikes })
+}
+
 interface CompanionInput {
   name?: string
   personalityPrompt?: string
   backstory?: string | null
   personaExamples?: string[] | null
+  /** Stable tastes: {loves, dislikes} as "thing - one-clause why" strings. */
+  interests?: { loves?: string[]; dislikes?: string[] } | null
   phoneticName?: string | null
   replyStyle?: 'brief' | 'balanced' | 'detailed' | 'auto'
   voiceId?: string | null
@@ -79,6 +90,7 @@ adminCompanions.post('/', requireAdmin, async (c) => {
     personalityPrompt: body.personalityPrompt?.trim() || 'You are a friendly companion.',
     backstory: body.backstory ?? null,
     personaExamples: Array.isArray(body.personaExamples) && body.personaExamples.length ? JSON.stringify(body.personaExamples.filter((l) => typeof l === 'string' && l.trim())) : null,
+    interests: serializeInterests(body.interests),
     phoneticName: body.phoneticName ?? null,
     replyStyle: body.replyStyle ?? 'balanced',
     voiceId: body.voiceId ?? null,
@@ -115,6 +127,7 @@ adminCompanions.patch('/:id', requireAdmin, async (c) => {
   if (body.name !== undefined) update['name'] = body.name.trim()
   if (body.personalityPrompt !== undefined) update['personalityPrompt'] = body.personalityPrompt
   if (body.backstory !== undefined) update['backstory'] = body.backstory
+  if (body.interests !== undefined) update['interests'] = serializeInterests(body.interests)
   if (body.personaExamples !== undefined) {
     update['personaExamples'] = Array.isArray(body.personaExamples) && body.personaExamples.length
       ? JSON.stringify(body.personaExamples.filter((l) => typeof l === 'string' && l.trim()))
@@ -217,6 +230,7 @@ adminCompanions.post('/test', requireAdmin, async (c) => {
     avatarConfig?: Record<string, unknown> | null
     content?: Record<string, unknown> | null
     personaExamples?: string[] | null
+    interests?: { loves?: string[]; dislikes?: string[] } | null
     message: string
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
   }
@@ -228,6 +242,7 @@ adminCompanions.post('/test', requireAdmin, async (c) => {
     style: body.style ?? null,
     avatarConfig: body.avatarConfig ? JSON.stringify(body.avatarConfig) : null,
     personaExamples: Array.isArray(body.personaExamples) && body.personaExamples.length ? JSON.stringify(body.personaExamples) : null,
+    interests: serializeInterests(body.interests),
   })
   const charContent = parseCharacterContent(body.content ? serializeCharacterContent(body.content, body.content['candor']) : null)
   const now = new Date()

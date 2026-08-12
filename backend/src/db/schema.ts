@@ -45,6 +45,10 @@ export const characters = sqliteTable('characters', {
   // JSON string[] of 2–3 short example lines in the character's voice — few-shot
   // voice samples are the biggest lever for small-model persona fidelity.
   personaExamples: text('persona_examples'),
+  // Stable authored tastes as JSON {"loves": string[], "dislikes": string[]}, each
+  // entry "thing - one-clause why". Canonical so favorites stay CONSISTENT across
+  // conversations (observed: three different "favorite music" answers in one day).
+  interests: text('interests'),
   voiceId: text('voice_id'),
   avatarRef: text('avatar_ref'),
   // ── Avatar rigging (DiceBear) ──

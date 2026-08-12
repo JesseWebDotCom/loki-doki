@@ -19,10 +19,49 @@ import { and, eq, isNull, desc } from 'drizzle-orm'
 import { db } from '@/db'
 import { characters, memories } from '@/db/schema'
 import { ollamaChat } from '@/llm/ollama'
+import { structuredCall } from '@/llm/structured'
 import { embed } from '@/llm/embed'
 import { getFastModel } from '@/lib/models'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
+
+// ── Generate-once interests ──────────────────────────────────────────────────
+// Consistency is the requirement, not authorship: a companion whose tastes are
+// improvised claims different favorites every conversation (observed live).
+// Hand-authored interests ship for the flagship companions; everyone else gets
+// ONE in-character generation here, persisted forever. Null interests = not yet
+// generated, so this is naturally idempotent.
+
+const INTERESTS_PROMPT =
+  'Given a companion character\'s persona, invent their stable lifelong tastes, strictly in character. ' +
+  'Return ONLY JSON: {"loves": ["thing - one-clause why", ...3-4 items], "dislikes": ["thing - one-clause why", ...1-2 items]}. ' +
+  'Concrete and specific (genres, activities, kinds of media/food/music), never about the user, no real living celebrities.'
+
+export async function ensureCompanionInterests(): Promise<void> {
+  const rows = await db
+    .select({ id: characters.id, name: characters.name, personalityPrompt: characters.personalityPrompt, backstory: characters.backstory })
+    .from(characters)
+    .where(and(eq(characters.isActive, true), isNull(characters.interests)))
+    .limit(6) // a few per sleep-time pass; the roster fills in over a day
+  if (rows.length === 0) return
+
+  const fastModel = await getFastModel()
+  for (const ch of rows) {
+    try {
+      const persona = [ch.personalityPrompt, ch.backstory ?? ''].filter(Boolean).join('\n').slice(0, 900)
+      const out = await structuredCall<{ loves?: string[]; dislikes?: string[] }>(fastModel, `Persona:\n${persona}`, INTERESTS_PROMPT)
+      const loves = Array.isArray(out?.loves) ? out.loves.filter((x) => typeof x === 'string' && x.trim()).slice(0, 4) : []
+      const dislikes = Array.isArray(out?.dislikes) ? out.dislikes.filter((x) => typeof x === 'string' && x.trim()).slice(0, 2) : []
+      if (loves.length === 0) continue // try again next pass
+      await db.update(characters)
+        .set({ interests: JSON.stringify({ loves, dislikes }), updatedAt: new Date() })
+        .where(eq(characters.id, ch.id))
+      logger.info(`[memory:interests] generated stable tastes for ${ch.name}`)
+    } catch (err) {
+      logger.warn(`[memory:interests] generation failed for ${ch.name}: ${err}`)
+    }
+  }
+}
 
 const STAMP_KEY = 'memory.inner_life_last_at'
 const INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -42,7 +81,7 @@ export async function runInnerLife(): Promise<void> {
   await setAppSetting(STAMP_KEY, Date.now())
 
   const chars = await db
-    .select({ id: characters.id, name: characters.name, personalityPrompt: characters.personalityPrompt, backstory: characters.backstory })
+    .select({ id: characters.id, name: characters.name, personalityPrompt: characters.personalityPrompt, backstory: characters.backstory, interests: characters.interests })
     .from(characters)
     .where(eq(characters.isActive, true))
     .limit(MAX_CHARACTERS_PER_RUN)
@@ -54,7 +93,10 @@ export async function runInnerLife(): Promise<void> {
 
   for (const ch of chars) {
     try {
-      const persona = [ch.personalityPrompt, ch.backstory ?? ''].filter(Boolean).join('\n').slice(0, 900)
+      // Interests ground the experiences: a companion who loves chiptune has
+      // chiptune moments, not random ones.
+      const persona = [ch.personalityPrompt, ch.backstory ?? '', ch.interests ? `Their stable tastes: ${ch.interests}` : '']
+        .filter(Boolean).join('\n').slice(0, 1200)
       const res = await ollamaChat(
         fastModel,
         [

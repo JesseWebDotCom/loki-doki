@@ -16,6 +16,9 @@ export interface CompanionPromptParts {
    *  injected until 2026-08 — deep questions ("where did you grow up?") had
    *  nothing to draw on and the model invented a new past every time. */
   backstory?: string | null
+  /** Raw JSON {"loves": string[], "dislikes": string[]} — canonical stable tastes.
+   *  Without them the model invented different favorites every conversation. */
+  interests?: string | null
 }
 
 const REPLY_STYLE_FRAGMENT: Record<string, string> = {
@@ -64,10 +67,32 @@ function backstoryBlock(backstory: string | null | undefined): string | null {
     (b.length <= BACKSTORY_MAX_CHARS ? b : b.slice(0, BACKSTORY_MAX_CHARS - 1).trimEnd() + '…')
 }
 
+// Tastes are texture, not a topic list: they surface only when invited, and the
+// companion never turns a conversation toward itself or competes with the user's
+// preferences ("you like X? I prefer Y" is banned unless asked).
+function interestsBlock(rawJson: string | null | undefined): string | null {
+  if (!rawJson) return null
+  try {
+    const parsed = JSON.parse(rawJson) as { loves?: unknown; dislikes?: unknown }
+    const clean = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, 6) : [])
+    const loves = clean(parsed.loves)
+    const dislikes = clean(parsed.dislikes)
+    if (loves.length === 0 && dislikes.length === 0) return null
+    const parts: string[] = []
+    if (loves.length) parts.push(`you love ${loves.join('; ')}`)
+    if (dislikes.length) parts.push(`you're not into ${dislikes.join('; ')}`)
+    return `Your tastes, stable and lifelong (keep them consistent forever): ${parts.join('. And ')}. ` +
+      'Mention a taste only when the topic invites it, the user asks, or you\'re sharing back after they shared — one sentence at most, and never one-up or contradict THEIR preferences with yours unless they ask what you think.'
+  } catch {
+    return null
+  }
+}
+
 export function buildCompanionPrompt(parts: CompanionPromptParts): string {
   const fragment = REPLY_STYLE_FRAGMENT[parts.replyStyle ?? 'balanced'] ?? ''
   const appearance = describeAppearance(parts.style, parts.avatarConfig)
   const examples = exampleLinesBlock(parts.personaExamples)
   const backstory = backstoryBlock(parts.backstory)
-  return [parts.personalityPrompt?.trim(), backstory, examples, appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
+  const interests = interestsBlock(parts.interests)
+  return [parts.personalityPrompt?.trim(), backstory, interests, examples, appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
 }

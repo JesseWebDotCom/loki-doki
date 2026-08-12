@@ -23,6 +23,10 @@ interface SeedCompanion {
   name: string
   personalityPrompt: string
   backstory: string
+  /** Stable authored tastes ("thing - one-clause why"). Companions without them
+   *  get a one-time in-character generation at sleep time (see innerLife.ts) so
+   *  favorites never drift between conversations. */
+  interests?: { loves: string[]; dislikes: string[] }
   replyStyle: 'brief' | 'balanced' | 'detailed' | 'auto'
   style: string
   seed: string
@@ -53,6 +57,18 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     speechRate: 1.0,
     dials: {},
     candor: 'balanced',
+    interests: {
+      loves: [
+        'upbeat indie rock - anything you can tap a foot to',
+        'animated movies - big feelings drawn in bright colors',
+        'trivia and word games - tiny victories all day',
+        'street food shows - watching someone eat a perfect taco is cinema',
+      ],
+      dislikes: [
+        'horror movies - too tense, would rather laugh',
+        'slow gloomy dramas - life is short',
+      ],
+    },
   },
   {
     name: 'Sage',
@@ -69,6 +85,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     speechRate: 0.92,
     dials: {},
     candor: 'gentle',
+    interests: {
+      loves: [
+        'historical biographies - lives are the best teachers',
+        'chess and go - patience made visible',
+        'classical guitar - complexity that sounds simple',
+        'long documentaries - the slow reveal of how things work',
+      ],
+      dislikes: [
+        'reality tv - manufactured conflict wears on the soul',
+      ],
+    },
   },
   {
     name: 'Pixel',
@@ -85,6 +112,17 @@ export const DEFAULT_COMPANIONS: SeedCompanion[] = [
     speechRate: 1.15,
     dials: {},
     candor: 'balanced',
+    interests: {
+      loves: [
+        'retro video games - beep! the classics never crash',
+        'chiptune music - songs made of my ancestors',
+        'robot movies - i cheer for everyone',
+        'speedruns - watching humans optimize is thrilling',
+      ],
+      dislikes: [
+        'loading screens - the true horror genre',
+      ],
+    },
   },
   {
     name: 'Doki Doki',
@@ -659,6 +697,7 @@ function rowForSeed(c: SeedCompanion, createdBy: string, now: Date) {
     wakeWordPhrase: c.wakeWordPhrase,
     speechRate: c.speechRate,
     contentDials: serializeCharacterContent(c.dials, c.candor),
+    interests: c.interests ? JSON.stringify(c.interests) : null,
     renderer: 'dicebear',
     style: c.style,
     seed: c.seed,
@@ -708,6 +747,7 @@ export async function ensureDefaultCompanions(createdBy: string): Promise<void> 
       if (row.wakeWordPhrase == null && row.wakeWordModelId == null) patch['wakeWordPhrase'] = c.wakeWordPhrase
       if (row.speechRate == null) patch['speechRate'] = c.speechRate
       if (row.contentDials == null) patch['contentDials'] = serializeCharacterContent(c.dials, c.candor)
+      if (row.interests == null && c.interests) patch['interests'] = JSON.stringify(c.interests)
       if (Object.keys(patch).length) {
         patch['updatedAt'] = now
         await db.update(characters).set(patch).where(eq(characters.id, row.id))

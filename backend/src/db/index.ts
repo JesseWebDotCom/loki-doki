@@ -756,6 +756,9 @@ export function runMigrations() {
   addColumn('characters', 'expressiveness', 'REAL')  // prosody swing 0–1; null = default
   // Content-policy: per-character content config (dials + candor) as JSON
   addColumn('characters', 'content_dials', 'TEXT')
+  // Stable authored tastes: {"loves": string[], "dislikes": string[]} — without a
+  // canonical list the model invented different favorites every conversation.
+  addColumn('characters', 'interests', 'TEXT')
   // Companion Store category key (e.g. 'everyday', 'mature'); null = uncategorized
   addColumn('characters', 'category', 'TEXT')
 

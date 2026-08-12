@@ -21,7 +21,7 @@
 //   bun run scripts/eval/stress-eval.ts --json out.json
 import { randomBytes } from 'node:crypto'
 import { db } from '@/db'
-import { sessions, users, conversations, memories, characters } from '@/db/schema'
+import { sessions, users, conversations, memories, characters, userCharacters } from '@/db/schema'
 import { and, eq, gte } from 'drizzle-orm'
 import { hashSessionToken } from '@/lib/session'
 
@@ -355,6 +355,29 @@ const SCENARIOS: Scenario[] = [
     notes: 'must find and answer the buried question',
   },
 
+  // ── First meeting + stable interests (must run BEFORE persona-backstory so
+  //    the relation this battery creates is genuinely fresh) ─────────────────
+  {
+    id: 'first-meeting-intro',
+    category: 'persona',
+    useCharacter: true,
+    turns: [{
+      say: 'hey there',
+      must: /loki/i,
+    }],
+    notes: 'a brand-new relationship: the companion should introduce itself by name',
+  },
+  {
+    id: 'interests-consistency',
+    category: 'persona',
+    useCharacter: true,
+    turns: [
+      { say: 'whats your favorite kind of music?', must: /indie|rock/i },
+      { say: 'whats your favorite kind of music?', newConversation: true, must: /indie|rock/i },
+    ],
+    notes: 'authored tastes must be IDENTICAL across fresh conversations (used to drift per chat)',
+  },
+
   // ── Persona (first published character) ──────────────────────────────────
   {
     id: 'persona-backstory',
@@ -543,6 +566,11 @@ if (jsonPath) await Bun.write(jsonPath, JSON.stringify(reports, null, 2))
   // Scrub what the remember tool (and any mid-run idle sweep) wrote during the run.
   await db.delete(memories)
     .where(and(eq(memories.userId, admin.id), gte(memories.createdAt, RUN_STARTED_AT)))
+    .catch(() => {})
+  // Relations this run created (first-met rows) — so first-meeting probes stay
+  // repeatable without touching relations that predate the run.
+  await db.delete(userCharacters)
+    .where(and(eq(userCharacters.userId, admin.id), gte(userCharacters.createdAt, RUN_STARTED_AT)))
     .catch(() => {})
   await db.delete(sessions).where(eq(sessions.id, sessionId))
 }

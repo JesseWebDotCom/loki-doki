@@ -28,6 +28,7 @@ interface AdminCompanion {
   personalityPrompt: string
   backstory: string | null
   personaExamples: string[]
+  interests: { loves: string[]; dislikes: string[] } | null
   phoneticName: string | null
   replyStyle: 'brief' | 'balanced' | 'detailed' | 'auto'
   voiceId: string | null
@@ -49,7 +50,7 @@ interface AdminCompanion {
 type Draft = Omit<AdminCompanion, 'id'> & { id: string | null }
 
 const BLANK: Draft = {
-  id: null, name: '', personalityPrompt: '', backstory: '', personaExamples: [], phoneticName: '',
+  id: null, name: '', personalityPrompt: '', backstory: '', personaExamples: [], interests: null, phoneticName: '',
   replyStyle: 'balanced', voiceId: '', ttsVoice: '', wakeWordModelId: '', wakeWordPhrase: '', speechRate: null, expressiveness: null, renderer: 'dicebear',
   style: 'avataaars', seed: randomSeed(), avatarConfig: {}, category: 'everyday', isActive: true, published: true,
   content: { ...MIN_DIALS, candor: 'balanced' },
@@ -378,7 +379,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   useEffect(() => { setDraft(null) }, [view])
 
   const selectDraft = (c: AdminCompanion) => {
-    setDraft({ ...c, backstory: c.backstory ?? '', personaExamples: c.personaExamples ?? [], phoneticName: c.phoneticName ?? '', voiceId: c.voiceId ?? '', ttsVoice: c.ttsVoice ?? '', wakeWordModelId: c.wakeWordModelId ?? '', wakeWordPhrase: c.wakeWordPhrase ?? '', content: c.content ?? { ...MIN_DIALS, candor: 'balanced' } })
+    setDraft({ ...c, backstory: c.backstory ?? '', personaExamples: c.personaExamples ?? [], interests: c.interests ?? null, phoneticName: c.phoneticName ?? '', voiceId: c.voiceId ?? '', ttsVoice: c.ttsVoice ?? '', wakeWordModelId: c.wakeWordModelId ?? '', wakeWordPhrase: c.wakeWordPhrase ?? '', content: c.content ?? { ...MIN_DIALS, candor: 'balanced' } })
     baselineWakeRef.current = (c.wakeWordPhrase ?? '').trim()
     setTab('identity')
   }
@@ -436,6 +437,9 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
     const body = {
       name: draft.name, personalityPrompt: draft.personalityPrompt, backstory: draft.backstory || null,
       personaExamples: draft.personaExamples.filter((l) => l.trim()).length ? draft.personaExamples.filter((l) => l.trim()) : null,
+      interests: draft.interests && (draft.interests.loves.some((l) => l.trim()) || draft.interests.dislikes.some((l) => l.trim()))
+        ? { loves: draft.interests.loves.filter((l) => l.trim()), dislikes: draft.interests.dislikes.filter((l) => l.trim()) }
+        : null,
       phoneticName: draft.phoneticName || null, replyStyle: draft.replyStyle, voiceId: draft.voiceId || null,
       ttsVoice: draft.ttsVoice || null,
       wakeWordModelId: phraseChanged ? null : (draft.wakeWordModelId || null),
@@ -608,6 +612,26 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                       placeholder={'Ooh, okay okay okay, I have SO many thoughts about this.\nHonestly? Skip the movie, the book wrecked me in the best way.'}
                     />
                   </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={'Loves (one per line: "thing - why". Stable forever; blank = generated in character overnight)'}>
+                      <textarea
+                        value={(draft.interests?.loves ?? []).join('\n')}
+                        onChange={(e) => set('interests', { loves: e.target.value.split('\n'), dislikes: draft.interests?.dislikes ?? [] })}
+                        rows={3}
+                        className="ld-input resize-y"
+                        placeholder={'cozy mystery novels - puzzles under a blanket\n80s synth pop - the future as imagined by the past'}
+                      />
+                    </Field>
+                    <Field label={'Not into (one per line: dislikes make honest opinions possible)'}>
+                      <textarea
+                        value={(draft.interests?.dislikes ?? []).join('\n')}
+                        onChange={(e) => set('interests', { loves: draft.interests?.loves ?? [], dislikes: e.target.value.split('\n') })}
+                        rows={3}
+                        className="ld-input resize-y"
+                        placeholder={'jump-scare horror - tension without payoff'}
+                      />
+                    </Field>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Reply style">
                       <select value={draft.replyStyle} onChange={(e) => set('replyStyle', e.target.value as Draft['replyStyle'])} className="ld-input">

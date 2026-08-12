@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, sqlite } from '@/db'
-import { users, characters, memories, entities, memoryEpisodes, memoryProfiles, conversations, messages, chatDocuments } from '@/db/schema'
+import { users, characters, memories, entities, memoryEpisodes, memoryProfiles, conversations, messages, chatDocuments, userCharacters } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import { invalidateAllMemoryBlocks } from '@/memory/blockCache'
 import { invalidateAllEntityCaches } from '@/memory/recall'
@@ -30,6 +30,9 @@ adminMemory.post('/reset-all', requireAdmin, async (c) => {
   counts['entities'] = (await db.delete(entities).returning({ id: entities.id })).length
   counts['episodes'] = (await db.delete(memoryEpisodes).returning({ id: memoryEpisodes.id })).length
   counts['profiles'] = (await db.delete(memoryProfiles).returning({ id: memoryProfiles.id })).length
+  // Relationships reset too: without this, companions "know" everyone for weeks
+  // while remembering nothing — and first meetings never re-trigger.
+  counts['relationships'] = (await db.delete(userCharacters).returning({ id: userCharacters.id })).length
   try { counts['moods'] = sqlite.query('DELETE FROM user_moods').run().changes } catch { counts['moods'] = 0 }
 
   invalidateAllMemoryBlocks()

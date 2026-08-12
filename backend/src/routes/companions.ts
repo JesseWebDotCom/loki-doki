@@ -84,6 +84,7 @@ export function toCompanionPayload(row: CompanionRow) {
     personalityPrompt: row.personalityPrompt,
     backstory: row.backstory,
     personaExamples: (() => { try { return row.personaExamples ? JSON.parse(row.personaExamples) as string[] : [] } catch { return [] } })(),
+    interests: (() => { try { return row.interests ? JSON.parse(row.interests) as { loves: string[]; dislikes: string[] } : null } catch { return null } })(),
     phoneticName: row.phoneticName,
     replyStyle: row.replyStyle,
     voiceId: row.voiceId,
