@@ -29,6 +29,8 @@ export interface LoadedLlmModel {
   sizeBytes: number
   vramBytes: number
   offloadPct: number
+  /** The placement engine put this model on the CPU on purpose (label it, don't alarm). */
+  plannedCpu: boolean
   contextLength: number | null
   expiresAt: string | null
 }

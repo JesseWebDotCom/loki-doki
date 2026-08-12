@@ -84,6 +84,12 @@ sysmem spill is the freeze/lag failure mode); prefer CPU for work CPU does well
   image/video pipelines) + the automatic `num_ctx` clamp. DONE.
 - 7. Spill auto-remediation (`llmStatus.remediateChatSpill`): sustained chat-model
   offload in automatic evicts the resident router to free VRAM. DONE.
+  Extended 2026-08-12 into a two-step ladder: (1) evict the router, (2) move the
+  general embedder to the CPU at runtime (`setEmbedCpuOverride`, sticky until
+  restart; the census labels it `plannedCpu` so it never re-alarms). Also fixed
+  residency lookup (it searched the sustained-offload list, so step 1 only fired
+  when the router was itself spilling), and the ladder now no-ops when the GPUs
+  are unreachable (wedged driver: reshuffling VRAM cannot help).
 - 8. CPU discipline: ffmpeg already runs below-normal priority + `-threads` cap
   (`lib/ffmpeg.ts`, pre-existing); added the p95 web-latency probe (`lib/apiLatency.ts`
   + `/api/*` middleware + `GET /api/admin/gpu/api-latency`, shown in the AI-engine

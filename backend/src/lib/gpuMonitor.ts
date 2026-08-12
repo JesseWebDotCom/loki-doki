@@ -38,14 +38,19 @@ export interface GpuAlertConfig {
   offload:  { enabled: boolean }
 }
 
-// Mostly off by default - this is a home box, not a monitored datacenter fleet; alerts
-// are opt-in (Admin → System → GPU health → Alerts) rather than firing out of the box.
-// EXCEPTION: offload defaults ON - a model silently running on the CPU turns every reply
-// into minutes and gives no other signal (observed live: a 90-second "hi"); it's the one
-// condition an admin always wants to hear about.
+// Tuning alerts (overheat, VRAM watermark) are opt-in (Admin → System → GPU health →
+// Alerts) - this is a home box, not a monitored datacenter fleet. But the "GPU cannot
+// be used" class defaults ON:
+//   offload - a model silently running on the CPU turns every reply into minutes and
+//     gives no other signal (observed live: a 90-second "hi").
+//   driver  - a wedged NVIDIA driver sends EVERY model to the CPU at once, and the
+//     offload toast alone then gives the wrong advice (observed live: a driver crash
+//     mid-uptime; "free VRAM" can't fix it, only a reboot can).
+//   missing - an ejected/dropped card (e.g. a Thunderbolt eGPU) is the same condition
+//     scoped to one GPU.
 export const DEFAULT_GPU_ALERT_CONFIG: GpuAlertConfig = {
-  missing:  { enabled: false },
-  driver:   { enabled: false },
+  missing:  { enabled: true },
+  driver:   { enabled: true },
   overheat: { enabled: false, thresholdC: 85 },
   vram:     { enabled: false, thresholdPct: 95 },
   offload:  { enabled: true },
@@ -166,6 +171,25 @@ export async function resetGpuBaseline(): Promise<void> {
   await setAppSetting(BASELINE_KEY, gpus.map((g) => ({ uuid: g.uuid, name: g.name })))
 }
 
+// ── Persistent "GPU cannot be used" notifications ─────────────────────────────
+// Toasts only reach an admin who happens to have the app open; a wedged driver or a
+// dropped card deserves a bell/push notification too. Edge-triggered (module state)
+// so a persisting condition emits once, with dedupeKey as the cross-restart guard
+// while the row is unread. Fire-and-forget: notifying must never slow the poll.
+let notifiedDriverDown = false
+const notifiedMissing = new Set<string>()
+
+function notifyGpuUnusable(kind: 'driver' | 'missing', message: string, dedupeKey: string): void {
+  void import('@/lib/notify').then(({ emitNotification }) => emitNotification({
+    type: 'system',
+    priority: 'urgent',
+    title: kind === 'driver' ? 'GPU driver is not responding' : 'A GPU is no longer available',
+    body: message,
+    url: '/admin/system',
+    dedupeKey,
+  })).catch(() => { /* best-effort */ })
+}
+
 export async function getGpuHealth(): Promise<GpuHealth> {
   const config = await getGpuAlertConfig()
   // The LLM census runs in parallel with nvidia-smi and is valid even on non-NVIDIA boxes.
@@ -173,13 +197,19 @@ export async function getGpuHealth(): Promise<GpuHealth> {
   const baseline = await getBaseline()
 
   // Sustained CPU offload (>=2 consecutive polls): the silent killer - replies take minutes
-  // with no other visible signal. Synthesized regardless of GPU-driver state.
+  // with no other visible signal. Synthesized regardless of GPU-driver state, but the ADVICE
+  // depends on it: with the driver down, "free VRAM" is wrong (nothing can reach the GPU);
+  // the fix is a reboot. Models the placement engine deliberately runs on the CPU never
+  // reach sustainedOffload (llmStatus filters them), so this only fires on real spills.
+  const driverDown = stats === null && baseline.length > 0
   const offloadIssues: GpuIssue[] = config.offload.enabled
     ? llm.sustainedOffload.map((m) => ({
         kind: 'offload' as const,
         key: `offload:${m.engine}:${m.name}`,
         severity: 'warn' as const,
-        message: `${m.name} is running ${m.offloadPct}% on the CPU (${m.engine} engine) - replies will be very slow. Free VRAM from Admin → System → AI engine.`,
+        message: driverDown
+          ? `${m.name} is running ${m.offloadPct}% on the CPU because the GPU driver is not responding - replies will be very slow until the machine is rebooted.`
+          : `${m.name} is running ${m.offloadPct}% on the CPU (${m.engine} engine) - replies will be very slow. Free VRAM from Admin → System → AI engine.`,
       }))
     : []
 
@@ -189,9 +219,26 @@ export async function getGpuHealth(): Promise<GpuHealth> {
     if (baseline.length === 0) return { supported: false, driverOk: false, gpus: [], expected: [], issues: offloadIssues, llm }
     const issues: GpuIssue[] = [...offloadIssues]
     if (config.driver.enabled) {
-      issues.push({ kind: 'driver', key: 'driver', severity: 'error', message: 'NVIDIA driver is not responding (nvidia-smi failed) — GPUs may be unavailable.' })
+      issues.push({ kind: 'driver', key: 'driver', severity: 'error', message: 'NVIDIA driver is not responding (nvidia-smi failed) - the GPUs cannot be used and every model falls back to the CPU. Reboot to restore GPU acceleration.' })
+      if (!notifiedDriverDown) {
+        notifiedDriverDown = true
+        notifyGpuUnusable('driver', 'The NVIDIA driver stopped responding, so every AI model is falling back to the CPU and replies will be very slow. Reboot the machine to restore GPU acceleration.', 'gpu:driver-down')
+      }
     }
     return { supported: true, driverOk: false, gpus: [], expected: baseline, issues, llm }
+  }
+
+  if (notifiedDriverDown) {
+    // Recovery edge: tell the admin the box is healthy again (the down notification may
+    // have been read hours ago; silence here would leave the story half-told).
+    notifiedDriverDown = false
+    void import('@/lib/notify').then(({ emitNotification }) => emitNotification({
+      type: 'system',
+      title: 'GPU driver recovered',
+      body: 'The NVIDIA driver is responding again and models can use the GPU.',
+      url: '/admin/system',
+      dedupeKey: 'gpu:driver-recovered',
+    })).catch(() => { /* best-effort */ })
   }
 
   const expected = await growBaseline(stats)
@@ -203,6 +250,12 @@ export async function getGpuHealth(): Promise<GpuHealth> {
       if (!present.has(e.uuid)) {
         issues.push({ kind: 'missing', key: `missing:${e.uuid}`, severity: 'error', gpu: e.name,
           message: `${e.name} is no longer detected by CUDA (it was present before). Reconnect the GPU or reboot.` })
+        if (!notifiedMissing.has(e.uuid)) {
+          notifiedMissing.add(e.uuid)
+          notifyGpuUnusable('missing', `${e.name} is no longer detected (it was present before). Models that used it are falling back to other devices. Reconnect the GPU or reboot; if it was removed on purpose, reset the baseline from Admin → System → GPU health.`, `gpu:missing:${e.uuid}`)
+        }
+      } else {
+        notifiedMissing.delete(e.uuid)
       }
     }
   }

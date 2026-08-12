@@ -9,7 +9,7 @@
 // we prefer the 'fast'-tagged one (this whole effort is about latency), not the
 // biggest; bigger-but-quality is a deliberate opt-in, never an auto-pick.
 
-import { detectCudaDevices } from '@/lib/hwfit'
+import { detectCudaDevices, getCachedGpuPlacement } from '@/lib/hwfit'
 import { CATALOG, inSet, type CatalogModel } from '@/lib/catalog'
 import { getActiveModelSetSync } from '@/lib/modelSetState'
 import { getCachedEngineGuards } from '@/lib/engineGuards'
@@ -77,8 +77,13 @@ function bySpeed(a: CatalogModel, b: CatalogModel): number {
 
 const gib = (n: number) => (n / GB).toFixed(1)
 
-/** Pure recommendation from a VRAM figure (no I/O), so it's easy to reason about/test. */
-export function recommend(vramBytes: number): EngineFit {
+/** Pure recommendation from a VRAM figure (no I/O), so it's easy to reason about/test.
+ *  `secondaryVramBytes` is the combined VRAM of the OTHER cards Ollama can see (0 on
+ *  single-GPU boxes): when the small residents fit there, they stop taxing the chat
+ *  card entirely - Ollama's scheduler loads each model onto the card with the most
+ *  free memory, so with the chat model filling the primary, residents land on the
+ *  secondary on their own. */
+export function recommend(vramBytes: number, secondaryVramBytes = 0): EngineFit {
   const hasGpu = vramBytes > 0
   const parts = residentParts()
   const llms = chatLlms()
@@ -107,8 +112,18 @@ export function recommend(vramBytes: number): EngineFit {
   let embedOnCpu = false
   let routerShared = false
   let gpuResidents = parts.router + parts.embed + parts.minilm
-  if (minChat + gpuResidents > usable) { embedOnCpu = true; gpuResidents -= parts.embed }
-  if (minChat + gpuResidents > usable) { routerShared = true; gpuResidents -= parts.router }
+  // Multi-GPU first: when a secondary card can host ALL the small residents (with its
+  // own display/CUDA overhead accounted), they cost the chat card nothing and nothing
+  // needs to leave the GPU. Partial splits are deliberately not modeled - the win is
+  // small and the accounting gets speculative.
+  const secondaryUsable = secondaryVramBytes > 0 ? Math.max(0, secondaryVramBytes * USABLE_FRACTION - OVERHEAD_BYTES) : 0
+  const residentsOnSecondary = gpuResidents > 0 && gpuResidents <= secondaryUsable
+  if (residentsOnSecondary) {
+    gpuResidents = 0
+  } else {
+    if (minChat + gpuResidents > usable) { embedOnCpu = true; gpuResidents -= parts.embed }
+    if (minChat + gpuResidents > usable) { routerShared = true; gpuResidents -= parts.router }
+  }
 
   const overhead = OVERHEAD_BYTES + gpuResidents
   const budget = Math.max(0, vramBytes * USABLE_FRACTION - overhead)
@@ -126,7 +141,9 @@ export function recommend(vramBytes: number): EngineFit {
     ...(embedOnCpu ? ['embeddings → CPU'] : []),
     ...(routerShared ? ['T2 routing → chat model'] : []),
   ]
-  const placementNote = moved.length ? ` Offloaded to fit: ${moved.join(', ')}.` : ''
+  const placementNote = residentsOnSecondary
+    ? ' Small residents (router + embedders) fit on the second GPU, leaving this card to the chat model.'
+    : moved.length ? ` Offloaded to fit: ${moved.join(', ')}.` : ''
 
   // Note: this is a boot-time ESTIMATE from one card's VRAM; on a multi-GPU box the
   // router/embeds may sit on a different card, so the live "on GPU" figure is the
@@ -159,13 +176,22 @@ export function checkFit(modelTag: string, vramBytes: number): { fits: boolean; 
 let cache: EngineFit | null = null
 
 /** Detect VRAM and cache the recommendation. Call at boot (alongside
- *  resolveEngineGuards) and after hardware changes. Falls back to the no-GPU
- *  recommendation on any detection error. */
+ *  resolveEngineGuards, AFTER resolveGpuPlacement) and after hardware changes.
+ *  Falls back to the no-GPU recommendation on any detection error. */
 export async function resolveEngineAutotune(): Promise<EngineFit> {
   try {
     const devices = await detectCudaDevices()
-    const vram = devices.length ? Math.max(...devices.map((d) => d.vramBytes)) : 0
-    cache = recommend(vram)
+    // Budget only the cards Ollama can actually SEE. With placement confining it via
+    // CUDA_VISIBLE_DEVICES (e.g. away from the imaging card), sizing the chat model
+    // against the global biggest card can overstate the budget - the biggest card may
+    // be exactly the one Ollama is excluded from.
+    const visibleSpec = getCachedGpuPlacement().ollamaVisibleDevices
+    const visibleSet = visibleSpec ? new Set(visibleSpec.split(',').map((s) => parseInt(s, 10))) : null
+    const pool = visibleSet ? devices.filter((d) => visibleSet.has(d.index)) : devices
+    const cards = (pool.length ? pool : devices).map((d) => d.vramBytes).sort((a, b) => b - a)
+    const vram = cards[0] ?? 0
+    const secondary = cards.slice(1).reduce((s, b) => s + b, 0)
+    cache = recommend(vram, secondary)
     logger.info(`[autotune] ${cache.reason}`)
   } catch {
     cache = recommend(0)

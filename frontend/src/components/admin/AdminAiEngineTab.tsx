@@ -60,10 +60,18 @@ function post(path: string, body?: unknown) {
 
 function ModelRow({ m, onUnload }: { m: LoadedLlmModel; onUnload: (m: LoadedLlmModel) => void }) {
   const onGpu = 100 - m.offloadPct
+  // Planned CPU residency (the placement engine parked this model there on purpose,
+  // e.g. the embedder yielding VRAM to the chat model) is informational, never a warning.
+  const alarming = m.offloadPct >= 25 && !m.plannedCpu
   return (
     <div className="space-y-1 py-1.5">
       <div className="flex items-center gap-2 text-xs">
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{m.name}</span>
+        {m.plannedCpu && (
+          <Badge variant="outline" className="shrink-0 text-[10px]" title="Placed on the CPU by the resource manager to keep VRAM free for the chat model. Embeddings run fine there.">
+            CPU by design
+          </Badge>
+        )}
         <Badge variant={m.engine === 'coding' ? 'info' : 'secondary'} className="shrink-0 text-[10px]">{m.engine}</Badge>
         <span className="shrink-0 tabular-nums text-muted-foreground">{fmtGb(m.sizeBytes)}</span>
         {m.contextLength != null && <span className="shrink-0 tabular-nums text-muted-foreground">ctx {(m.contextLength / 1024).toFixed(0)}k</span>}
@@ -74,12 +82,12 @@ function ModelRow({ m, onUnload }: { m: LoadedLlmModel; onUnload: (m: LoadedLlmM
       <div className="flex items-center gap-2">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
           <div
-            className={cn('h-full rounded-full', m.offloadPct >= 25 ? 'bg-warning' : 'bg-success')}
+            className={cn('h-full rounded-full', alarming ? 'bg-warning' : 'bg-success')}
             style={{ width: `${onGpu}%` }}
           />
         </div>
-        <span className={cn('w-24 shrink-0 text-right text-[11px] tabular-nums', m.offloadPct >= 25 ? 'text-warning' : 'text-muted-foreground')}>
-          {onGpu}% on GPU
+        <span className={cn('w-24 shrink-0 text-right text-[11px] tabular-nums', alarming ? 'text-warning' : 'text-muted-foreground')}>
+          {m.plannedCpu ? 'on CPU' : `${onGpu}% on GPU`}
         </span>
       </div>
     </div>

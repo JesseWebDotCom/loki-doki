@@ -44,8 +44,16 @@ ollama dirs), invoked from every engine restart path, boot reconcile, a 60 s wat
 **Monitoring & control**: Admin → System → AI Engine shows the live census
 (lib/llmStatus.ts via the GPU-health poll): per-model VRAM vs CPU split, ctx, expiry, with
 per-model Unload, Free VRAM, Sweep orphans, and Restart engine actions plus the guards
-editor. Sustained CPU offload (>=25% across two polls) raises a toast (alert on by
-default; the rest of the GPU alerts stay opt-in).
+editor. Sustained CPU offload (>=25% across two polls) raises a toast, EXCEPT for models
+the placement engine parked on the CPU on purpose (`plannedCpu`, e.g. the general
+embedder) - those get a "CPU by design" badge instead of an alarm. The "GPU cannot be
+used" alerts (driver not responding, card missing) default ON alongside offload, and
+additionally emit a persistent bell/push notification (type `system`, edge-triggered
+with dedupe) so an admin hears about it without having the app open; overheat and the
+VRAM watermark stay opt-in. When the driver is down, the offload toast drops the
+"free VRAM" advice and says to reboot (freeing VRAM cannot fix a wedged driver). A
+server-side heartbeat (index.ts, every 5 min) keeps detection and the spill ladder
+alive when no admin tab is polling.
 
 ## Required models
 Both must be pulled via Ollama before first use. The setup wizard will prompt for this.

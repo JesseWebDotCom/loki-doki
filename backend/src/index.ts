@@ -490,6 +490,16 @@ if (firstBoot) {
   setTimeout(() => void orphanSweep(), 45_000)
   setInterval(() => void orphanSweep(), 60_000).unref()
 
+  // GPU health watch: getGpuHealth() is otherwise only driven by the admin UI's 20s
+  // poll, so with no admin tab open a wedged driver / dropped card would neither
+  // notify (bell/push) nor trigger the spill ladder. A slow server-side heartbeat
+  // keeps both alive around the clock; the sustained-offload debounce (2 consecutive
+  // polls) still applies, it just spans minutes instead of 40s when the UI is closed.
+  const gpuWatch = guardedSweep('gpu-health', () =>
+    import('@/lib/gpuMonitor').then((m) => m.getGpuHealth()))
+  setTimeout(() => void gpuWatch(), 90_000)
+  setInterval(() => void gpuWatch(), 5 * 60_000).unref()
+
   // Unlike OpenCode's old HTTP sidecars, per-user tmux sessions are DELIBERATELY left
   // running across a backend restart (--hot or a real relaunch alike) — that's the
   // entire point of the tmux-backed design: a user's Claude Code conversation and any

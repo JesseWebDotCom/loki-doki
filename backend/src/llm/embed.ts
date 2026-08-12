@@ -54,8 +54,29 @@ function mrlTruncate(vec: number[]): number[] {
 // EVERY embed call for this model must route through here — a call site that omits it
 // would flip the runner back onto the GPU (full reload each direction). The T1 router
 // embedder (all-minilm, ~45MB) is latency-critical and always stays on the GPU.
+//
+// Two things can put the embedder on the CPU:
+//   1. the boot-time cascade (autotune.embedOnCpu) - the residents never co-fit;
+//   2. the runtime spill ladder (llmStatus.remediateChatSpill) - they fit on paper but
+//      the chat model is observably spilling, so the embedder yields its VRAM live.
+// The runtime flag is deliberately sticky until restart: flapping the embedder between
+// devices pays a full model reload in each direction, and the next boot re-runs the
+// cascade with fresh numbers anyway.
+let embedCpuRuntimeOverride = false
+
+/** Escalation hook for the spill ladder: run the general embedder on CPU from now on. */
+export function setEmbedCpuOverride(on: boolean): void {
+  embedCpuRuntimeOverride = on
+}
+
+/** True when automatic placement INTENDS the general embedder to run on the CPU right
+ *  now - the LLM census uses this to label it "CPU by design" instead of alerting. */
+export function isEmbedCpuPlanned(): boolean {
+  return isAutomatic() && (embedCpuRuntimeOverride || getCachedAutotune()?.embedOnCpu === true)
+}
+
 function embedPlacement(): Record<string, unknown> | undefined {
-  return isAutomatic() && getCachedAutotune()?.embedOnCpu ? { num_gpu: 0 } : undefined
+  return isEmbedCpuPlanned() ? { num_gpu: 0 } : undefined
 }
 
 export async function embed(text: string): Promise<number[]> {
