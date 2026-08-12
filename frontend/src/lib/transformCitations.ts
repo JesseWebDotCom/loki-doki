@@ -1,6 +1,9 @@
 export interface Source {
   url: string
   title: string
+  /** Human-readable publication date ("today", "Aug 9") when the backend knows it.
+   *  Shown on the source row: visible dates measurably raise answer trust. */
+  date?: string
 }
 
 // Replaces [1], [2], ... markers in LLM prose with backtick-wrapped CITE:N markers.

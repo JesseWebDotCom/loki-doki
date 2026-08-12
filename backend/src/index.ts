@@ -342,6 +342,25 @@ if (firstBoot) {
   maybeSpawnSearXNG()
   void maybeUpdateSearXNG()
   setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
+  // One-time nudge: the companion's current-events answers lean heavily on the
+  // SearXNG sidecar (the keyless engines are thin and often bot-blocked from a
+  // server IP). If it isn't installed, tell the admin once — never nag.
+  void (async () => {
+    try {
+      const { isSearXNGInstalled } = await import('@/lib/searxng')
+      if (isSearXNGInstalled()) return
+      if (await getAppSetting('nudge.searxng_install')) return
+      await setAppSetting('nudge.searxng_install', Date.now())
+      const { emitNotification } = await import('@/lib/notify')
+      await emitNotification({
+        type: 'system',
+        userId: null,
+        title: 'Better web search available',
+        body: 'The companion answers current-events questions much better with the SearXNG search sidecar installed. Add it under Admin > Features > Web Search.',
+        url: '/admin/install',
+      })
+    } catch { /* nudge is best-effort */ }
+  })()
   // kiwix-tools (Windows) auto-update: roll out newer builds on boot + daily, so a purged
   // pinned version never strands the offline library (mac/Linux use bundled libzim, no-op there).
   void maybeUpdateKiwixTools()

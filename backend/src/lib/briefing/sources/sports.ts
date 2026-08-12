@@ -61,28 +61,34 @@ const SCOREBOARD_TTL_MS = 15 * 60 * 1000
 const scoreboardCache = new Map<string, { events: EspnEvent[]; expiresAt: number }>()
 const scoreboardInFlight = new Map<string, Promise<EspnEvent[]>>()
 
-async function fetchScoreboard(league: LeagueRef, timeoutMs: number): Promise<EspnEvent[]> {
-  const hit = scoreboardCache.get(league.path)
+async function fetchScoreboard(league: LeagueRef, timeoutMs: number, date?: string): Promise<EspnEvent[]> {
+  // `date` = YYYYMMDD (ESPN's `dates` param) for historical slates ("who won last
+  // night"); omitted = today's board. Cached separately per (league, date).
+  const cacheKey = `${league.path}:${date ?? 'today'}`
+  const hit = scoreboardCache.get(cacheKey)
   if (hit && Date.now() < hit.expiresAt) return hit.events
-  const inflight = scoreboardInFlight.get(league.path)
+  const inflight = scoreboardInFlight.get(cacheKey)
   if (inflight) return inflight
   const p = (async () => {
-    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard`, {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard${date ? `?dates=${date}` : ''}`
+    const res = await fetch(url, {
       headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) throw new Error(`sports ${league.key}: ${res.status}`)
     const data = (await res.json()) as { events?: EspnEvent[] }
     const events = Array.isArray(data.events) ? data.events : []
-    scoreboardCache.set(league.path, { events, expiresAt: Date.now() + SCOREBOARD_TTL_MS })
+    // Past days never change — cache them much longer than the live board.
+    const ttl = date ? 12 * 60 * 60 * 1000 : SCOREBOARD_TTL_MS
+    scoreboardCache.set(cacheKey, { events, expiresAt: Date.now() + ttl })
     return events
   })()
-  scoreboardInFlight.set(league.path, p)
-  try { return await p } finally { scoreboardInFlight.delete(league.path) }
+  scoreboardInFlight.set(cacheKey, p)
+  try { return await p } finally { scoreboardInFlight.delete(cacheKey) }
 }
 
-async function fetchLeague(league: LeagueRef, perLeague: number, timeoutMs: number): Promise<BriefingItem[]> {
-  const events = await fetchScoreboard(league, timeoutMs)
+async function fetchLeague(league: LeagueRef, perLeague: number, timeoutMs: number, date?: string): Promise<BriefingItem[]> {
+  const events = await fetchScoreboard(league, timeoutMs, date)
   // Prefer in-progress/final games over far-future ones for the briefing.
   const ranked = [...events].sort((a, b) => {
     const rank = (e: EspnEvent) => (e.status?.type?.state === 'in' ? 0 : e.status?.type?.state === 'post' ? 1 : 2)
@@ -102,12 +108,12 @@ async function fetchLeague(league: LeagueRef, perLeague: number, timeoutMs: numb
  * the rest); throws only if EVERY league fails, so the refresher can mark it degraded.
  */
 export async function sportsToday(
-  opts: { leagues?: LeagueRef[]; limit?: number } = {},
+  opts: { leagues?: LeagueRef[]; limit?: number; date?: string } = {},
   timeoutMs = 5000,
 ): Promise<BriefingItem[]> {
   const leagues = opts.leagues ?? DEFAULT_LEAGUES
   const limit = opts.limit ?? 4
-  const settled = await Promise.allSettled(leagues.map((l) => fetchLeague(l, 2, timeoutMs)))
+  const settled = await Promise.allSettled(leagues.map((l) => fetchLeague(l, 2, timeoutMs, opts.date)))
   const ok = settled.filter((r): r is PromiseFulfilledResult<BriefingItem[]> => r.status === 'fulfilled')
   if (ok.length === 0) throw new Error('sports: all leagues failed')
 

@@ -2088,6 +2088,40 @@ export function runMigrations() {
   addColumn('bookmark_collections', 'icon', 'TEXT')
   addColumn('bookmark_collections', 'color', 'TEXT')
 
+  // FTS5 over feed_items (2026-08, companion audit Phase 4): the cached-news tier of
+  // the search tool matched by LIKE token-AND only, which misses word forms and ranks
+  // nothing. Same external-content + trigger pattern as bookmarks_fts.
+  try {
+    sqlite.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS feed_items_fts USING fts5(
+        title, summary,
+        content='feed_items', content_rowid='rowid'
+      );
+      CREATE TRIGGER IF NOT EXISTS feed_items_ai AFTER INSERT ON feed_items BEGIN
+        INSERT INTO feed_items_fts(rowid, title, summary)
+          VALUES (new.rowid, new.title, new.summary);
+      END;
+      CREATE TRIGGER IF NOT EXISTS feed_items_ad AFTER DELETE ON feed_items BEGIN
+        INSERT INTO feed_items_fts(feed_items_fts, rowid, title, summary)
+          VALUES ('delete', old.rowid, old.title, old.summary);
+      END;
+      CREATE TRIGGER IF NOT EXISTS feed_items_au AFTER UPDATE ON feed_items BEGIN
+        INSERT INTO feed_items_fts(feed_items_fts, rowid, title, summary)
+          VALUES ('delete', old.rowid, old.title, old.summary);
+        INSERT INTO feed_items_fts(rowid, title, summary)
+          VALUES (new.rowid, new.title, new.summary);
+      END;
+    `)
+    const ftsCount = (sqlite.query(`SELECT count(*) AS c FROM feed_items_fts`).get() as { c: number }).c
+    const rowCount = (sqlite.query(`SELECT count(*) AS c FROM feed_items`).get() as { c: number }).c
+    if (ftsCount === 0 && rowCount > 0) {
+      sqlite.exec(`INSERT INTO feed_items_fts(feed_items_fts) VALUES('rebuild');`)
+      console.warn(`[migrations] backfilled feed_items_fts (${rowCount} rows)`)
+    }
+  } catch (err) {
+    console.warn('[migrations] feed_items_fts setup failed:', err instanceof Error ? err.message : err)
+  }
+
   // Auto-update / change-monitoring columns added to bookmarks after its initial inline
   // CREATE; back-fill for existing DBs (see lib/bookmarks/autoUpdate.ts + archive.ts).
   addColumn('bookmarks', 'auto_update', 'INTEGER NOT NULL DEFAULT 0')

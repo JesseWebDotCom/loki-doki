@@ -9,12 +9,15 @@ export interface SearchResult {
   title: string
   snippet: string
   url: string
+  /** Human-readable publication date ("today", "Aug 9"), when the source knows it.
+   *  Prefixed onto the gist/highlight so the model can weigh freshness honestly. */
+  date?: string | null
 }
 
 export interface AnswerPayload {
   gist: string
   highlights: string[]
-  sources: Array<{ url: string; title: string }>
+  sources: Array<{ url: string; title: string; date?: string }>
   depth_available: boolean
 }
 
@@ -58,25 +61,30 @@ export function filterRelevant(query: string, items: SearchResult[]): SearchResu
 export function deriveAnswerPayload(query: string, items: SearchResult[]): AnswerPayload {
   if (!items.length) return { gist: '', highlights: [], sources: [], depth_available: false }
 
+  // A dated result carries its date inline — the model should prefer a headline
+  // from today over an undated page, and can say "as of Monday" honestly.
+  const withDate = (text: string, date?: string | null): string => (date ? `(${date}) ${text}` : text)
+
   const lead = items[0]!
   const leadTitle = lead.title.trim()
   const leadSnippet = trimSnippet(lead.snippet)
   let gist: string
-  if (leadTitle && leadSnippet) gist = `${leadTitle}: ${leadSnippet}`
-  else gist = leadSnippet || leadTitle || `Web results for ${query}.`
+  if (leadTitle && leadSnippet) gist = withDate(`${leadTitle}: ${leadSnippet}`, lead.date)
+  else gist = withDate(leadSnippet || leadTitle, lead.date) || `Web results for ${query}.`
 
   const highlights = items
     .slice(1, 1 + HIGHLIGHT_LIMIT)
     .flatMap(item => {
       const t = item.title.trim()
       const s = trimSnippet(item.snippet)
-      if (t && s) return [`${t}: ${s}`]
-      return [t || s].filter(Boolean)
+      if (t && s) return [withDate(`${t}: ${s}`, item.date)]
+      const one = t || s
+      return one ? [withDate(one, item.date)] : []
     })
 
   const sources = items
     .filter(r => r.url)
-    .map(r => ({ url: r.url, title: r.title.slice(0, 200) || r.url }))
+    .map(r => ({ url: r.url, title: r.title.slice(0, 200) || r.url, ...(r.date ? { date: r.date } : {}) }))
 
   return { gist, highlights, sources, depth_available: items.length > 1 + HIGHLIGHT_LIMIT }
 }

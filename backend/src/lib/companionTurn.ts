@@ -533,6 +533,23 @@ export async function runCompanionTurn(
     if (canvasTool) { tool = canvasTool; args = { editArtifactId: p.focusedArtifact.id, instruction: p.message } }
   }
 
+  // Freshness grounding for STATEMENTS (audit Phase 4): an opinion or remark about
+  // something time-sensitive ("Taylor's new album is great", "crazy what happened
+  // in the election") isn't question-shaped, matches no tool, and would be answered
+  // purely from stale training weights. When the message names a clearly
+  // time-sensitive subject, run a background-style search and fold the results so
+  // the companion reacts to what actually happened. The regex is deliberately
+  // narrow — everyday chit-chat must never pay a search round trip.
+  const FRESHNESS_RE = /\b(?:new (?:album|movie|song|show|season|game|phone|model)|just (?:dropped|released|came out|announced|launched)|(?:the|this) election|breaking news|big news|the news today|went viral|trending)\b/i
+  if (!tool && !p.primeOnly && !offlineMode && FRESHNESS_RE.test(p.message) && allowedToolIds.has('search')) {
+    const freshSearch = toolRegistry.find((t) => t.id === 'search')
+    if (freshSearch) {
+      logger.info(`[companion-turn] freshness grounding: searching for statement "${p.message.slice(0, 60)}"`)
+      tool = freshSearch
+      args = { query: p.message }
+    }
+  }
+
   // Per-message length nudge (Phase 3): the router already classified this message,
   // so `tool` is final here (after all the follow-up overrides above). A prompt hint
   // only — num_predict stays a ceiling. Captured now so the speculative KV prime and
@@ -1081,6 +1098,20 @@ export async function runCompanionTurn(
       'say you will look it up. This overrides your usual conversational style. After the ' +
       'direct answer you may add a sentence or two of personality or useful detail. Keep ' +
       'replies to simple factual questions short.',
+    )
+
+    // Knowledge-cutoff honesty (Anthropic's published pattern, adapted): stale
+    // training data must never be presented as current. All "is this recent" logic
+    // stays in code (tools, briefing, the date line below) — the model is only
+    // asked to be honest about the boundary, never to compute it.
+    systemParts.push(
+      'Your built-in knowledge has a training cutoff in the past and the world has moved on ' +
+      'since. Tool results, the briefing, and other data in this prompt are LIVE and always ' +
+      'outrank your memory when they conflict. For anything that may have changed recently ' +
+      '(news, prices, releases, scores, people in the news) with no live data provided, say ' +
+      'your information may be out of date and offer to look it up. If the user mentions an ' +
+      'event you have no knowledge of, neither confirm nor deny it from memory — offer to ' +
+      'search instead. Never present remembered news as current.',
     )
 
     // ── Late volatile zone ── everything below changes turn-to-turn (memory =

@@ -66,12 +66,22 @@ export const searchTool: Tool = {
 
     // ── Tier 1: cached news (local, zero-network) ────────────────────────────
     // "Do we already have this?" — token-matched over feed items already on disk.
-    // Surfaced first so a recent, on-topic headline leads the answer.
+    // Surfaced first so a recent, on-topic headline leads the answer. Each item
+    // carries its publication date so freshness is visible to the model and UI.
+    const dateLabel = (ms: number | null): string | null => {
+      if (!ms) return null
+      const days = Math.floor((Date.now() - ms) / 86_400_000)
+      if (days <= 0) return 'today'
+      if (days === 1) return 'yesterday'
+      if (days < 7) return `${days} days ago`
+      return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
     const cached = await searchCachedNews(q, userId, 4)
     const cachedResults: SearchResult[] = cached.map(c => ({
       title: c.title,
       snippet: c.snippet,
       url: c.url,
+      date: dateLabel(c.publishedAt),
     }))
 
     // ── Tier 2: live web (primary) → live Wikipedia (fallback) ───────────────

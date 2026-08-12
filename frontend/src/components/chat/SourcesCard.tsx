@@ -9,7 +9,7 @@ export function SourcesCard({ sources }: { sources: Source[] }) {
     () => sources.map((s, i) => {
       let domain = ''
       try { domain = new URL(s.url).hostname.replace(/^www\./, '') } catch { /* leave blank */ }
-      return { n: i + 1, title: s.title || s.url, url: s.url, domain }
+      return { n: i + 1, title: s.title || s.url, url: s.url, domain, date: s.date }
     }),
     [sources],
   )
@@ -28,6 +28,7 @@ export function SourcesCard({ sources }: { sources: Source[] }) {
             >
               <span className="shrink-0 tabular-nums text-muted-foreground">{s.n}.</span>
               <span className="min-w-0 flex-1 truncate">{s.title}</span>
+              {s.date && <span className="shrink-0 text-muted-foreground/60">{s.date}</span>}
               {s.domain && <span className="shrink-0 text-muted-foreground/70">{s.domain}</span>}
               <ExternalLink className="size-3 shrink-0 self-center text-muted-foreground/50 group-hover:text-brand" />
             </a>

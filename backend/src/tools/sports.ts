@@ -15,7 +15,7 @@ const LEAGUE_KEYWORDS: Array<{ re: RegExp; path: string; key: string }> = [
 export const sportsTool: Tool = {
   id: 'sports',
   name: 'Sports Scores',
-  description: "Today's live scores, results, and matchups across major leagues (MLB, World Cup, NFL, NBA, NHL, MLS)",
+  description: "Live scores, results, and matchups across major leagues (MLB, World Cup, NFL, NBA, NHL, MLS) — today's slate or yesterday's results",
   offline: false,
   dataSources: [
     { name: 'ESPN', domain: 'espn.com', purpose: 'Live scores and schedules across major leagues', type: 'api' },
@@ -27,6 +27,7 @@ export const sportsTool: Tool = {
     'latest scores and results for a league',
     'is there a game on tonight',
     'how did my team do',
+    'who won the game last night',
   ],
   toolDefinition: {
     type: 'function',
@@ -49,10 +50,21 @@ export const sportsTool: Tool = {
     const matched = LEAGUE_KEYWORDS.find((l) => l.re.test(q))
     const leagues: LeagueRef[] | undefined = matched ? [{ key: matched.key, path: matched.path }] : DEFAULT_LEAGUES
 
+    // "who won last night / yesterday" is a HISTORICAL slate — ESPN's scoreboard
+    // takes a dates=YYYYMMDD param, so fetch that day instead of answering
+    // "last night" from today's (mostly upcoming) games.
+    let date: string | undefined
+    let dayLabel = 'today'
+    if (/\b(yesterday|last night)\b/i.test(q)) {
+      const d = new Date(Date.now() - 86_400_000)
+      date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+      dayLabel = 'yesterday'
+    }
+
     try {
-      const items = await sportsToday({ leagues, limit: matched ? 8 : 6 })
+      const items = await sportsToday({ leagues, limit: matched ? 8 : 6, date })
       if (!items.length) {
-        return { success: true, data: { games: [], answer_payload: { gist: matched ? `No ${matched.key} games found today.` : 'No major games found today.' } } }
+        return { success: true, data: { games: [], answer_payload: { gist: matched ? `No ${matched.key} games found ${dayLabel}.` : `No major games found ${dayLabel}.` } } }
       }
       return {
         success: true,
