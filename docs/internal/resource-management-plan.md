@@ -84,12 +84,20 @@ sysmem spill is the freeze/lag failure mode); prefer CPU for work CPU does well
   image/video pipelines) + the automatic `num_ctx` clamp. DONE.
 - 7. Spill auto-remediation (`llmStatus.remediateChatSpill`): sustained chat-model
   offload in automatic evicts the resident router to free VRAM. DONE.
-  Extended 2026-08-12 into a two-step ladder: (1) evict the router, (2) move the
-  general embedder to the CPU at runtime (`setEmbedCpuOverride`, sticky until
-  restart; the census labels it `plannedCpu` so it never re-alarms). Also fixed
-  residency lookup (it searched the sustained-offload list, so step 1 only fired
-  when the router was itself spilling), and the ladder now no-ops when the GPUs
-  are unreachable (wedged driver: reshuffling VRAM cannot help).
+  Extended 2026-08-12 into a two-step ladder: (1) evict ANY non-essential model
+  holding VRAM on the main engine (router, vision, stray helpers; only chat and
+  all-minilm are exempt; an evicted general embedder is also flipped CPU-by-design
+  via `setEmbedCpuOverride`, sticky until restart, labeled `plannedCpu` in the
+  census so it never re-alarms), then (2) unload + re-warm a chat model stranded
+  >=50% on the CPU once the card is clear (a runner never re-places itself, so
+  with infinite keep_alive it would stay stranded forever). Also fixed residency
+  lookup (it searched the sustained-offload list, so eviction only fired when the
+  resident was itself spilling), and the ladder no-ops when the GPUs are
+  unreachable (wedged driver: reshuffling VRAM cannot help). Same day, the live
+  trigger for all of this was fixed too: routes/image.ts had a private
+  getRouterModel() reading `router_llm_model` straight from settings, loading a
+  dedicated 4B onto the chat card mid-generation under routerShared placement; it
+  now routes through the placement-aware `getFastModel()`.
 - 8. CPU discipline: ffmpeg already runs below-normal priority + `-threads` cap
   (`lib/ffmpeg.ts`, pre-existing); added the p95 web-latency probe (`lib/apiLatency.ts`
   + `/api/*` middleware + `GET /api/admin/gpu/api-latency`, shown in the AI-engine

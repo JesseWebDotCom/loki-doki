@@ -11,32 +11,36 @@ import { CODING_ENGINE_BASE } from '@/lib/codingEngine'
 import { lastOrphanSweep } from '@/lib/ollamaHygiene'
 import { logger } from '@/lib/logger'
 import { isAutomatic } from '@/lib/resourceMode'
-import { getModel, getRouterModel } from '@/lib/models'
-import { ollamaUnloadModel } from '@/llm/ollama'
-import { getEmbedModel, isEmbedCpuPlanned, setEmbedCpuOverride } from '@/llm/embed'
+import { getModel } from '@/lib/models'
+import { ollamaUnloadModel, ollamaWarmModel } from '@/llm/ollama'
+import { getEmbedModel, isEmbedCpuPlanned, setEmbedCpuOverride, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { detectCudaDevices } from '@/lib/hwfit'
 import { recordResourceEvent } from '@/lib/resourceEvents'
 
 const normTag = (t: string) => t.replace(/:latest$/, '')
 
 // Spill auto-remediation (Phase 2.7): when the always-hot chat model is sustained-
-// offloading to CPU in automatic mode, free VRAM in latency-tolerance order so the
-// chat model can sit fully in VRAM. The ladder:
-//   1. Evict the resident T2 router (a few GB that only a minority of turns use).
-//      It reloads on the next ambiguous turn (an already-slower path).
-//   2. Move the general embedder to the CPU (setEmbedCpuOverride) and unload it, so
-//      its next call reloads it CPU-side. Embeddings tolerate the CPU well (short
-//      inputs, ~0.6B weights); a spilling CHAT model does not.
+// offloading to CPU in automatic mode, recover in two steps:
+//   1. Evict whatever NON-ESSENTIAL model holds GPU memory on the main engine - the
+//      T2 router, the vision model, or any helper a route loaded (observed live
+//      2026-08-12: image gen loaded a 4B onto the chat card and chat lost its seat).
+//      Only the chat model itself and the tiny T1 embedder (all-minilm, ~45MB,
+//      latency-critical) are exempt. An evicted general embedder is also flipped to
+//      CPU-by-design so it reloads there instead of re-taking the card.
+//   2. Nothing else on the card but chat is still mostly CPU-side: it was loaded
+//      while the card was busy, and a runner NEVER re-places itself - with the
+//      app's infinite keep_alive it would sit stranded on the CPU forever (also
+//      observed live). Unload + re-warm so it loads back into the now-free VRAM.
 // Bounded: fires at most one step per cooldown, only in automatic mode, and never
 // when the GPUs themselves are unreachable (a wedged driver offloads everything at
 // once - no amount of VRAM shuffling helps, and the driver alert owns that story).
 let lastRemediationAt = 0
 const REMEDIATION_COOLDOWN_MS = 5 * 60_000
 // `all` is the full census and `sustained` only the models spilling across >=2 polls:
-// the TRIGGER (chat spilling) reads `sustained`, but the residents to evict are looked
-// up in `all` - a small router/embedder sitting fully in VRAM never appears in the
-// sustained list, and searching there meant step 1 only fired when the router was
-// itself spilling (i.e. almost never when it mattered).
+// the TRIGGER (chat spilling) reads `sustained`, but eviction candidates are looked
+// up in `all` - a small resident sitting fully in VRAM never appears in the
+// sustained list, and searching there meant eviction only fired when the resident
+// was itself spilling (i.e. almost never when it mattered).
 async function remediateChatSpill(all: LoadedLlmModel[], sustained: LoadedLlmModel[]): Promise<void> {
   if (!isAutomatic()) return
   if (Date.now() - lastRemediationAt < REMEDIATION_COOLDOWN_MS) return
@@ -45,28 +49,26 @@ async function remediateChatSpill(all: LoadedLlmModel[], sustained: LoadedLlmMod
     const chatSpilling = sustained.some((m) => m.engine === 'main' && normTag(m.name) === chat && m.offloadPct >= OFFLOAD_ALERT_PCT)
     if (!chatSpilling) return
     if ((await detectCudaDevices()).length === 0) return
-    // Step 1: the T2 router yields first.
-    const router = await getRouterModel()
-    if (router && normTag(router) !== chat) {
-      const routerResident = all.some((m) => m.engine === 'main' && normTag(m.name) === normTag(router))
-      if (routerResident) {
-        lastRemediationAt = Date.now()
-        await ollamaUnloadModel(router)
-        logger.warn(`[resource] chat model ${chat} spilling to CPU; evicted router ${router} to free VRAM (reloads on next ambiguous turn)`)
-        recordResourceEvent('remediate', `Chat model was spilling to CPU; freed the router to recover`)
-        return
-      }
+    // Step 1: evict the first non-essential model holding VRAM on the main engine.
+    const essential = new Set([chat, normTag(ROUTER_EMBED_MODEL)])
+    const squatter = all.find((m) => m.engine === 'main' && !essential.has(normTag(m.name)) && m.vramBytes > 0)
+    if (squatter) {
+      lastRemediationAt = Date.now()
+      if (normTag(squatter.name) === normTag(getEmbedModel())) setEmbedCpuOverride(true)
+      await ollamaUnloadModel(squatter.name)
+      logger.warn(`[resource] chat model ${chat} spilling to CPU; evicted ${squatter.name} to free VRAM (reloads on demand)`)
+      recordResourceEvent('remediate', `Chat model was spilling to CPU; freed ${squatter.name} to recover`)
+      return
     }
-    // Step 2: the general embedder moves to the CPU (skip when it's already there).
-    const embedTag = normTag(getEmbedModel())
-    const embedOnGpu = !isEmbedCpuPlanned() && embedTag !== chat &&
-      all.some((m) => m.engine === 'main' && normTag(m.name) === embedTag && m.offloadPct < 100)
-    if (!embedOnGpu) return
+    // Step 2: card is clear of squatters - reload a stranded chat model onto it.
+    // Gated at >=50% offload: below that a full reload costs more than it recovers.
+    const chatModel = all.find((m) => m.engine === 'main' && normTag(m.name) === chat)
+    if (!chatModel || chatModel.offloadPct < 50) return
     lastRemediationAt = Date.now()
-    setEmbedCpuOverride(true)
-    await ollamaUnloadModel(getEmbedModel())
-    logger.warn(`[resource] chat model ${chat} still spilling; moved embedder ${embedTag} to CPU (reloads there on next embed)`)
-    recordResourceEvent('remediate', `Chat model was spilling to CPU; moved the embedder to the CPU to free VRAM`)
+    await ollamaUnloadModel(chatModel.name)
+    await ollamaWarmModel(chatModel.name)
+    logger.warn(`[resource] chat model ${chat} was stranded ${chatModel.offloadPct}% on the CPU with a free card; reloaded it onto the GPU`)
+    recordResourceEvent('remediate', `Chat model was stranded on the CPU; reloaded it onto the GPU`)
   } catch { /* best-effort */ }
 }
 

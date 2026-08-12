@@ -54,7 +54,7 @@ import { getAdultKeywords, detectIsAdult } from '@/lib/adultDetection'
 import { getProtections } from '@/lib/protections'
 import { screenPrompt, screenImage, hasMinorIndicator, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat } from '@/llm/ollama'
-import { getModel, getVisionModel } from '@/lib/models'
+import { getModel, getVisionModel, getFastModel } from '@/lib/models'
 import type { SelectedLora } from '@/lib/loraRouter'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
@@ -240,13 +240,13 @@ async function getActiveCheckpointInfo(): Promise<{ id: string; path: string; la
   }
 }
 
-async function getRouterModel(): Promise<string> {
-  return (
-    (await getAppSetting('router_llm_model') as string | null) ??
-    (await getAppSetting('model') as string | null) ??
-    ''
-  )
-}
+// Prompt-routing / style-detection model for image gen. MUST go through the
+// placement-aware getFastModel(): reading router_llm_model straight from settings
+// loaded a dedicated 4B onto the chat card mid-generation under routerShared
+// placement (where no small model is supposed to be resident), which evicted the
+// chat model to the CPU and stranded it there (observed live 2026-08-12).
+// getFastModel() returns the router LLM only when placement allows a resident
+// small model, and the already-loaded chat model otherwise (zero extra VRAM).
 
 // ── LoRA candidate assembly ────────────────────────────────────────────────────
 
@@ -1031,7 +1031,7 @@ async function buildAndEnqueueJob(params: {
   let height = Math.min(2048, Math.max(256, params.height ?? (isVideo ? 768 : isI2V ? 576 : 1024)))
 
   if (!noCheckpoint && !isI2V) {
-    const routerModel = await getRouterModel()
+    const routerModel = await getFastModel()
 
     if (isEnhance) {
       // Enhance: fixed quality-boost prompt, no LoRA routing, no style detection
