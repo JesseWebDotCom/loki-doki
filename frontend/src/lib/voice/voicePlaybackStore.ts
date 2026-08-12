@@ -172,12 +172,21 @@ function stripMarkdown(text: string): string {
   return s.trim()
 }
 
+// Hold time scaled to reading length (~200 wpm ≈ 300ms/word), clamped between
+// MIN_CAPTION_MS (short sentences shouldn't flash) and a ceiling so one run-on
+// sentence can't pin the bubble while the queue backs up behind it.
+const MAX_CAPTION_MS = 8000
+function captionHoldMs(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length
+  return Math.min(MAX_CAPTION_MS, Math.max(MIN_CAPTION_MS, 500 + words * 300))
+}
+
 /**
  * For the TTS-off (text-only) companion path: reveals the streaming reply one
- * completed sentence at a time, each held for at least MIN_CAPTION_MS before
- * advancing. Returns the sentence currently on screen and a `draining` flag
- * that stays true while the queue is being worked through (so the overlay can
- * extend its talkActive signal past the end of streaming).
+ * completed sentence at a time, each held long enough to actually read it
+ * (captionHoldMs) before advancing. Returns the sentence currently on screen
+ * and a `draining` flag that stays true while the queue is being worked through
+ * (so the overlay can extend its talkActive signal past the end of streaming).
  */
 export function useStreamingSentenceCaption(
   text: string,
@@ -190,6 +199,7 @@ export function useStreamingSentenceCaption(
     queue: [] as string[],
     consumed: 0,
     lastSetAt: 0,
+    holdMs: MIN_CAPTION_MS,
     timer: null as ReturnType<typeof setTimeout> | null,
     prevStreaming: false,
   })
@@ -202,14 +212,15 @@ export function useStreamingSentenceCaption(
       const next = st.queue.shift()
       if (!next) { setDraining(false); return }
       st.lastSetAt = performance.now()
+      st.holdMs = captionHoldMs(next)
       setCaption(next)
       schedule()
     }
 
     const schedule = () => {
       if (st.timer) return
-      const elapsed = st.lastSetAt === 0 ? MIN_CAPTION_MS : performance.now() - st.lastSetAt
-      st.timer = setTimeout(advance, Math.max(0, MIN_CAPTION_MS - elapsed))
+      const elapsed = st.lastSetAt === 0 ? st.holdMs : performance.now() - st.lastSetAt
+      st.timer = setTimeout(advance, Math.max(0, st.holdMs - elapsed))
     }
 
     // New stream started — reset everything.
@@ -218,6 +229,7 @@ export function useStreamingSentenceCaption(
       st.queue = []
       st.consumed = 0
       st.lastSetAt = 0
+      st.holdMs = MIN_CAPTION_MS
       setCaption('')
       setDraining(false)
     }

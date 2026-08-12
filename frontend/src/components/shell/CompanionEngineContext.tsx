@@ -408,8 +408,9 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const karaokeState: IndicatorState = !captions ? 'off' : talkActive ? 'on-active' : 'on-idle'
 
   const captionSource = voiceMode ? bridgeCaption : sentenceCaption
-  // How long the last caption stays on screen after talking stops.
-  const CAPTION_LINGER_MS = 1200
+  // How long the last caption stays on screen after talking stops — long enough
+  // to finish reading the final sentence, since it gets no "next sentence" hold.
+  const CAPTION_LINGER_MS = 2500
   const [linger, setLinger] = useState('')
   useEffect(() => {
     if (talkActive) { setLinger(captionSource); return }
