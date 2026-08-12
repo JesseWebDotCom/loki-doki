@@ -210,6 +210,8 @@ companions_.post('/companion', requireAuth, async (c) => {
     message: string
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
     uiContext?: string | null
+    clientLat?: number | null
+    clientLng?: number | null
     clientTz?: string | null
     images?: string[] // base64-encoded images (no data: prefix) for vision queries
   }
@@ -279,8 +281,8 @@ companions_.post('/companion', requireAuth, async (c) => {
         characterId: charId,
         characterSystemPrompt: ctx.characterSystemPrompt,
         uiContext: body.uiContext ?? null,
-        clientLat: null,
-        clientLng: null,
+        clientLat: typeof body.clientLat === 'number' ? body.clientLat : null,
+        clientLng: typeof body.clientLng === 'number' ? body.clientLng : null,
         clientTz: body.clientTz ?? null,
         convId: memKey,
         history,

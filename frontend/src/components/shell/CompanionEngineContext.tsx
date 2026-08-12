@@ -9,6 +9,7 @@ import { applyPlayDirective } from '@/lib/playDirective'
 import { getPlaylist } from '@/lib/music/catalogApi'
 import { artUrlForRef } from '@/lib/music/trackRef'
 import { useCompanionState, type CaptionStyle } from '@/lib/companionState'
+import { getClientCoords } from '@/lib/clientLocation'
 import { useUIContext } from '@/context/UIContextProvider'
 import type { Mood } from '@/components/companion/moods'
 import type { HandsFreeState } from '@/lib/voice/handsfree-state-machine'
@@ -379,6 +380,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
           characterId: charId,
           uiContext: getContextBlock(),
           clientTz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...getClientCoords(),
         }),
       }).catch(() => { /* best-effort warmup */ })
     })

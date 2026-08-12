@@ -38,6 +38,7 @@ import { getActiveCuration, isCurationFollowUp } from '@/lib/music/curationSessi
 import { isOffline } from '@/lib/connectivity'
 import { getAppSetting } from '@/lib/settings'
 import { friendshipLine } from '@/lib/friendshipMemory'
+import { resolveCurrentLocation } from '@/lib/currentLocation'
 import { buildLocalePrompt, getLocaleSettings } from '@/routes/adminLocale'
 import { buildContentPrompt, getUserCeiling, clampDials, parseCharacterContent, characterGate } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
@@ -473,6 +474,23 @@ export async function runCompanionTurn(
   // narrating the Milford weather block at a user in Tokyo.
   const statedLocation = p.primeOnly ? null : statedLocationFromConversation(p.message, history)
 
+  // Where the DEVICE says they are: client coordinates when the surface has
+  // geolocation permission, else a device-timezone mismatch vs home. Null when
+  // the signals agree with home (or there are none). Mutually exclusive with
+  // statedLocation — what the user SAYS outranks any sensor. Resolved for
+  // primes too, so a primed prefix matches the real turn's prompt while away.
+  const homeLocation = p.prefs['user.location'] as
+    | { displayName?: string; lat?: number; lng?: number; timezone?: string }
+    | undefined
+  const deviceLocation = statedLocation
+    ? null
+    : await resolveCurrentLocation({
+        clientLat: p.clientLat,
+        clientLng: p.clientLng,
+        clientTz: p.clientTz ?? null,
+        home: homeLocation,
+      }).catch(() => null)
+
   // Big-moment mode + disengagement (both mechanical). They reshape the whole
   // turn: modes change behavior via a late-zone directive; both suppress the
   // proactive extras (curiosity, open threads, callbacks) that would read as
@@ -775,6 +793,19 @@ export async function runCompanionTurn(
     } else if (hasClientCoords) {
       cfg['_lat'] = p.clientLat
       cfg['_lng'] = p.clientLng
+    }
+    // Device-location override: the client's sensors say they are away from
+    // home, so location-aware tools point at where they actually are.
+    if (deviceLocation) {
+      cfg['default_location'] = deviceLocation.label
+      if (deviceLocation.lat !== null && deviceLocation.lng !== null) {
+        cfg['_lat'] = deviceLocation.lat
+        cfg['_lng'] = deviceLocation.lng
+      } else {
+        // Timezone-only fix: no coordinates to hand over — let tools geocode the label.
+        delete cfg['_lat']
+        delete cfg['_lng']
+      }
     }
     // Travel override LAST: where the user SAID they are beats the saved home
     // location and its coordinates for every location-aware tool this turn.
@@ -1121,7 +1152,10 @@ export async function runCompanionTurn(
     const _storedLoc = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
     let _loc: string | null = _storedLoc?.displayName ?? null
 
-    if (!_loc && hasClientCoords) {
+    // Bootstrap home from the first coordinates we see — but never while the
+    // device says they're traveling, or a first chat from a trip would save the
+    // vacation spot as home.
+    if (!_loc && hasClientCoords && !deviceLocation) {
       _loc = `coordinates ${p.clientLat!.toFixed(4)}, ${p.clientLng!.toFixed(4)}`
       fetch(`http://localhost:${process.env.PORT ?? 3000}/api/users/${p.userId}/detect-location`, {
         method: 'POST',
@@ -1139,7 +1173,7 @@ export async function runCompanionTurn(
     // home-town weather/news/events are wrong there, and a small model narrates
     // whatever sits in its prompt.
     let briefingBlock: string | null = null
-    if (includeBriefing && !offlineMode && !statedLocation) {
+    if (includeBriefing && !offlineMode && !statedLocation && !deviceLocation) {
       const briefingKey = _storedLoc?.displayName ?? DEFAULT_BRIEFING_KEY
       briefingBlock = getCachedBriefing(briefingKey)?.block || null
       ensureBriefingWarm(
@@ -1399,7 +1433,9 @@ export async function runCompanionTurn(
         `Today is ${_date}, and the current time is ${_time}.`,
         `It's ${_partOfDay} for them. Mention the time or the hour only if they ask about it.`,
         p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
-        _loc ? `Their saved home location is ${_loc}; the local briefing above assumes they are there. If they say they are somewhere else right now, believe them — their statement outranks this line and any local weather or events above. While they are away, talk about where they are; do not bring up the saved location or its weather even as a contrast.` : null,
+        deviceLocation
+          ? `They are currently in ${deviceLocation.label}${deviceLocation.source === 'timezone' ? ' (inferred from their device timezone)' : ''}${_loc ? `, away from their home (${_loc})` : ''}. Talk to them where they are: "local" weather, events, and places mean ${deviceLocation.label}, not home. Do not bring up the home location or its weather even as a contrast unless they ask. If they say they are somewhere else, believe them — their statement outranks this line.`
+          : _loc ? `Their saved home location is ${_loc}; the local briefing above assumes they are there. If they say they are somewhere else right now, believe them — their statement outranks this line and any local weather or events above. While they are away, talk about where they are; do not bring up the saved location or its weather even as a contrast.` : null,
       ].filter(Boolean).join(' '),
     )
     return systemParts

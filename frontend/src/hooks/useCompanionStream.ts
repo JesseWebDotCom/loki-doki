@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { parsePlayDirective, type Directive } from '@/lib/playDirective'
+import { getClientCoords } from '@/lib/clientLocation'
 import { appendToken as appendArtifactToken, finishStreaming as finishArtifactStreaming } from '@/lib/canvas/artifactStore'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
@@ -80,7 +81,7 @@ export function useCompanionStream(options?: CompanionStreamOptions) {
     try {
       const res = await fetch('/api/companions/companion', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ characterId, message: text, history, uiContext: uiContext ?? null, clientTz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { return null } })(), ...(images && images.length > 0 && { images }) }),
+        body: JSON.stringify({ characterId, message: text, history, uiContext: uiContext ?? null, clientTz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null } catch { return null } })(), ...getClientCoords(), ...(images && images.length > 0 && { images }) }),
         signal: controller.signal,
       })
       if (!res.ok) {

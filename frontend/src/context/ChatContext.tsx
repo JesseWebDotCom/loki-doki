@@ -7,6 +7,7 @@ import { useUIContext } from '@/context/UIContextProvider'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { toast } from '@/lib/toast'
 import { uuid } from '@/lib/uuid'
+import { getClientCoords, prewarmClientCoords } from '@/lib/clientLocation'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { applyPlayDirective, parsePlayDirective, type Directive } from '@/lib/playDirective'
@@ -182,6 +183,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // the newly typed message (~2s → ~0.3s to first token on a fresh conversation).
   // Debounced so browsing the conversation list doesn't fire a prime per click;
   // deduped per conversation+companion so a finished generation doesn't re-fire.
+  // Warm the device-coords cache at load (granted permission only — never
+  // prompts) so the first send already carries a location fix.
+  useEffect(() => { prewarmClientCoords() }, [])
+
   const lastPrimeRef = useRef<string | null>(null)
   useEffect(() => {
     if (isGenerating) return
@@ -199,6 +204,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           characterId: charId,
           uiContext: getContextBlock(),
           clientTz: getClientTz(),
+          ...getClientCoords(),
         }),
       }).catch(() => { /* best-effort */ })
     }, 800)
@@ -537,7 +543,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const currentProjectId = currentProjectRef.current?.id ?? undefined
 
     streamChat(
-      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), attachments: sendAttachments.length ? sendAttachments : undefined, focusedArtifact: focusedArtifactForTurn() },
+      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), ...getClientCoords(), attachments: sendAttachments.length ? sendAttachments : undefined, focusedArtifact: focusedArtifactForTurn() },
       controller.signal,
       {
         onGen: ({ genId, conversationId: serverConvId, assistantMessageId }) => {
@@ -1058,7 +1064,7 @@ function getClientTz(): string | null {
 
 /** Start a new chat generation (POST). */
 async function streamChat(
-  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; attachments?: { filename: string; text: string }[]; focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } },
+  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; clientLat?: number | null; clientLng?: number | null; attachments?: { filename: string; text: string }[]; focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } },
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
