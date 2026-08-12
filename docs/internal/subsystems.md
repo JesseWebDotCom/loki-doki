@@ -44,10 +44,16 @@ user_characters          ← the "friendship", created on first interaction
 ```
 1. Build system prompt:
      character.personality_prompt
-     + relevant character-global memories
-     + relevant user-character memories (what this character knows about this user)
+     + character.backstory (capped ~700 chars; injected since 2026-08 — "draw on
+       this when your past comes up, never recite")
+     + relevant character-global memories (the character's OWN opinions/worldview
+       — written by the self-judge since 2026-08)
+     + relevant user-character memories (what this character knows about this user,
+       incl. promises it made to them)
      + user-global memories (facts about the user any character can access)
      + recent conversation history (working memory)
+     + a compressed in-character reminder near the END of the prompt (anti-drift:
+       persona attention decays with distance; see companionTurn buildSystemParts)
 
 2. Route the prompt (semantic router → tools if needed)
 
@@ -261,8 +267,46 @@ Runs hourly (never blocks requests):
 - **Episodic tier:** decay score = `0.995^hours_since_last_used × importance/10 × (1+log(uses+1)×0.1)` (Generative Agents formula).
 - Archive episodic memories with decay score < 0.10 AND unused for ≥ 30 days.
 - Enforce per-scope cap of 200 active episodic memories (archive lowest-scoring beyond cap).
-- Retain most recent 50 episodes per (userId, characterId); delete older ones.
+- Retain most recent 250 episodes per (userId, characterId) (raised from 50, 2026-08); delete older ones.
 - All archival is logged: no silent truncation.
+
+### 2026-08 additions (companion intelligence audit, Phases 3/5)
+
+- **Companion self-memory** (`memory/judge.ts` `runSelfJudge`, called by the sweep
+  for character conversations): a separate small extraction pass stores the
+  COMPANION's own opinions (character-global scope: userId null, characterId set),
+  and its promises/personal statements to this user (character-instance scope).
+  Recall renders them as a dedicated "Your own past statements" section with a
+  stay-consistent / follow-through instruction. This finally populates the
+  character-global scope the schema defined from day one.
+- **Episode recall upgraded** (`memory/recall.ts`): up to 3 episodes injected
+  (was 1), ranked by cosine blended with recency, each prefixed with a relative
+  date ("yesterday", "2 weeks ago"). Temporal questions ("what did we talk about
+  last week?") pull episodes by parsed date range (`parseTemporalRange`)
+  regardless of cosine.
+- **recall_conversations tool** (`tools/recallConversations.ts`): searches the
+  user's raw past transcripts + episode summaries by topic tokens and/or
+  timeframe (Claude-memory pattern), with a router fast path for "what did we
+  talk about" questions. Strictly scoped to the asking user.
+- **Knowledge paragraph** (`memory/profile.ts`, `memory_profiles` table): one
+  compact per-user "who this person is" paragraph, regenerated as a sleep-time
+  job when the judge writes new facts, injected at the top of every memory block
+  (ChatGPT-memory shape — every turn gets a coherent baseline, not a recall
+  lottery).
+- **Bi-temporal columns** (`memories.valid_from`, `memories.superseded_by`):
+  a superseding fact links its predecessor; recently-changed facts render as
+  "fact (previously: old fact)" so the companion can acknowledge changes.
+- **Weekly consolidation** (`memory/consolidate.ts`): merges near-duplicate
+  active facts (cosine ≥ 0.86) and supersedes contradicting durable facts the
+  judge's cosine-gated dedup could never meet. Bounded per run, idle-gated,
+  app_settings-stamped.
+- **Mood state** (`memory/mood.ts`, `user_moods` table): emotionally loaded user
+  messages trigger a detached fast-model classification; fresh moods (<20h)
+  inject 1-2 lines of tone guidance. Episode summaries also record notable
+  emotional tone (one clause) for "last time you seemed stressed" continuity.
+- **Prompt budget** is now 2600 chars (`PROMPT_CHAR_BUDGET`) to fit the paragraph
+  and self-memory sections. Evals: `eval:memory` (recall gates) and
+  `eval:continuity` (multi-turn probes + grep baseline) guard all of this.
 
 **Vector search implementation:** embeddings stored as JSON float arrays in SQLite TEXT column. Cosine similarity computed in-process (JavaScript). At family scale (~10K memories max), linear scan is sub-millisecond: no external vector service needed.
 

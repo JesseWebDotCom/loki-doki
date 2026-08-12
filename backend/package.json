@@ -15,6 +15,8 @@
     "eval:router": "bun run scripts/eval/router-eval.ts",
     "eval:memory": "bun run scripts/eval/memory-eval.ts",
     "eval:chat": "bun run scripts/eval/chat-e2e.ts",
+    "eval:companion": "bun run scripts/eval/companion-eval.ts",
+    "eval:continuity": "bun run scripts/eval/continuity-eval.ts",
     "eval:wakeword": "bun run scripts/eval/wakeword-fa-eval.ts"
   },
   "dependencies": {

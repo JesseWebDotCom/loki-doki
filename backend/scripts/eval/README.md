@@ -9,6 +9,8 @@ All run against the REAL modules/pipeline (no mocks) and need the dev stack up
 | `router-eval.ts` | Tool-routing accuracy over the 41-case fixture set (`adminRouterBenchmark.TEST_CASES`) with per-path latency. | `bun run eval:router` (`--t1-only` to skip the LLM tier) |
 | `memory-eval.ts` | Recall quality: seeds a throwaway user with pinned/durable/episodic/entity memories (plus a 22-fact entity flood and 40 filler rows) and asserts each probe question surfaces — or correctly does NOT surface — the target fact in the real formatted prompt block. | `bun run eval:memory` |
 | `chat-e2e.ts` | True end-to-end latency through `POST /api/chat/stream` exactly as the frontend calls it: headers→first-token→total, plus the server's own `[CHAT-TIMING]` stage breakdown pulled from the log ring buffer. Mints a temporary admin session and deletes it after. | `bun run eval:chat "message" [--runs N] [--character Name]` |
+| `companion-eval.ts` | Answer quality on single-shot factual/tool prompts, graded on directness, conciseness, accuracy (route + content/grounding), and speed. | `bun run eval:companion [--character] [--only id] [--json out.json]` |
+| `continuity-eval.ts` | Multi-turn continuity: pronoun follow-ups ("how old is he?"), "what did you just tell me", "tell me more", clarify turns, and a past-conversation probe — graded on topical overlap with the prior reply, sane routing, mechanical assistant-speak tells, and a raw-log grep baseline. | `bun run eval:continuity [--only id] [--json out.json]` |
 | `wakeword-fa-eval.ts` | False-accepts/hour + recall through the REAL ort-web detection pipeline (`lib/pod/wake.ts`, shared by browser and Wyoming paths). Builds a cached audio bank (Kokoro speech = TV-dialog proxy, phonetic near-misses, colored noise, silence, positive utterances), records the smoothed score stream once per model, then replays the exact fire logic across a threshold × hysteresis sweep. | `bun run eval:wakeword [modelId ...]` |
 | `router-scores.ts` | Debug helper: dumps top-5 embedding scores for a prompt list — use when tuning thresholds or adding tool examples. | `bun run scripts/eval/router-scores.ts` |
 
@@ -29,6 +31,17 @@ Recorded after the fixes in this pass, as the numbers to not regress from:
   Nearly all fires come from the near-miss bank (phonetic rhymes) — models
   trained before the near-miss fallback fix have no rhyme negatives. Noise and
   silence banks: 0 fires.
+
+## The grep-baseline rule (memory features)
+
+Before any memory feature ships or grows, it must beat the dumbest possible
+baseline: LIKE/grep over the raw transcripts it draws from. `continuity-eval.ts`
+enforces this on the past-conversation probe (`grep-baseline=LOST-TO-GREP` means
+the recall machinery failed to surface something a plain substring search could
+see). The 2026 memory-benchmark literature is polluted (LoCoMo's answer key is
+~6% wrong; vendor leaderboards contradict each other), so our own probes + the
+grep baseline are the ground truth here. Evaluate variants PAIRWISE (old prompt
+vs new prompt on the same probes), never by absolute scores.
 
 ## Gotchas
 

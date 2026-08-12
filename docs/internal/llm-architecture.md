@@ -64,8 +64,22 @@ Both must be pulled via Ollama before first use. The setup wizard will prompt fo
 | `all-minilm` | Tier 1 router embeddings (tool intent matching) | ~46 MB |
 | `nomic-embed-text` | Memory/friendship embeddings (semantic recall) | ~274 MB |
 
-## Approved models: Western only
-No Chinese-origin models (Qwen, DeepSeek, Yi, Baidu, etc.). Local only: no cloud APIs.
+## Model sets (2026-08 update — supersedes the old "Western only" policy)
+
+Models now ship as named SETS (`lib/catalog.ts` `MODEL_SETS`, orchestrated by
+`lib/modelSets.ts`; admin picks under Admin → Models). Local only: no cloud APIs.
+
+| Set | Lineup |
+|---|---|
+| `original` (default) | The proven Western-origin lineup: Llama 3.1 8B abliterated chat, Gemma 3 vision, Granite router, Nomic embeddings. |
+| `latest` | Newest-generation lineup (includes Chinese-lab models, an explicit admin opt-in): Qwen 3.5 9B abliterated chat with built-in vision, Qwen 3.5 4B router, Qwen3 embeddings. Same image/video stack. |
+
+Switching sets is crash-safe (pending-set persisted, pulls via the download queue,
+roles flip only when every target model is installed) and cleans up superseded
+models from disk. The historical blanket "no Chinese-origin models" rule now
+applies only to the `original` set and to voice (Qwen3-TTS stays banned — see
+subsystems.md). The per-model catalog below predates model sets; the catalog file
+is the source of truth when they disagree.
 
 **Censored:**
 | Model | Origin | Notes |
@@ -100,7 +114,11 @@ Always use compressed models. Q4_K_M is the default: best quality/size/speed bal
 
 hwfit seeds these recommendations at startup based on detected RAM. Admin can override.
 
-## Single model
+## Single model (historical — see Model sets above)
+
+> Superseded: the shipped system uses per-role models (chat, router LLM, fast
+> model, vision, two embedders) selected by the active model set. Kept for the
+> original design rationale; `lib/models.ts` is the source of truth.
 
 One model handles everything: routing, memory extraction, dedup, character responses. Configured via `MODEL` env var or the `model` key in `app_settings` (DB value takes precedence).
 

@@ -3,6 +3,14 @@
 Date: 2026-08-12
 Scope: the chat/voice companion's memory, conversational continuity, world knowledge, and response quality. Four parallel deep audits (memory subsystem, chat pipeline, knowledge/persona layer, and a web-research pass on 2025-2026 state of the art) plus hand verification of the highest-impact findings in code.
 
+**Implementation status (2026-08-12): ALL 25 plan items implemented** across six
+commits (Phases 1-6; see git log for this date). Item 8's 60-token clamp turned
+out to be already removed (verbosity hints replaced it), and item 22's pacing
+needs were already met by the existing typing indicator + streaming, so both
+became documentation corrections. New evals: `eval:continuity` (multi-turn
+probes + grep baseline), plus `eval:companion` wired into package.json.
+Docs refreshed: chat-latency.md, subsystems.md, llm-architecture.md.
+
 ## Verdict
 
 The architecture is genuinely modern: the memory system is a mem0 / Generative-Agents / "sleep-time judge" hybrid that most hobby projects never reach, every live-data tool is actually wired into chat, and the latency work is production-grade. The failures the user experiences ("the companion says something, I ask about it, and it has no idea") are NOT a missing memory system. They are three specific continuity breaks in the turn pipeline, plus a set of real gaps in humanlike memory (no self-memory, weak past-chat recall, no temporal reasoning) and world knowledge (stale-weights answers on no-tool turns).

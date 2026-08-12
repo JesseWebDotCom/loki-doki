@@ -113,7 +113,13 @@ if (!tool && message.trim().length <= 20) {
 }
 ```
 
-User can override `num_predict` via `max_tokens` preference. Default is 2048.
+> **2026-08 status:** the 60-token short-message clamp has since been REMOVED —
+> it clipped substantive answers to short follow-ups ("why?", "explain"). Length
+> control now comes from the per-message verbosity hint
+> (`lib/presentationPrompt.ts` `verbosityFragment`), a prompt nudge only;
+> `num_predict` stays a plain ceiling (default 4096 via `resolveTurnContext`).
+
+User can override `num_predict` via `max_tokens` preference. Default is 4096.
 
 **At 60 tok/s generation speed:**
 - 60-token cap → ~1s max (short messages)
@@ -139,6 +145,14 @@ const convMemCache = new Map<string, MemCacheEntry>()
 - **Turn 2+:** Instant cache hit. Memory block is the same → system prompt prefix is stable → KV cache hits.
 
 The 30-minute TTL aligns with the background memory sweep (which adds new memories after 5+ minutes of idle). After 30 minutes, the cache expires and the next message re-computes.
+
+> **2026-08 status:** the cache now lives in `memory/blockCache.ts` with four
+> staleness triggers beyond the TTL: a newly-mentioned entity (per-turn
+> deterministic entity pass), an 8-turn max, judge-write invalidation, and a
+> lexical topic-shift check (a substantive message sharing zero content words
+> with the block's rolling topic vocabulary recomputes recall). The memory block
+> also moved to the LATE volatile zone of the system prompt, so a recompute no
+> longer busts the heavy stable prefix.
 
 ---
 
@@ -175,6 +189,16 @@ const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|
 ```
 
 This runs **before** the embedding step. If it matches, the message goes straight to search passthrough with no embed call, no score check, no T2 LLM call.
+
+> **2026-08 status:** no longer unconditional. The regex now only decides AFTER
+> embedding scores rule out every specialized tool (score-gated passthrough), and
+> two follow-up guards run first: anaphoric follow-ups ("who was he?" — short +
+> pronoun + history) go to a history-aware Tier 2 that resolves the reference
+> instead of web-searching the literal pronoun, and clarify turns ("what did you
+> mean?") short-circuit to conversational. Contextual search queries additionally
+> get one budgeted standalone-rewrite on the fast model before executing
+> (`rewriteContextualQuery` in companionTurn.ts). Re-run `eval:router` AND
+> `eval:continuity` after touching any of this.
 
 **What NOT to do:**
 - Don't gate this on an embedding score threshold: the whole point is that scores are unreliable for these patterns.
@@ -281,15 +305,22 @@ const SIMILARITY_THRESHOLD = 0.65 // at/above = confident tool match
 
 **File:** `backend/src/routes/chat.ts`
 
-We load the last 40 messages from DB but trim to an 800-token budget before sending to the LLM. Older context is covered by the memory system.
+We load the last 40 messages from DB but trim to a 1200-token budget before sending to the LLM. Older context is covered by the memory system.
 
 ```typescript
-const TOKEN_HISTORY_BUDGET = 800
+const TOKEN_HISTORY_BUDGET = 1200
 ```
 
-**Why 800:** At actual observed prefill rates (~1.5 tok/ms for the 12B model), 800 tokens ≈ 533ms of prefill. Going higher (e.g. 1500 tokens) adds ~467ms per turn. The memory system handles long-term context.
+**Why 1200 (raised from 800, 2026-08):** at observed prefill rates this is the
+documented ceiling before per-turn delay is perceptible. 800 held only 3–6 turns,
+so follow-ups referencing 4+ turns back fell out of the window before the rolling
+summary covered them. The summary now also refreshes on a tighter cadence
+(4 fresh messages instead of 8) once trimming starts dropping messages, so no
+band of conversation is ever in neither the window nor the summary.
 
-**Minimum:** Always keep at least 4 messages (2 turns) regardless of budget.
+**Minimum:** Always keep at least 4 messages (2 turns) regardless of budget — the
+last full exchange is never trimmed. The same 1200 budget applies in /prime,
+/regenerate, /edit, and the Telegram handler.
 
 ---
 
@@ -402,7 +433,9 @@ Precompute-band jobs (`lib/precompute.ts`) already get (1) from the opportunisti
 6a. **Presentation policy position + warmup**: `PRESENTATION_POLICY` (`lib/presentationPrompt.ts`) is the FIRST system-prompt part on text surfaces and is duplicated into `warmupModel()`. Change one and you must change the other, or turn 1 of every conversation pays full prefill again. It is suppressed on voice surfaces on purpose (nothing in it is speakable).
 6b. **Re-plan stays dead-end-only**: do not "improve" `tryReplan` into a loop that runs on successful tool calls. That converts a rare recovery into a per-turn ~2–3s tax on the happy path.
 7. **Memory cache TTL**: if lowered below the sweep idle window (5 min), memory re-computation changes the system prompt mid-conversation and breaks KV cache
-8. **History token budget**: raising above 1200 adds perceptible prefill delay per turn
+8. **History token budget**: now AT the 1200 ceiling — raising it further adds perceptible prefill delay per turn
+9. **Voice history window** (2026-08): `satelliteSession.ts` accumulates a 10-min/12-message turn buffer and passes it into `runPodBrain`. Removing the `history` field silently makes every spoken follow-up amnesiac again — the exact P0 the companion audit fixed.
+10. **Tier-2 reference-resolution wording** (2026-08): the "resolve the reference from the conversation" sentence in `tier2System` is what makes anaphoric follow-ups work. Re-run `eval:router` and `eval:continuity` after ANY change.
 
 ## Common Regression Patterns
 
