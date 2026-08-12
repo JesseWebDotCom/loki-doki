@@ -87,6 +87,12 @@ export const authorizeSelfClaudeCode = (pin: string) => jsend<{ ok: boolean }>('
 export const authorizeSelfVnc = (pin: string) => jsend<SelfVncAuth>('/self/authorize', 'POST', { pin, proto: 'vnc' })
 export const authorizeSelfRdp = (pin: string) => jsend<SelfRdpAuth>('/self/authorize', 'POST', { pin, proto: 'rdp' })
 
+// Live host-shell sessions on this server (persistent in the PTY sidecar).
+// clients = attached viewers right now; 0 = running detached, ready to reattach.
+export interface SelfShell { slot: string; clients: number }
+export const getSelfShells = () => jget<{ shells: SelfShell[] }>('/self/shells').then((r) => r.shells)
+export const killSelfShell = (slot: string) => jsend<{ ok: boolean }>(`/self/shells/${encodeURIComponent(slot)}`, 'DELETE')
+
 export interface SelfDesktopConfig { host: string; vncPort: number; vncHasSecret: boolean; rdpPort: number; rdpUser: string; rdpHasSecret: boolean; rdpSecurity: 'nla' | 'tls' | 'rdp' }
 export interface SelfDesktopInput { host?: string; vncPort?: number; vncPassword?: string; rdpPort?: number; rdpUser?: string; rdpPassword?: string; rdpSecurity?: 'nla' | 'tls' | 'rdp' }
 export const getSelfConfig = () => jget<SelfDesktopConfig>('/self/config')

@@ -30,7 +30,7 @@ import { buildHostShellSpawnParams } from '@/lib/codingServer'
 // Host-shell variants, NOT the coding ones: on Windows with sandbox isolation the
 // coding sidecar runs as the restricted user, and the admin "This server" shell
 // must keep full app-user access (it gets its own sidecar instance there).
-import { ensureHostShellSidecarReady, hostShellSidecarWsUrl } from '@/lib/codingPtySidecar'
+import { ensureHostShellSidecarReady, hostShellSidecarWsUrl, listHostShellSessions, killHostShellSession } from '@/lib/codingPtySidecar'
 import { IS_WIN } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 import type { AppEnv, User } from '@/types'
@@ -519,10 +519,37 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
     return c.json({ entries: rows.map((e) => ({ ...e, detail: e.detail ? JSON.parse(e.detail) : null })) })
   })
 
+  // Slot ids are client-minted short tokens; validate hard so a crafted value
+  // can't smuggle separators into another user's session key.
+  const SHELL_SLOT_RE = /^[a-z0-9-]{1,40}$/i
+
+  // ── REST: list/kill this admin's live host-shell sessions (reattach picker) ──
+  r.get('/self/shells', requireAdmin, async (c) => {
+    const user = c.get('user')
+    const prefix = `admin-shell:${user.id}`
+    const all = await listHostShellSessions()
+    const mine = all
+      .filter((s) => s.key === prefix || s.key.startsWith(`${prefix}:`))
+      .map((s) => ({ slot: s.key === prefix ? 'default' : s.key.slice(prefix.length + 1), clients: s.clients }))
+    return c.json({ shells: mine })
+  })
+  r.delete('/self/shells/:slot', requireAdmin, async (c) => {
+    const user = c.get('user')
+    const slot = c.req.param('slot')
+    if (slot !== 'default' && !SHELL_SLOT_RE.test(slot)) return c.json({ error: 'bad slot' }, 400)
+    const key = slot === 'default' ? `admin-shell:${user.id}` : `admin-shell:${user.id}:${slot}`
+    await killHostShellSession(key)
+    await audit(user.id, 'host_shell_kill', { slot })
+    return c.json({ ok: true })
+  })
+
   // ── WS: admin-only raw host shell on THIS server ──
   r.get('/terminal', upgradeWebSocket(async (c) => {
     const user = await resolveUser(getCookie(c, 'session'))
     const token = c.req.query('token') ?? ''
+    // Optional shell slot — each slot is an independent persistent session.
+    const rawSlot = c.req.query('shell') ?? ''
+    const slot = rawSlot && rawSlot !== 'default' && SHELL_SLOT_RE.test(rawSlot) ? rawSlot : undefined
     let upstream: WebSocket | null = null
     let stopKeepalive = () => { /* not started */ }
     const pending: (string | ArrayBufferLike)[] = []
@@ -536,7 +563,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
         stopKeepalive = startWsKeepalive(ws)
         try {
           await ensureHostShellSidecarReady()
-          const spawn = buildHostShellSpawnParams(user.id)
+          const spawn = buildHostShellSpawnParams(user.id, slot)
           upstream = new WebSocket(hostShellSidecarWsUrl())
           upstream.addEventListener('open', () => {
             try { upstream?.send(JSON.stringify(spawn)); for (const m of pending) upstream?.send(m as string); pending.length = 0 } catch { /* closed */ }
@@ -544,7 +571,7 @@ export function createRemoteRoute(upgradeWebSocket: UpgradeWebSocket) {
           upstream.addEventListener('message', (e) => { try { ws.send(e.data as string) } catch { /* gone */ } })
           upstream.addEventListener('close', () => { try { ws.close() } catch { /* closed */ } })
           upstream.addEventListener('error', () => { try { ws.close() } catch { /* closed */ } })
-          await audit(user.id, 'host_shell_open')
+          await audit(user.id, 'host_shell_open', { slot: slot ?? 'default' })
         } catch (err) {
           logger.warn(`[remote] host shell failed: ${err instanceof Error ? err.message : String(err)}`)
           try { ws.close(1011, 'host shell unavailable') } catch { /* ignore */ }

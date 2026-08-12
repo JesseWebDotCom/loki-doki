@@ -243,6 +243,16 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     res.end(JSON.stringify({ ok: true }))
     return
   }
+  if (req.url === '/sessions' && req.method === 'GET') {
+    // Live session census for the reattach picker: key + how many clients are
+    // currently attached (0 = running detached, waiting for a reattach).
+    const list = [...sessions.values()]
+      .filter((s) => s.alive)
+      .map((s) => ({ key: s.key, clients: s.clients.size }))
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ sessions: list }))
+    return
+  }
   if (req.url === '/session/kill' && req.method === 'POST') {
     void readJsonBody(req).then((body) => {
       const key = typeof body.sessionKey === 'string' ? body.sessionKey : ''

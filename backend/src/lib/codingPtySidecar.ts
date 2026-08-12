@@ -280,6 +280,31 @@ export async function shutdownCodingSidecar(): Promise<void> { return codingSide
 export function hostShellSidecarWsUrl(): string { return hostShellManager().wsUrl() }
 export async function ensureHostShellSidecarReady(): Promise<void> { return hostShellManager().ensureReady() }
 
+/** Live host-shell sessions (key + attached-client count). Empty when the sidecar
+ *  is down — listing must never spawn it just to report nothing. */
+export async function listHostShellSessions(): Promise<Array<{ key: string; clients: number }>> {
+  try {
+    const r = await fetch(`${hostShellManager().url()}/sessions`, { signal: AbortSignal.timeout(2_000) })
+    if (!r.ok) return []
+    const data = await r.json() as { sessions?: Array<{ key: string; clients: number }> }
+    return Array.isArray(data.sessions) ? data.sessions : []
+  } catch {
+    return []
+  }
+}
+
+/** Kill one persistent host-shell session (explicit user action from the picker). */
+export async function killHostShellSession(sessionKey: string): Promise<void> {
+  try {
+    await fetch(`${hostShellManager().url()}/session/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionKey }),
+      signal: AbortSignal.timeout(3_000),
+    })
+  } catch { /* sidecar down/absent — nothing to kill */ }
+}
+
 export function stopCodingPtySidecar(): void {
   codingSidecar.stop()
   hostShellSidecar.stop()

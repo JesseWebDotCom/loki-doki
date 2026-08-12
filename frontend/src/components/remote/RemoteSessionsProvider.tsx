@@ -13,6 +13,8 @@ export interface RemoteSession {
   kind: SessionKind
   hostId?: string
   hostShellToken?: string
+  /** Which persistent server-side shell this tab attaches to ('default' or a slot id). */
+  shellSlot?: string
   // "This server" (loopback) VNC/RDP: single-use WS token + the creds the browser client needs.
   selfToken?: string
   selfVncPassword?: string

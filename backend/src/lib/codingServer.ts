@@ -322,8 +322,12 @@ export async function buildAttachSpawnParams(userId: string): Promise<{ cmd: str
  * the PTY sidecar's persistent/reattach mode. Curated env only (never the full process.env).
  * The route that reaches it is requireAdmin + PIN-gated.
  */
-export function buildHostShellSpawnParams(userId: string): { cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey: string; persistent: boolean } {
+export function buildHostShellSpawnParams(userId: string, slot?: string): { cmd: string; args: string[]; cwd: string; env: Record<string, string>; sessionKey: string; persistent: boolean } {
   const home = process.env.HOME || process.env.USERPROFILE || dataDir
+  // Multiple independent shells per admin: each carries a slot suffix in its
+  // session key. No slot = the original single-session key, so shells opened
+  // before slots existed stay reattachable.
+  const sessionKey = slot ? `admin-shell:${userId}:${slot}` : `admin-shell:${userId}`
   if (IS_WIN) {
     const env: Record<string, string> = { TERM: 'xterm-256color' }
     for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH']) {
@@ -333,11 +337,11 @@ export function buildHostShellSpawnParams(userId: string): { cmd: string; args: 
     const cmd = process.env.ComSpec && !existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
       ? process.env.ComSpec
       : 'powershell.exe'
-    return { cmd, args: [], cwd: home, env, sessionKey: `admin-shell:${userId}`, persistent: true }
+    return { cmd, args: [], cwd: home, env, sessionKey, persistent: true }
   }
   const env: Record<string, string> = { TERM: 'xterm-256color', HOME: home }
   if (process.env.PATH) env.PATH = process.env.PATH
   if (process.env.LANG) env.LANG = process.env.LANG
   const shell = process.env.SHELL || '/bin/bash'
-  return { cmd: shell, args: ['-l'], cwd: home, env, sessionKey: `admin-shell:${userId}`, persistent: true }
+  return { cmd: shell, args: ['-l'], cwd: home, env, sessionKey, persistent: true }
 }

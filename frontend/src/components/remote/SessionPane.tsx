@@ -36,7 +36,7 @@ function TerminalPane({ session, host, snippets, fontSize, active }: { session: 
   // reusing the Coding app's WS on its own /api/coding base rather than the remote one.
   const codingWsUrl = () => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/coding/terminal`
   const url = session.kind === 'host-shell'
-    ? wsUrl(`/terminal?token=${encodeURIComponent(session.hostShellToken ?? '')}`)
+    ? wsUrl(`/terminal?token=${encodeURIComponent(session.hostShellToken ?? '')}${session.shellSlot && session.shellSlot !== 'default' ? `&shell=${encodeURIComponent(session.shellSlot)}` : ''}`)
     : session.kind === 'claude-code'
       ? codingWsUrl()
       : wsUrl(`/ssh?host=${encodeURIComponent(session.hostId ?? '')}`)
