@@ -256,17 +256,14 @@ try {
   console.log(`\n══ ${passed}/${results.length} passed ══`)
   if (jsonPath) await Bun.write(jsonPath, JSON.stringify(results, null, 2))
 } finally {
-  for (const id of createdConvs) {
-    await fetch(`${BASE}/api/chat/conversations/${id}`, { method: 'DELETE', headers: { cookie: `session=${token}` } }).catch(() => {})
-  }
-  // Belt-and-suspenders: remove any eval conversations the API delete missed.
+  // Delete conversations DIRECTLY in the DB, not via the API: the API delete
+  // fires a judge snapshot over the doomed messages, which raced the scrub below
+  // and wrote probe "facts" (the woodworking hobby) into the REAL memory store
+  // after cleanup finished. Raw row deletion gives the judge nothing to see.
   for (const id of createdConvs) {
     await db.delete(conversations).where(eq(conversations.id, id)).catch(() => {})
   }
-  // Deleting a conversation triggers a judge snapshot, so probe "facts" (the
-  // woodworking hobby etc.) land in the admin's REAL memory store — confirmed
-  // live when a later eval reply referenced them. Scrub anything the judge wrote
-  // for this user during the run window.
+  // Scrub what any mid-run idle sweep wrote for this user during the run window.
   await db.delete(memories)
     .where(and(eq(memories.userId, admin.id), gte(memories.createdAt, RUN_STARTED_AT)))
     .catch(() => {})

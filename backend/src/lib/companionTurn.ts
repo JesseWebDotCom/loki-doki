@@ -723,6 +723,17 @@ export async function runCompanionTurn(
     return { tool: r.tool, args: r.args, result: res }
   }
 
+  // Personal-fact recall turns ("whats my sister's name?") answer from the
+  // injected memory block — and when the block does NOT hold the fact, the model
+  // must say so. Without this note it invents one (stress-eval: a sister "Sarah"
+  // and a favorite color "teal" that were never stored).
+  if (!tool && (routeResult.path === 'personal-recall' || routeResult.path === 'recall-question')) {
+    ollamaMessages = [
+      ...history,
+      { role: 'user', content: `${p.message}\n\n[memory]: Answer ONLY from the remembered facts and the conversation above. If the answer is not there, say plainly that you don't know or haven't been told yet — never guess or invent a personal fact.` },
+    ]
+  }
+
   // The best route was a tool this user is denied — say so instead of silently
   // answering a live question (e.g. weather) from stale model memory.
   if (!tool && routeResult.deniedToolId) {
@@ -899,7 +910,7 @@ export async function runCompanionTurn(
         // than narrating JSON.
         const toolTurnContent = typeof result.synthesisHint === 'string' && result.synthesisHint.trim()
           ? `${p.message}\n\n${result.synthesisHint.trim()}${sourceList}`
-          : `${p.message}\n\n[${tool.name} data]: ${llmFold(result.data)}\n\nAnswer the question directly from this data: state the answer in your first sentence, in your own voice, with no preamble.${sourceList}`
+          : `${p.message}\n\n[${tool.name} data]: ${llmFold(result.data)}\n\nAnswer the question directly from this data: state the answer in your first sentence, in your own voice, with no preamble. If the data does not actually confirm something the user claimed or assumed, say what it does and does not show — never stretch it to validate their premise.${sourceList}`
         ollamaMessages = [
           ...history,
           { role: 'user', content: toolTurnContent },
@@ -1115,7 +1126,11 @@ export async function runCompanionTurn(
       'If the user mentions an event you have no knowledge of, neither confirm nor deny it ' +
       'from memory — offer to search instead. Never present remembered news as current, and ' +
       'never pad an answer with ambient details from this prompt (the time, the weather, ' +
-      'their location) that were not asked about.',
+      'their location) that were not asked about. When the user asserts something as fact ' +
+      'and your live data does not confirm THAT SPECIFIC claim, say what the data does and ' +
+      'does not show — never stretch a tangential result to validate their premise. If a ' +
+      'message has no real content (bare emoji, "...", a fragment), just respond naturally ' +
+      'and ask what\'s up — never invent an event or backstory to explain it.',
     )
 
     // ── Late volatile zone ── everything below changes turn-to-turn (memory =

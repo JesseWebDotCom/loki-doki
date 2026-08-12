@@ -82,7 +82,7 @@ const SOCIAL_QUESTION_RE = /^(?:how (?:are|r|have) (?:you|u|ya|been)|how'?s it g
 // know. Matches only when the message is a QUESTION (QUESTION_RE) AND names a personal
 // fact/relationship after "my"/"our" — so tool-bearing possessives ("my local weather",
 // "my alarms", "my thermostat") still route to their tools.
-const PERSONAL_FACT_RE = /\b(?:my|our)\s+(?:\w+\s+){0,2}(?:names?|nicknames?|birth\s?days?|anniversar\w*|addresse?s?|phone|emails?|ages?|jobs?|allerg\w*|son|daughter|kids?|child|children|wife|husband|spouse|partner|fianc\w*|mom|mother|dad|father|parents?|brothers?|sisters?|siblings?|grandmothers?|grandfathers?|grandma|grandpa|aunts?|uncles?|cousins?|pets?|dogs?|cats?|favou?rite|hometowns?)\b/i
+const PERSONAL_FACT_RE = /\b(?:my|our)\s+(?:\w+\s+){0,2}(?:names?|nicknames?|birth\s?days?|anniversar\w*|addresse?s?|phone|emails?|ages?|jobs?|allerg\w*|son|daughter|kids?|child|children|wife|husband|spouse|partner|fianc\w*|mom|mother|dad|father|parents?|brothers?|sisters?|siblings?|grandmothers?|grandfathers?|grandma|grandpa|aunts?|uncles?|cousins?|pets?|dogs?|cats?|favou?rite|hometowns?|numbers?)\b/i
 
 // Questions directed AT the companion itself ("who are you?", "how do you feel?",
 // "what is wrong with you") — these must never take the literal search-intent fast
@@ -90,7 +90,41 @@ const PERSONAL_FACT_RE = /\b(?:my|our)\s+(?:\w+\s+){0,2}(?:names?|nicknames?|bir
 // knowledge-seeking verbs ("what do you know about X", "have you heard of X") so
 // genuine lookups still fast-path. Only guards the fast path — the embedding tiers
 // and Tier 2 can still choose search for ambiguous cases.
-const SELF_DIRECTED_RE = /^(?:so\s+|hey\s+|and\s+)?(?:who|what|how|why)\b[^,.!?]{0,50}\byou\b(?!\s+(?:know|heard|seen|watched|read|find|found|look|looked|search|tell|think|check|recommend|suggest))/i
+// Stress-eval fixes (2026-08): "whats" (no apostrophe) dodged the \bwhat\b guard,
+// "where are you from" starts with "where", and "your" wasn't covered at all —
+// so persona questions were being WEB-SEARCHED.
+const SELF_DIRECTED_RE = /^(?:so\s+|hey\s+|and\s+|ok(?:ay)?\s+)?(?:who|what(?:'?s)?|how|why|where)\b[^,.!?]{0,50}\b(?:you|your|yourself)\b(?!\s+(?:know|heard|seen|watched|read|find|found|look|looked|search|tell|think|check|recommend|suggest))/i
+
+// Persona questions that must route CONVERSATIONAL outright (not merely dodge the
+// search fast path): identity, origin, tastes. The persona/backstory in the system
+// prompt is what answers these; stress-eval caught "tell me about yourself" and
+// "whats your favorite music" being routed to web search by the embedding tier.
+const SELF_QUESTION_RE = /^(?:so\s+|hey\s+|and\s+|nice[.,!\s]+|ok(?:ay)?[,\s]+)?(?:tell me (?:a (?:bit|little) |something |more )?about yourself|where are you from|where did you grow up|what(?:'?s| is| are) your favou?rite\b|what do you (?:like|love|enjoy)\b|what(?:'?s| is) your (?:name|deal|story|background)\b|who are you\b|what are you\b)/i
+
+// Explicit memory COMMANDS ("remember that my sister's name is Kayla", "don't
+// forget that...", "make a note that..."). The fact's own content dominates the
+// embedding, so these score 0.25-0.35 against the remember tool's examples and
+// fell to plain conversation — the companion NARRATED the fact back and stored
+// NOTHING (stress-eval: a later session then invented a different sister). An
+// imperative memory command must never be lost, so it routes deterministically.
+// "remember when we..." (nostalgia) is excluded; "do/did you remember..." recall
+// questions are caught by the earlier recall-question path.
+const REMEMBER_INTENT_RE = /^(?:(?:please|actually|also|and|oh|now|hey\s+\w+|ok(?:ay)?)[,\s]+)*(?:remember|memori[sz]e|don'?t forget|make a note(?: of)?|note)\b(?!\s+when\b)\s+(?:that\b|this\b|my\b|i\b|our\b|the\b|to\b|:)/i
+const FORGET_INTENT_RE = /^(?:(?:please|actually|also|and|oh|now|hey\s+\w+|ok(?:ay)?)[,\s]+)*(?:forget|erase|delete)\s+(?:what|that|this|my|our|the|everything|about|anything)\b/i
+
+// Self-corrections ("oops, i meant on $80", "sorry, wednesday not tuesday"). The
+// correction's OWN embedding is contentless — the tool signal lives in the
+// PREVIOUS user message, so candidates are scored from that and a history-aware
+// Tier 2 re-runs the right tool with the corrected arguments (stress-eval: the
+// tip correction fell to conversation and the 9B did the arithmetic wrong).
+const CORRECTION_RE = /^(?:oops|oop|sorry|my bad|no[,\s]+wait|wait[,\s]+no|no[,\s]+i meant|i meant|correction|scratch that|actually[,\s]+no)\b/i
+
+// References to something said EARLIER IN THIS CONVERSATION ("what did you say
+// about X earlier?", "what was the first thing I asked?"). The live history window
+// answers these; without this gate the recall_conversations tool's examples pull
+// them into a search across ALL past chats and return unrelated junk (stress-eval:
+// a persona question got an answer about a Paris chat from a month prior).
+const THIS_CHAT_REF_RE = /\b(?:what did you (?:just )?say about|you (?:said|told me|mentioned) (?:earlier|before|a (?:minute|moment|second) ago|just now)|earlier[,\s]+what did you (?:say|tell)|(?:first|last) thing i (?:asked|said|told)|in this (?:chat|conversation)\b)/i
 
 // Follow-up lookup commands whose SUBJECT lives in the prior turns, not the
 // command itself ("why don't you look it up", "google it", "search that",
@@ -197,7 +231,7 @@ const TIER2_RULES: Record<string, string> = {
   localNews: 'localNews: hyperlocal news for the user\'s own town. "what\'s going on in town", "local news near me".',
   localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
   onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
-  recall_conversations: 'recall_conversations: questions about the user\'s own PAST CONVERSATIONS with you — what was discussed before, when a topic came up, what was said yesterday/last week. "what did we talk about yesterday", "when did we discuss the trip". Not for facts about the world (search) and not for stored personal facts (those are answered from memory).',
+  recall_conversations: 'recall_conversations: questions about the user\'s own PAST CONVERSATIONS with you — what was discussed before, when a topic came up, what was said yesterday/last week. "what did we talk about yesterday", "when did we discuss the trip". Not for facts about the world (search), not for stored personal facts (those are answered from memory), and NEVER for something said in the current conversation — answer that directly from the messages above.',
   homeAssistant: 'homeAssistant: control or query smart-home devices — lights, switches, fans, locks, thermostats (temperature + mode), home TVs/speakers (pause, skip, volume, mute), scenes, covers/garage doors. "turn off the living room lights", "set the thermostat to 72", "pause the living room tv", "is the garage open", "what temperature is it inside". Only for devices in the home — outdoor conditions are weather, and starting new music by name is play_music. Pass the user\'s full command verbatim as the text argument.',
 }
 
@@ -253,6 +287,8 @@ const CONVERSATIONAL_EXAMPLES = [
   'how do you feel today?',
   'I missed talking to you',
   'guess what happened to me today',
+  "what's your favorite kind of music?",
+  'where are you from?',
 ]
 
 let routeIndex: RouteEntry[] = []
@@ -387,6 +423,74 @@ export async function routePrompt(
   if (CLARIFY_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=clarify msg="${excerpt}"`)
     return { tool: null, args: {}, path: 'clarify' }
+  }
+
+  // Fast path: persona/self questions ("tell me about yourself", "whats your
+  // favorite music") — answered by the persona + backstory in the system prompt.
+  if (SELF_QUESTION_RE.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=self-question msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'self-question' }
+  }
+
+  // Fast path: references to earlier in THIS conversation — the live history
+  // window (which both the chat model and Tier 2 see) answers these directly.
+  if (history.length > 0 && THIS_CHAT_REF_RE.test(prompt)) {
+    logger.info(`[ROUTER] path=this-chat-ref msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'this-chat-ref' }
+  }
+
+  // Fast path: explicit memory commands — deterministic store/erase, never lost
+  // to embedding-score luck. Passthrough (both tools take the verbatim message).
+  if (REMEMBER_INTENT_RE.test(prompt.trim())) {
+    const rememberTool = toolRegistry.find((t) => t.id === 'remember')
+    if (rememberTool && isAllowed(rememberTool)) {
+      logger.info(`[ROUTER] path=remember-intent msg="${excerpt}"`)
+      return { tool: rememberTool, args: rememberTool.passMessage ? { [rememberTool.passMessage]: prompt } : {}, path: 'remember-intent' }
+    }
+  }
+  if (FORGET_INTENT_RE.test(prompt.trim())) {
+    const forgetTool = toolRegistry.find((t) => t.id === 'forget')
+    if (forgetTool && isAllowed(forgetTool)) {
+      logger.info(`[ROUTER] path=forget-intent msg="${excerpt}"`)
+      return { tool: forgetTool, args: forgetTool.passMessage ? { [forgetTool.passMessage]: prompt } : {}, path: 'forget-intent' }
+    }
+  }
+
+  // Fast path: self-corrections — candidates scored from the PREVIOUS user
+  // message (the correction itself embeds as noise), regex fast-path signals on
+  // the prior message included, then history-aware Tier 2 re-picks with the
+  // corrected arguments. Falls through to the normal cascade when the prior turn
+  // was plain conversation.
+  if (model && history.length > 0 && CORRECTION_RE.test(prompt.trim())) {
+    const lastUser = [...history].reverse().find((m) => m.role === 'user')
+    if (lastUser) {
+      try {
+        const candidates: Tool[] = []
+        const push = (id: string) => {
+          const t = toolRegistry.find((x) => x.id === id)
+          if (t && isAllowed(t) && !candidates.some((c) => c.id === t.id)) candidates.push(t)
+        }
+        // Deterministic signals on the prior message first (they beat embeddings
+        // for math/units, same reason the primary fast paths exist).
+        if (MATH_INTENT_RE.test(lastUser.content)) push('calculator')
+        if (UNIT_CONVERT_RE.test(lastUser.content)) push('unit_conversion')
+        const prevEmbedding = await embedForRouter(lastUser.content)
+        const scored: { id: string; score: number }[] = []
+        for (const entry of routeIndex) {
+          if (entry.toolId === CONVERSATIONAL_ID) continue
+          let best = 0
+          for (const ex of entry.embeddings) best = Math.max(best, cosineSimilarity(prevEmbedding, ex))
+          scored.push({ id: entry.toolId, score: best })
+        }
+        scored.sort((a, b) => b.score - a.score)
+        for (const s of scored.slice(0, 3)) { if (s.score >= CONVERSATIONAL_THRESHOLD) push(s.id) }
+        if (candidates.length > 0) {
+          push('search')
+          logger.info(`[ROUTER] path=correction→tier2(${candidates.map((t) => t.id).join(',')}) msg="${excerpt}"`)
+          return tier2Call(model, prompt, history, candidates, chatNumCtx)
+        }
+      } catch { /* embed failed — fall through to the normal cascade */ }
+    }
   }
 
   // Fast path: questions about PAST CONVERSATIONS ("what did we talk about

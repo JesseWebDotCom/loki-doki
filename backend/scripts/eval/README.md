@@ -11,6 +11,7 @@ All run against the REAL modules/pipeline (no mocks) and need the dev stack up
 | `chat-e2e.ts` | True end-to-end latency through `POST /api/chat/stream` exactly as the frontend calls it: headers→first-token→total, plus the server's own `[CHAT-TIMING]` stage breakdown pulled from the log ring buffer. Mints a temporary admin session and deletes it after. | `bun run eval:chat "message" [--runs N] [--character Name]` |
 | `companion-eval.ts` | Answer quality on single-shot factual/tool prompts, graded on directness, conciseness, accuracy (route + content/grounding), and speed. | `bun run eval:companion [--character] [--only id] [--json out.json]` |
 | `continuity-eval.ts` | Multi-turn continuity: pronoun follow-ups ("how old is he?"), "what did you just tell me", "tell me more", clarify turns, and a past-conversation probe — graded on topical overlap with the prior reply, sane routing, mechanical assistant-speak tells, and a raw-log grep baseline. | `bun run eval:continuity [--only id] [--json out.json]` |
+| `stress-eval.ts` | Adversarial discovery battery (23 scenarios): deep pronoun chains, self-corrections, remember/forget lifecycle across conversations, misspellings/slang, fake people and fabricated events (hallucination bait), prompt injection, degenerate inputs, persona self-consistency. Mechanical flags decide PASS/FLAG; the full transcripts are printed for human triage — read them even on a clean run. | `bun run scripts/eval/stress-eval.ts [--only id] [--json out.json]` |
 | `wakeword-fa-eval.ts` | False-accepts/hour + recall through the REAL ort-web detection pipeline (`lib/pod/wake.ts`, shared by browser and Wyoming paths). Builds a cached audio bank (Kokoro speech = TV-dialog proxy, phonetic near-misses, colored noise, silence, positive utterances), records the smoothed score stream once per model, then replays the exact fire logic across a threshold × hysteresis sweep. | `bun run eval:wakeword [modelId ...]` |
 | `router-scores.ts` | Debug helper: dumps top-5 embedding scores for a prompt list — use when tuning thresholds or adding tool examples. | `bun run scripts/eval/router-scores.ts` |
 
@@ -41,11 +42,17 @@ Recorded after the fixes in this pass, as the numbers to not regress from:
 - **Companion**: 8-10/10 across runs — the variance is sampling wordiness (a case
   landing a few words over its budget), not accuracy or routing. Directness held
   10/10; conciseness 10/10 after the no-ambient-padding prompt line.
-- Note: eval chat runs feed the REAL memory judge via the conversation-delete
-  snapshot; continuity-eval scrubs the admin's judge-written memories from its
-  run window on exit. companion-eval is single-shot trivia (nothing worth
-  capturing), but if a probe fact ever shows up in real chats, check recent
-  memories in Admin → Memory.
+- **Stress**: 23/23 clean after the first two discovery rounds fixed: explicit
+  "remember that X" commands falling to conversation (fact content dominates the
+  embedding — now a deterministic fast path), invented personal facts when the
+  memory block lacked the answer, persona questions being web-searched, same-chat
+  references firing the past-conversations tool, self-corrections losing their
+  tool, and false-premise questions laundered through tangential news results.
+- Note on memory hygiene: eval cleanup deletes conversations DIRECTLY in the DB.
+  The API delete fires a judge snapshot over the doomed messages, which RACES the
+  memory scrub and writes probe "facts" into the real store after cleanup
+  (observed live: a judge-invented "sister Sarah" row). If probe facts ever show
+  up in real chats, check recent memories in Admin → Memory.
 
 ## The grep-baseline rule (memory features)
 
