@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { FolderTree, Zap, Circle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { XtermTerminal, type XtermHandle } from './XtermTerminal'
+import { XtermTerminal, type XtermHandle, type TerminalStatus } from './XtermTerminal'
 import { DisplayPane, type DisplayTarget } from './DisplayPane'
 import { SftpPanel } from './SftpPanel'
 import { wsUrl, type RemoteHost, type RemoteSnippet } from './api'
@@ -29,7 +29,7 @@ export function SessionPane({ session, host, snippets, fontSize, active = true }
 
 function TerminalPane({ session, host, snippets, fontSize, active }: { session: RemoteSession; host?: RemoteHost; snippets: RemoteSnippet[]; fontSize: number; active: boolean }) {
   const termRef = useRef<XtermHandle>(null)
-  const [status, setStatus] = useState<'connecting' | 'open' | 'closed'>('connecting')
+  const [status, setStatus] = useState<TerminalStatus>('connecting')
   const [sftpOpen, setSftpOpen] = useState(false)
 
   // Claude Code attaches to the shared per-user coding terminal (tmux + Claude Code CLI),
@@ -41,7 +41,7 @@ function TerminalPane({ session, host, snippets, fontSize, active }: { session: 
       ? codingWsUrl()
       : wsUrl(`/ssh?host=${encodeURIComponent(session.hostId ?? '')}`)
 
-  const statusColor = status === 'open' ? 'text-success' : status === 'connecting' ? 'text-warning' : 'text-muted-foreground'
+  const statusColor = status === 'open' ? 'text-success' : status === 'connecting' || status === 'reconnecting' ? 'text-warning' : 'text-muted-foreground'
   const canSftp = session.kind === 'ssh' && !!host?.ssh
   // Snippets are shell one-liners; they make no sense piped into the Claude Code CLI.
   const showSnippets = session.kind !== 'claude-code' && snippets.length > 0
@@ -50,7 +50,12 @@ function TerminalPane({ session, host, snippets, fontSize, active }: { session: 
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b bg-background px-3 py-1.5">
         <Circle className={`size-2.5 fill-current ${statusColor}`} />
-        <span className="text-xs text-muted-foreground">{status === 'open' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
+        <span className="text-xs text-muted-foreground">
+          {status === 'open' ? 'Connected'
+            : status === 'connecting' ? 'Connecting…'
+            : status === 'reconnecting' ? 'Reconnecting… (your session keeps running)'
+            : 'Disconnected'}
+        </span>
         <div className="ml-auto flex items-center gap-1">
           {showSnippets && (
             <DropdownMenu>

@@ -84,20 +84,33 @@ async function verifyAdminPin(userId: string, pin: string): Promise<boolean> {
 
 // ── "This server" sessions (admin-only, PIN-gated) ──────────────────────────
 // The shell, VNC and RDP into THIS host all share one flow: verify the admin PIN over HTTP,
-// mint a short-lived single-use token bound to (user, proto), then hand it to the WS (which
-// can't prompt for a PIN). VNC/RDP bridge to loopback on admin-configured ports.
+// mint a short-lived token bound to (user, proto), then hand it to the WS (which can't
+// prompt for a PIN). VNC/RDP bridge to loopback on admin-configured ports.
+//
+// Token lifetimes differ by proto: VNC/RDP stay SINGLE-USE with a 60s window (one
+// bridge per PIN entry). The SHELL token is RECONNECTABLE for a longer window —
+// the pty session it attaches to is persistent by design (sidecar ring buffer),
+// and a network blip must be able to silently reattach without re-prompting for
+// the PIN. Every use still requires the admin session cookie; the token only
+// attests PIN recency.
 type SelfProto = 'shell' | 'vnc' | 'rdp' | 'claude-code'
+const SHELL_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
 const selfTokens = new Map<string, { userId: string; proto: SelfProto; expires: number }>()
 function mintSelfToken(userId: string, proto: SelfProto): string {
   const token = crypto.randomUUID()
-  selfTokens.set(token, { userId, proto, expires: Date.now() + 60_000 })
+  const ttl = proto === 'shell' ? SHELL_TOKEN_TTL_MS : 60_000
+  selfTokens.set(token, { userId, proto, expires: Date.now() + ttl })
+  // Opportunistic sweep so long-lived shell tokens can't accumulate unbounded.
+  for (const [t, rec] of selfTokens) { if (rec.expires <= Date.now()) selfTokens.delete(t) }
   return token
 }
 function consumeSelfToken(token: string, userId: string, proto: SelfProto): boolean {
   const rec = selfTokens.get(token)
   if (!rec) return false
-  selfTokens.delete(token)
-  return rec.userId === userId && rec.proto === proto && rec.expires > Date.now()
+  // Shell tokens survive consumption (reconnects reuse them until expiry).
+  if (rec.proto !== 'shell') selfTokens.delete(token)
+  if (rec.expires <= Date.now()) { selfTokens.delete(token); return false }
+  return rec.userId === userId && rec.proto === proto
 }
 
 // Admin-configured desktop endpoints for THIS server. Defaults to loopback, but the address is
