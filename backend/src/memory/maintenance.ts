@@ -29,8 +29,11 @@ const ARCHIVE_MIN_AGE_DAYS = 30
 // Max active episodic memories per scope before the bottom-scorers get archived
 const EPISODIC_CAP_PER_SCOPE = 200
 
-// Max stored episodes per (userId, characterId) pair
-const EPISODE_CAP = 50
+// Max stored episodes per (userId, characterId) pair. Raised 50 → 250 (2026-08):
+// episodes are the cross-session "what did we talk about" capability users notice
+// most, and were the most aggressively pruned tier. ~15 KB embedding per row makes
+// 250 ≈ 4 MB per pair — cheap for what it buys.
+const EPISODE_CAP = 250
 
 // Hard-delete superseded/archived rows this long after their last update. They've
 // served their bi-temporal purpose by then, and each carries a ~15 KB JSON

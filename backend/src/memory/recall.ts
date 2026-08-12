@@ -31,8 +31,15 @@ import { and, eq, isNull, or, inArray, desc, gte, sql, count } from 'drizzle-orm
 const TOP_K_VECTOR = 5          // max non-entity episodic memories from vector pass
 const TOP_K_DURABLE = 4         // max non-pinned durable memories (lower gate, see below)
 const TOP_K_ENTITY = 12         // max entity-linked memories (most-important first)
-const TOP_K_EPISODES = 1        // max episode summaries to include
-const PROMPT_CHAR_BUDGET = 2000 // max characters for the injected memory block
+const TOP_K_EPISODES = 3        // max episode summaries to include (was 1 — see below)
+const PROMPT_CHAR_BUDGET = 2600 // max characters for the injected memory block
+
+// Episode ranking blends similarity with recency: pure cosine made "what did we
+// talk about?" surface a thematically-close chat from six weeks ago over
+// yesterday's. Recency uses a gentler curve than memory decay — episodes stay
+// referenced for weeks, not days.
+const EPISODE_COSINE_MIN = 0.3
+const EPISODE_RECENCY_WEIGHT = 0.25
 
 // "Open threads": recent goal/event/project/state memories the companion may
 // proactively ask about once ("how'd the interview go?"). This is the deliberate
@@ -70,6 +77,9 @@ interface ScoredMemory {
   pinned: boolean
   tier: string
   entityId: string | null
+  /** Row lives in a character scope (characterId set) — it is the COMPANION's own
+   *  memory (its opinions, promises, past statements), formatted separately. */
+  isSelf: boolean
   score: number
 }
 
@@ -219,6 +229,7 @@ export async function recallMemories(
           pinned: row.pinned ?? false,
           tier: row.tier ?? 'episodic',
           entityId: row.entityId,
+          isSelf: row.characterId != null,
           score: 1.0, // entity match gets top score
         })
       }
@@ -270,6 +281,7 @@ export async function recallMemories(
       pinned: row.pinned ?? false,
       tier: row.tier ?? 'episodic',
       entityId: row.entityId ?? null,
+      isSelf: row.characterId != null,
       score,
     })
   }
@@ -312,13 +324,64 @@ export async function recallMemories(
   return all
 }
 
+// ─── Temporal reference parsing ──────────────────────────────────────────────
+// "what did we talk about yesterday / last week" carries a DATE constraint that
+// cosine similarity cannot see (LongMemEval's time-aware retrieval finding).
+// When the prompt names a timeframe, episodes are ALSO fetched by date range.
+
+const DAY_MS = 86_400_000
+
+export function parseTemporalRange(prompt: string): { start: Date; end: Date } | null {
+  const p = prompt.toLowerCase()
+  const now = Date.now()
+  const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+
+  if (/\b(yesterday|last night)\b/.test(p)) {
+    return { start: new Date(startOfToday - DAY_MS), end: new Date(startOfToday) }
+  }
+  if (/\b(today|this morning|this afternoon|earlier today)\b/.test(p)) {
+    return { start: new Date(startOfToday), end: new Date(now) }
+  }
+  if (/\blast week\b/.test(p)) {
+    return { start: new Date(startOfToday - 14 * DAY_MS), end: new Date(startOfToday - 5 * DAY_MS) }
+  }
+  if (/\bthis week\b/.test(p)) {
+    return { start: new Date(startOfToday - 7 * DAY_MS), end: new Date(now) }
+  }
+  if (/\blast month\b/.test(p)) {
+    return { start: new Date(startOfToday - 45 * DAY_MS), end: new Date(startOfToday - 20 * DAY_MS) }
+  }
+  const daysAgo = p.match(/\b(a|one|two|three|four|five|six|seven|\d+)\s+days?\s+ago\b/)
+  if (daysAgo) {
+    const words: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 }
+    const n = words[daysAgo[1]!] ?? parseInt(daysAgo[1]!, 10)
+    if (Number.isFinite(n) && n > 0 && n < 120) {
+      return { start: new Date(startOfToday - n * DAY_MS), end: new Date(startOfToday - (n - 1) * DAY_MS) }
+    }
+  }
+  const weekday = p.match(/\b(?:on|last)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/)
+  if (weekday) {
+    const target = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(weekday[1]!)
+    const todayDow = new Date().getDay()
+    let diff = todayDow - target
+    if (diff <= 0) diff += 7
+    return { start: new Date(startOfToday - diff * DAY_MS), end: new Date(startOfToday - (diff - 1) * DAY_MS) }
+  }
+  return null
+}
+
 // ─── Episode recall ───────────────────────────────────────────────────────────
 
-/** Retrieve the most relevant episode summaries for the current prompt. */
+/** Retrieve the most relevant episode summaries for the current prompt.
+ *  Ranking blends cosine with recency; a temporal reference in the prompt
+ *  ("yesterday", "last week") additionally pulls episodes from that date range
+ *  regardless of cosine. Each summary is prefixed with its (relative) date so
+ *  the model can answer "when" questions honestly. */
 async function recallEpisodes(
   promptEmbedding: number[],
   userId: string,
   characterId: string | null,
+  prompt?: string,
 ): Promise<string[]> {
   const rows = await db
     .select()
@@ -330,20 +393,48 @@ async function recallEpisodes(
       ),
     )
     .orderBy(desc(memoryEpisodes.createdAt))
-    .limit(20) // examine recent 20 for relevance
+    .limit(40) // examine recent 40 for relevance
 
+  const now = Date.now()
+  const label = (createdAt: Date): string => {
+    const days = Math.floor((now - createdAt.getTime()) / DAY_MS)
+    if (days <= 0) return 'earlier today'
+    if (days === 1) return 'yesterday'
+    if (days < 7) return `${days} days ago`
+    if (days < 30) return `${Math.round(days / 7)} week${Math.round(days / 7) > 1 ? 's' : ''} ago`
+    return `on ${createdAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`
+  }
+
+  const picked = new Map<string, string>() // id → labeled summary
+
+  // Temporal pass: a dated question pulls that date range directly.
+  const range = prompt ? parseTemporalRange(prompt) : null
+  if (range) {
+    const inRange = rows
+      .filter((r) => r.createdAt >= range.start && r.createdAt < range.end)
+      .slice(0, TOP_K_EPISODES)
+    for (const r of inRange) picked.set(r.id, `(${label(r.createdAt)}) ${r.summary}`)
+  }
+
+  // Similarity + recency pass fills the remaining slots.
   const scored = rows
-    .filter((r) => r.embedding)
+    .filter((r) => r.embedding && !picked.has(r.id))
     .map((r) => {
       let cosine = 0
       try { cosine = cosineSimilarity(promptEmbedding, JSON.parse(r.embedding!) as number[]) } catch { /* */ }
-      return { summary: r.summary, cosine }
+      const ageDays = (now - r.createdAt.getTime()) / DAY_MS
+      const recency = 1 / (1 + ageDays * 0.03)
+      return { r, cosine, score: (1 - EPISODE_RECENCY_WEIGHT) * cosine + EPISODE_RECENCY_WEIGHT * recency }
     })
-    .filter((r) => r.cosine > 0.3)
-    .sort((a, b) => b.cosine - a.cosine)
-    .slice(0, TOP_K_EPISODES)
+    .filter((x) => x.cosine > EPISODE_COSINE_MIN)
+    .sort((a, b) => b.score - a.score)
 
-  return scored.map((r) => r.summary)
+  for (const x of scored) {
+    if (picked.size >= TOP_K_EPISODES) break
+    picked.set(x.r.id, `(${label(x.r.createdAt)}) ${x.r.summary}`)
+  }
+
+  return [...picked.values()]
 }
 
 // ─── Format for prompt injection ─────────────────────────────────────────────
@@ -371,36 +462,87 @@ async function recallOpenThreads(
   return rows.filter((r) => !excludeIds.has(r.id)).slice(0, OPEN_THREAD_MAX).map((r) => r.text)
 }
 
+/** For recalled facts that superseded an older one recently, fetch the "previous
+ *  version" so the model can say "you used to live in NYC" instead of acting like
+ *  Boston was always true. One batched query; capped to keep the block lean. */
+const PREVIOUSLY_WINDOW_DAYS = 60
+const PREVIOUSLY_MAX = 3
+
+async function previouslyMap(memIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (memIds.length === 0) return out
+  const cutoff = new Date(Date.now() - PREVIOUSLY_WINDOW_DAYS * DAY_MS)
+  const rows = await db
+    .select({ supersededBy: memories.supersededBy, text: memories.text, updatedAt: memories.updatedAt })
+    .from(memories)
+    .where(and(
+      eq(memories.status, 'superseded'),
+      inArray(memories.supersededBy, memIds),
+      gte(memories.updatedAt, cutoff),
+    ))
+  for (const r of rows) {
+    if (r.supersededBy && !out.has(r.supersededBy) && out.size < PREVIOUSLY_MAX) {
+      out.set(r.supersededBy, r.text)
+    }
+  }
+  return out
+}
+
 export async function formatMemoriesForPrompt(
   mems: ScoredMemory[],
   userId: string,
   characterId: string | null,
   promptEmbedding?: number[],
+  prompt?: string,
 ): Promise<string | null> {
-  const openThreads = await recallOpenThreads(userId, characterId, new Set(mems.map((m) => m.id))).catch(() => [] as string[])
-  if (mems.length === 0 && openThreads.length === 0) return null
+  const { getKnowledgeProfile } = await import('./profile')
+  const [openThreads, profile, previously] = await Promise.all([
+    recallOpenThreads(userId, characterId, new Set(mems.map((m) => m.id))).catch(() => [] as string[]),
+    getKnowledgeProfile(userId).catch(() => null),
+    previouslyMap(mems.map((m) => m.id)).catch(() => new Map<string, string>()),
+  ])
+  if (mems.length === 0 && openThreads.length === 0 && !profile) return null
 
-  const coreFacts = mems.filter((m) => m.pinned || m.tier === 'durable')
-  const entityFacts = mems.filter((m) => !m.pinned && m.tier !== 'durable' && m.entityId)
-  const contextFacts = mems.filter((m) => !m.pinned && m.tier !== 'durable' && !m.entityId)
+  const selfFacts = mems.filter((m) => m.isSelf)
+  const userMems = mems.filter((m) => !m.isSelf)
+  const coreFacts = userMems.filter((m) => m.pinned || m.tier === 'durable')
+  const entityFacts = userMems.filter((m) => !m.pinned && m.tier !== 'durable' && m.entityId)
+  const contextFacts = userMems.filter((m) => !m.pinned && m.tier !== 'durable' && !m.entityId)
+
+  // A recently-changed fact renders with its previous version, so the companion
+  // can acknowledge the change like a person would ("since the move…").
+  const factLine = (m: ScoredMemory): string => {
+    const prev = previously.get(m.id)
+    return prev ? `- ${m.text} (previously: ${prev})` : `- ${m.text}`
+  }
 
   const lines: string[] = [
-    '[Background context about the user. Use ONLY when directly relevant to what the user just asked. Never mention, reference, or hint at these facts unprompted — especially not in greetings or small talk. Do not say "I know you like X" or "since you enjoy Y". Wait for the user to raise a topic before using any of this. The ONE exception is the "Open threads" section, when present.]',
+    '[Background context about the user. Use ONLY when directly relevant to what the user just asked. Never mention, reference, or hint at these facts unprompted — especially not in greetings or small talk. Do not say "I know you like X" or "since you enjoy Y". Wait for the user to raise a topic before using any of this. The exceptions are the "Open threads" and "Your own past statements" sections, when present.]',
   ]
+
+  if (profile) {
+    lines.push('About them (long-term summary):')
+    lines.push(profile)
+  }
 
   if (coreFacts.length > 0) {
     lines.push('Core facts:')
-    for (const m of coreFacts) lines.push(`- ${m.text}`)
+    for (const m of coreFacts) lines.push(factLine(m))
   }
 
   if (entityFacts.length > 0) {
     lines.push('People & places:')
-    for (const m of entityFacts) lines.push(`- ${m.text}`)
+    for (const m of entityFacts) lines.push(factLine(m))
   }
 
   if (contextFacts.length > 0) {
     lines.push('Remembered context:')
-    for (const m of contextFacts) lines.push(`- ${m.text}`)
+    for (const m of contextFacts) lines.push(factLine(m))
+  }
+
+  if (selfFacts.length > 0) {
+    lines.push('Your own past statements — opinions you have expressed, promises you made, things you said about yourself. Stay consistent with these; follow through on promises when relevant:')
+    for (const m of selfFacts) lines.push(`- ${m.text}`)
   }
 
   if (openThreads.length > 0) {
@@ -410,7 +552,7 @@ export async function formatMemoriesForPrompt(
 
   // Include relevant episode summaries if we have an embedding
   if (promptEmbedding) {
-    const episodes = await recallEpisodes(promptEmbedding, userId, characterId)
+    const episodes = await recallEpisodes(promptEmbedding, userId, characterId, prompt)
     if (episodes.length > 0) {
       lines.push('Past conversations:')
       for (const e of episodes) lines.push(`- ${e}`)

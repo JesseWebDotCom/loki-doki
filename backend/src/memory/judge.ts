@@ -451,11 +451,14 @@ export async function runJudge(
       // ADD — or DELETE, which supersedes the old row and then STORES the new fact.
       // (DELETE used to drop the new fact on the floor: "I moved to Boston" would
       // supersede "lives in NYC" and store nothing. Replacement facts must survive.)
+      const newId = crypto.randomUUID()
       if (decision.action === 'DELETE' && decision.id) {
-        // Soft-delete: mark superseded rather than hard-deleting (Zep bi-temporal pattern)
+        // Soft-delete: mark superseded rather than hard-deleting (Zep bi-temporal
+        // pattern), and LINK the old row to its replacement so recall can render
+        // "previously: lived in NYC" next to the current fact.
         await db
           .update(memories)
-          .set({ status: 'superseded', updatedAt: now })
+          .set({ status: 'superseded', supersededBy: newId, updatedAt: now })
           .where(eq(memories.id, decision.id))
         // Remove from live list so subsequent facts in this batch don't match it
         const idx = live.findIndex((m) => m.id === decision.id)
@@ -463,7 +466,6 @@ export async function runJudge(
         result.factsSuperseded++
         if (isHousehold) result.householdTouched = true
       }
-      const newId = crypto.randomUUID()
       const isDurable = tier === 'durable'
       const sourceText = typeof fact.sourceQuote === 'string' && fact.sourceQuote.trim()
         ? fact.sourceQuote.trim().slice(0, 500)
@@ -483,6 +485,8 @@ export async function runJudge(
         pinned: isDurable && (fact.category === 'identity' || fact.category === 'relationship'),
         uses: 0,
         lastUsedAt: null,
+        validFrom: now,
+        supersededBy: null,
         createdAt: now,
         updatedAt: now,
       })
@@ -501,6 +505,8 @@ export async function runJudge(
         pinned: isDurable && (fact.category === 'identity' || fact.category === 'relationship'),
         uses: 0,
         lastUsedAt: null,
+        validFrom: now,
+        supersededBy: null,
         createdAt: now,
         updatedAt: now,
       })
@@ -559,6 +565,114 @@ export async function relinkEntityIds(userId: string, characterId: string | null
       }
     }
   }
+}
+
+// ─── Companion self-memory ────────────────────────────────────────────────────
+// Humans remember what THEY said, not just facts about the other person. This
+// pass extracts the COMPANION's own notable statements from a judged span:
+//   opinions/stances → character-global scope (userId=null, characterId=Y):
+//     the character's own worldview, consistent across every user.
+//   promises/personal statements to this user → character-instance scope
+//     (userId=X, characterId=Y): relationship-private.
+// Recall already reads both scopes (memoryScopeWhere); formatting gives them a
+// dedicated "Your own past statements" section so the companion stays consistent
+// with itself instead of contradicting yesterday's stance.
+// Deliberately a SEPARATE small call, not a rider on EXTRACT_PROMPT — that prompt
+// is load-bearing for user-fact quality on a small model.
+
+const SELF_EXTRACT_PROMPT = `You review a conversation from the ASSISTANT's side. Extract only the assistant's own memorable commitments and stances — things IT said that IT should remember having said:
+
+1. "opinion": a clear stance, taste, or preference the assistant expressed as its own ("I love rainy days", "horror movies aren't my thing").
+2. "promise": a commitment the assistant made to the user ("I'll remind you Friday", "next time we'll plan the trip").
+3. "statement": a notable personal claim the assistant made about itself ("my favorite color is green").
+
+DISCARD: factual answers, tool results, summaries of what the user said, generic encouragement, anything the assistant said only once in passing with no commitment or stance.
+
+Write each fact in first person past framing from the assistant's perspective, e.g. "I told them I'd remind them about the dentist on Friday", "I said horror movies aren't my thing".
+
+Return ONLY JSON: {"facts":[{"text":"...","kind":"opinion"|"promise"|"statement","importance":1-10}]} (empty array if nothing qualifies).`
+
+interface SelfFact {
+  text: string
+  kind: 'opinion' | 'promise' | 'statement'
+  importance: number
+}
+
+// Near-duplicate gate for self-facts — no LLM dedup round (kept cheap); a high
+// cosine against an existing row in the same scope means we already have it.
+const SELF_DUP_COSINE = 0.85
+const SELF_FACTS_MAX = 4
+
+export async function runSelfJudge(
+  userId: string,
+  characterId: string,
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+): Promise<number> {
+  const assistantSaidAnything = messages.some((m) => m.role === 'assistant' && m.content.trim().length > 0)
+  if (!assistantSaidAnything) return 0
+
+  const conversationText = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    .join('\n')
+
+  let facts: SelfFact[]
+  try {
+    const out = await structuredCall<{ facts: SelfFact[] }>(model, conversationText, SELF_EXTRACT_PROMPT)
+    facts = Array.isArray(out?.facts) ? out.facts.slice(0, SELF_FACTS_MAX) : []
+  } catch {
+    return 0 // best-effort — self-memory never blocks the sweep
+  }
+
+  let written = 0
+  for (const fact of facts) {
+    if (!fact?.text?.trim()) continue
+    const kind = fact.kind === 'opinion' || fact.kind === 'promise' || fact.kind === 'statement' ? fact.kind : 'statement'
+    // Opinions are the character's own worldview (shared across users);
+    // promises/statements were made to THIS user (relationship-private).
+    const scopeUserId = kind === 'opinion' ? null : userId
+    const rowScope = and(
+      scopeUserId ? eq(memories.userId, scopeUserId) : isNull(memories.userId),
+      eq(memories.characterId, characterId),
+      eq(memories.status, 'active'),
+    )
+
+    const embedding = await embed(fact.text)
+    const existing = await db.select().from(memories).where(rowScope)
+    const dup = existing.some((m) => {
+      if (!m.embedding) return false
+      const vec = cachedVector(`${m.id}:${m.updatedAt?.getTime() ?? 0}`, m.embedding)
+      return !!vec && cosineSimilarity(embedding, vec) >= SELF_DUP_COSINE
+    })
+    if (dup) continue
+
+    const now = new Date()
+    await db.insert(memories).values({
+      id: crypto.randomUUID(),
+      userId: scopeUserId,
+      characterId,
+      entityId: null,
+      text: fact.text.trim().slice(0, 500),
+      sourceText: null,
+      // opinions read like preferences and should persist; promises/statements
+      // are episodic (a promise about Friday should decay once Friday is long past).
+      category: kind === 'opinion' ? 'preference' : kind === 'promise' ? 'goal' : 'fact',
+      tier: kind === 'opinion' ? 'durable' : 'episodic',
+      status: 'active',
+      embedding: JSON.stringify(embedding),
+      importance: Math.min(10, Math.max(1, fact.importance ?? 5)),
+      pinned: false,
+      uses: 0,
+      lastUsedAt: null,
+      validFrom: now,
+      supersededBy: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    written++
+  }
+  return written
 }
 
 // ─── Re-export for tests ──────────────────────────────────────────────────────

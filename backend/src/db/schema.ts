@@ -389,7 +389,23 @@ export const memories = sqliteTable('memories', {
   pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
   uses: integer('uses').notNull().default(0),
   lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  // Bi-temporal validity (flat-store version of the Zep pattern): when this fact
+  // became true (defaults to createdAt when null), and — on a superseded row —
+  // the id of the fact that replaced it, so recall can render "previously: X".
+  validFrom: integer('valid_from', { mode: 'timestamp' }),
+  supersededBy: text('superseded_by'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Per-user "knowledge paragraph" (ChatGPT memory pattern): one compact always-
+// injected summary of who this person is, regenerated as a sleep-time job from
+// their durable facts + recent episodes. Complements per-message vector recall —
+// every turn gets a coherent picture without a recall lottery.
+export const memoryProfiles = sqliteTable('memory_profiles', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  paragraph: text('paragraph').notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 

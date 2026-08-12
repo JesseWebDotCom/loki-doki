@@ -428,6 +428,19 @@ export function runMigrations() {
   addColumn('memories', 'last_used_at', 'INTEGER')
   addColumn('conversations', 'memory_processed_through', 'INTEGER')
   addColumn('messages', 'sources', 'TEXT')  // JSON citation sources, so chips survive reload (#8)
+  // Memory v3 (2026-08): bi-temporal validity + the per-user knowledge paragraph.
+  addColumn('memories', 'valid_from', 'INTEGER')
+  addColumn('memories', 'superseded_by', 'TEXT')
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS memory_profiles (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      paragraph TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS memory_profiles_user_unique ON memory_profiles(user_id);
+  `)
 
   // Projects
   sqlite.exec(`

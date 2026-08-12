@@ -206,6 +206,7 @@ import { createRoutineTool } from './createRoutine'
 import { saveMethodTool } from './saveMethod'
 import { machineStatusTool } from './machineStatus'
 import { dockFilesTool } from './dockFiles'
+import { recallConversationsTool } from './recallConversations'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -267,4 +268,5 @@ export const toolRegistry: Tool[] = [
   confirmPendingTool,
   machineStatusTool,
   dockFilesTool,
+  recallConversationsTool,
 ]

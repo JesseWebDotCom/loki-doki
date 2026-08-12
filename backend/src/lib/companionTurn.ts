@@ -449,7 +449,7 @@ export async function runCompanionTurn(
             // embedding; notes/methods failures never cost the turn its memory block.
             const [memory, notes, methods] = await Promise.all([
               recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
-                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)),
+                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding, p.message)),
               recallNotesBlock(p.message, p.userId, embedding).catch(() => null),
               recallMethodBlock(p.message, p.userId, embedding).catch(() => null),
             ])

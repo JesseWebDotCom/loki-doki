@@ -194,6 +194,7 @@ const TIER2_RULES: Record<string, string> = {
   localNews: 'localNews: hyperlocal news for the user\'s own town. "what\'s going on in town", "local news near me".',
   localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
   onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
+  recall_conversations: 'recall_conversations: questions about the user\'s own PAST CONVERSATIONS with you — what was discussed before, when a topic came up, what was said yesterday/last week. "what did we talk about yesterday", "when did we discuss the trip". Not for facts about the world (search) and not for stored personal facts (those are answered from memory).',
   homeAssistant: 'homeAssistant: control or query smart-home devices — lights, switches, fans, locks, thermostats (temperature + mode), home TVs/speakers (pause, skip, volume, mute), scenes, covers/garage doors. "turn off the living room lights", "set the thermostat to 72", "pause the living room tv", "is the garage open", "what temperature is it inside". Only for devices in the home — outdoor conditions are weather, and starting new music by name is play_music. Pass the user\'s full command verbatim as the text argument.',
 }
 
@@ -383,6 +384,19 @@ export async function routePrompt(
   if (CLARIFY_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=clarify msg="${excerpt}"`)
     return { tool: null, args: {}, path: 'clarify' }
+  }
+
+  // Fast path: questions about PAST CONVERSATIONS ("what did we talk about
+  // yesterday?", "when did we discuss the trip?") — the injected memory block
+  // carries at most 3 episode summaries, so a direct question about chat history
+  // searches the raw transcripts instead. Fires before the recall-question path
+  // (which handles "do you remember X" fact recall conversationally).
+  if (/\b(?:what|when)\s+(?:did|have|were)\s+we\s+(?:talk|chat|discuss|speak|talked|chatted|discussed|spoken)|\bwhat did we talk about\b|\bwhat did you tell me\s+(?:about\s+\w+\s+)?(?:yesterday|last|on\s+\w+day|this\s+(?:morning|week))\b/i.test(prompt)) {
+    const recallTool = toolRegistry.find((t) => t.id === 'recall_conversations')
+    if (recallTool && isAllowed(recallTool)) {
+      logger.info(`[ROUTER] path=past-conversations msg="${excerpt}"`)
+      return { tool: recallTool, args: recallTool.passMessage ? { [recallTool.passMessage]: prompt } : {}, path: 'past-conversations' }
+    }
   }
 
   // Fast path: recall QUESTIONS ("do you remember when we first met?") are asking

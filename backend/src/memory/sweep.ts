@@ -19,9 +19,11 @@
 import { db } from '@/db'
 import { conversations, messages } from '@/db/schema'
 import { and, eq, gt, desc, sql } from 'drizzle-orm'
-import { runJudge, relinkEntityIds } from './judge'
+import { runJudge, runSelfJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
 import { runMemoryAudit } from './audit'
+import { runConsolidation } from './consolidate'
+import { markProfileDirty, regenerateDirtyProfiles } from './profile'
 import { generateEpisode } from './episode'
 import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from './blockCache'
 import { invalidateEntityCache } from './recall'
@@ -190,6 +192,24 @@ async function doJudgeSweep(): Promise<void> {
         // Household facts appear in EVERYONE's recall — bust all blocks.
         if (judgeResult.householdTouched) invalidateAllMemoryBlocks()
         else invalidateMemoryBlocksForUser(conv.userId)
+        // The user's knowledge paragraph is stale too — regenerated on the
+        // maintenance cadence (see regenerateDirtyProfiles).
+        markProfileDirty(conv.userId)
+      }
+
+      // Companion self-memory: what the COMPANION said (opinions, promises,
+      // personal statements) in this span. Character conversations only —
+      // the plain assistant has no persona to stay consistent with.
+      if (conv.characterId) {
+        try {
+          const selfWritten = await runSelfJudge(conv.userId, conv.characterId, msgList, model)
+          if (selfWritten > 0) {
+            invalidateMemoryBlocksForUser(conv.userId)
+            logger.info(`[memory:self-judge] conv=${conv.id} char=${conv.characterId} facts=${selfWritten}`)
+          }
+        } catch (err) {
+          logger.warn(`[memory:self-judge] failed for conv=${conv.id}: ${err}`)
+        }
       }
 
       // Advance the cursor to the latest processed message timestamp
@@ -251,6 +271,18 @@ export function startMemorySweep(): { stop: () => void } {
   const maintenanceTimer = setInterval(() => {
     runMaintenance().catch((err) => logger.error(`[memory:sweep] maintenance error: ${err}`))
     runAudit().catch((err) => logger.error(`[memory:sweep] audit error: ${err}`))
+    // Sleep-time jobs behind the same idle gate the judge uses: the knowledge
+    // paragraphs touched since the last pass, and the (self-gated, weekly)
+    // consolidation + contradiction sweep.
+    void (async () => {
+      try {
+        await waitForInteractiveIdle({ quietMs: 2000, maxWaitMs: 60_000, label: 'memory-profile' })
+        await regenerateDirtyProfiles()
+        await runConsolidation(await getModel())
+      } catch (err) {
+        logger.error(`[memory:sweep] profile/consolidation error: ${err}`)
+      }
+    })()
   }, MAINTENANCE_INTERVAL_MS)
 
   // Run maintenance + audit once shortly after startup (cleans up stale state
