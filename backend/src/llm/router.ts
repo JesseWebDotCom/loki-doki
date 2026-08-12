@@ -134,7 +134,10 @@ function isAnaphoricFollowUp(prompt: string, historyLen: number): boolean {
 // chat model answers them from conversation history — but they are question-
 // shaped, so without a fast path they paid a Tier-2 round trip (and risked a
 // pointless search). Anchored to short whole messages like CONTINUATION_RE.
-const CLARIFY_RE = /^(?:wait[,\s]+)?(?:what (?:did|do) you mean|what does that mean|what was that|say (?:that|it) again|come again|repeat that|i don'?t (?:get|understand) (?:it|that)|can you (?:rephrase|clarify)(?: that)?|huh|what)\b[\s.!?]*$/i
+// Eval-driven coverage (eval:continuity): "what did you just tell me?" routed to a
+// knowledge lookup and "what did you mean by that?" to past-chat recall — both are
+// the user asking about the assistant's own LAST reply and must stay conversational.
+const CLARIFY_RE = /^(?:wait[,\s]+)?(?:what (?:did|do) you mean(?: by (?:that|it|this))?|what does that mean|what was that|what did you just (?:say|tell me)|repeat what you (?:just )?said|say (?:that|it) again|come again|repeat that|i don'?t (?:get|understand) (?:it|that)|can you (?:rephrase|clarify)(?: that)?|huh|what)\b[\s.!?]*$/i
 
 // Backchannel / emotional reactions ("wow", "no way", "really?", "oh man",
 // "seriously?") — the user is reacting, not asking for anything. These must
