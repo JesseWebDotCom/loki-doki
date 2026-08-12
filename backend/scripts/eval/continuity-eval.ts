@@ -21,9 +21,11 @@
 //   bun run scripts/eval/continuity-eval.ts --json out.json
 import { randomBytes } from 'node:crypto'
 import { db } from '@/db'
-import { sessions, users, conversations, messages } from '@/db/schema'
-import { and, eq, like } from 'drizzle-orm'
+import { sessions, users, conversations, messages, memories } from '@/db/schema'
+import { and, eq, gte, like } from 'drizzle-orm'
 import { hashSessionToken } from '@/lib/session'
+
+const RUN_STARTED_AT = new Date()
 
 const BASE = process.env.EVAL_BASE_URL ?? 'http://localhost:3000'
 const onlyIdx = process.argv.indexOf('--only')
@@ -261,6 +263,13 @@ try {
   for (const id of createdConvs) {
     await db.delete(conversations).where(eq(conversations.id, id)).catch(() => {})
   }
+  // Deleting a conversation triggers a judge snapshot, so probe "facts" (the
+  // woodworking hobby etc.) land in the admin's REAL memory store — confirmed
+  // live when a later eval reply referenced them. Scrub anything the judge wrote
+  // for this user during the run window.
+  await db.delete(memories)
+    .where(and(eq(memories.userId, admin.id), gte(memories.createdAt, RUN_STARTED_AT)))
+    .catch(() => {})
   await db.delete(sessions).where(eq(sessions.id, sessionId))
 }
 process.exit(0)

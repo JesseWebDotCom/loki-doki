@@ -52,7 +52,8 @@ const CASES: TestCase[] = [
   { id: 'math-tip', prompt: 'how much is a 20% tip on $85', expectRoute: ['calculator'], expectContent: /\$?\s?17|seventeen/i, maxWords: 40 },
   { id: 'unit-convert', prompt: 'how many kilometers is 5 miles', expectRoute: ['unit_conversion'], expectContent: /8(\.0?\d?)?\s?(k|km|kilometer)/i, maxWords: 30 },
   { id: 'define-word', prompt: 'what does ephemeral mean', expectRoute: ['dictionary'], expectContent: /short|brief|lasting|transient|fleeting/i, maxWords: 60 },
-  { id: 'day-today', prompt: 'what day is it today', expectRoute: ['datetime'], expectContent: /thursday/i, maxWords: 30 },
+  // Weekday computed at runtime — a hardcoded day is only right one day a week.
+  { id: 'day-today', prompt: 'what day is it today', expectRoute: ['datetime'], expectContent: new RegExp(new Date().toLocaleDateString('en-US', { weekday: 'long' }), 'i'), maxWords: 30 },
   // Weather (route + shape; content depends on configured location).
   { id: 'weather-today', prompt: "what's the weather like today", expectRoute: ['weather'], expectContent: /\d+\s?°|\bdegrees\b/i, maxWords: 70 },
   // Conversational — must NOT route to a tool, and a greeting back is fine here.

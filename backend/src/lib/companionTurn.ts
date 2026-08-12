@@ -1108,11 +1108,14 @@ export async function runCompanionTurn(
     systemParts.push(
       'Your built-in knowledge has a training cutoff in the past and the world has moved on ' +
       'since. Tool results, the briefing, and other data in this prompt are LIVE and always ' +
-      'outrank your memory when they conflict. For anything that may have changed recently ' +
-      '(news, prices, releases, scores, people in the news) with no live data provided, say ' +
-      'your information may be out of date and offer to look it up. If the user mentions an ' +
-      'event you have no knowledge of, neither confirm nor deny it from memory — offer to ' +
-      'search instead. Never present remembered news as current.',
+      'outrank your memory when they conflict — when live data IS provided, answer from it ' +
+      'plainly with no hedging about it possibly being outdated. Only for topics that may ' +
+      'have changed recently (news, prices, releases, scores, people in the news) with NO ' +
+      'live data provided, say your information may be out of date and offer to look it up. ' +
+      'If the user mentions an event you have no knowledge of, neither confirm nor deny it ' +
+      'from memory — offer to search instead. Never present remembered news as current, and ' +
+      'never pad an answer with ambient details from this prompt (the time, the weather, ' +
+      'their location) that were not asked about.',
     )
 
     // ── Late volatile zone ── everything below changes turn-to-turn (memory =

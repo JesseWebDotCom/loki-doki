@@ -32,6 +32,21 @@ Recorded after the fixes in this pass, as the numbers to not regress from:
   trained before the near-miss fallback fix have no rhyme negatives. Noise and
   silence banks: 0 fires.
 
+## Baselines (2026-08-12, prod box, Qwen 3.5 9B latest set, after the companion audit fixes)
+
+- **Router**: 53/53 warm (first run 52/53: one tier2-error from a cold router-model load).
+- **Memory**: 11/11.
+- **Continuity**: 5/5 (pronoun follow-up, "what did you just tell me", "tell me
+  more", "what did you mean by that", past-chat recall + grep baseline).
+- **Companion**: 8-10/10 across runs — the variance is sampling wordiness (a case
+  landing a few words over its budget), not accuracy or routing. Directness held
+  10/10; conciseness 10/10 after the no-ambient-padding prompt line.
+- Note: eval chat runs feed the REAL memory judge via the conversation-delete
+  snapshot; continuity-eval scrubs the admin's judge-written memories from its
+  run window on exit. companion-eval is single-shot trivia (nothing worth
+  capturing), but if a probe fact ever shows up in real chats, check recent
+  memories in Admin → Memory.
+
 ## The grep-baseline rule (memory features)
 
 Before any memory feature ships or grows, it must beat the dumbest possible
