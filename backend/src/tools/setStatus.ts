@@ -21,16 +21,20 @@ export const setStatusTool: Tool = {
   offline: true,
   core: true,
   dataSources: [],
+  // Examples are explicit STATUS COMMANDS only. Bare first-person activity
+  // statements ("I am in a meeting until 3pm") used to live here and pulled
+  // casual life-sharing into this tool — "grabbing dinner with my coworker
+  // darnell" set a Pod status instead of getting a conversational reply.
   examples: [
     'set me as busy',
     'set status to do not disturb',
-    'I am focusing for 45 minutes',
+    'set my status to focusing for 45 minutes',
     'mark me as on a call',
     'set me to BRB',
     'clear my status',
-    'I am available now',
+    'set me as available now',
     'set busy for 1 hour',
-    'I am in a meeting until 3pm',
+    'show my status as in a meeting until 3pm',
   ],
   toolDefinition: {
     type: 'function',

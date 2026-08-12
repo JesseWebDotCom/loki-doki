@@ -65,6 +65,11 @@ export function maybeUpdateMood(userId: string, message: string, chatModel: stri
 const _moodCache = new Map<string, { line: string | null; expiresAt: number }>()
 const MOOD_CACHE_TTL_MS = 60_000
 
+/** Drop every cached mood line — the admin "reset all companion data" path. */
+export function clearMoodCache(): void {
+  _moodCache.clear()
+}
+
 /** 1-2 line tone-guidance fragment for the system prompt, or null when no fresh mood. */
 export function getMoodLine(userId: string): string | null {
   const cached = _moodCache.get(userId)

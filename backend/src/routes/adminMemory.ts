@@ -1,11 +1,45 @@
 import { Hono } from 'hono'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { db } from '@/db'
-import { users, characters, memories, entities, memoryEpisodes } from '@/db/schema'
+import { db, sqlite } from '@/db'
+import { users, characters, memories, entities, memoryEpisodes, memoryProfiles, conversations, messages, chatDocuments } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
+import { invalidateAllMemoryBlocks } from '@/memory/blockCache'
+import { invalidateAllEntityCaches } from '@/memory/recall'
+import { clearProfileCache } from '@/memory/profile'
+import { clearMoodCache } from '@/memory/mood'
+import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
 const adminMemory = new Hono<AppEnv>()
+
+// ── POST /api/admin/memory/reset-all ──────────────────────────────────────────
+// The "reset all companion data" button: erases EVERY conversation, message,
+// attached chat document, memory, entity, episode, knowledge paragraph, and mood
+// for EVERY user and companion, then drops all in-process caches so the running
+// server forgets too. Accounts, settings, media, notes, and integrations are
+// untouched. Deliberately total: partial per-user clears live on the routes below.
+
+adminMemory.post('/reset-all', requireAdmin, async (c) => {
+  const user = c.get('user')
+  const counts: Record<string, number> = {}
+  // Order matters only for readability — SQLite cascades handle FK cleanup.
+  counts['messages'] = (await db.delete(messages).returning({ id: messages.id })).length
+  counts['conversations'] = (await db.delete(conversations).returning({ id: conversations.id })).length
+  counts['chatDocuments'] = (await db.delete(chatDocuments).returning({ id: chatDocuments.id })).length
+  counts['memories'] = (await db.delete(memories).returning({ id: memories.id })).length
+  counts['entities'] = (await db.delete(entities).returning({ id: entities.id })).length
+  counts['episodes'] = (await db.delete(memoryEpisodes).returning({ id: memoryEpisodes.id })).length
+  counts['profiles'] = (await db.delete(memoryProfiles).returning({ id: memoryProfiles.id })).length
+  try { counts['moods'] = sqlite.query('DELETE FROM user_moods').run().changes } catch { counts['moods'] = 0 }
+
+  invalidateAllMemoryBlocks()
+  invalidateAllEntityCaches()
+  clearProfileCache()
+  clearMoodCache()
+
+  logger.warn(`[admin:memory] RESET ALL companion data by admin ${user.id}: ${JSON.stringify(counts)}`)
+  return c.json({ ok: true, counts })
+})
 
 // ── GET /api/admin/memory ─────────────────────────────────────────────────────
 // All users with aggregate memory counts. Used to populate the user list.

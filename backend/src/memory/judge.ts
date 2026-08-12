@@ -82,6 +82,8 @@ SOURCE RULE — extract ONLY facts the User asserted or explicitly confirmed. As
 
 TIME RULE — the conversation date is given at the top. Resolve relative time into absolute terms in the fact text: "I'm getting married next month" on 2026-07-01 → "user is getting married in August 2026". Never store a bare "next week"/"yesterday" — those rot.
 
+SPECIFICITY RULE — keep names and who/what EXACTLY as stated. Never blur a named person into "someone": "my daughter Lily is allergic to peanuts" → entity Lily (person, aliases ["lily","daughter"]) + fact "daughter Lily is allergic to peanuts" with entityName "Lily" — NOT "user is a parent of someone with a peanut allergy". A fact that loses its subject's name is worth less than the sentence it came from.
+
 CRITICAL — DISCARD these, do NOT extract:
 - Questions the user asked or information they looked up (one-off curiosity)
 - One-moment moods and feelings ("I'm tired", "I'm excited today", "I'm hungry")
@@ -123,6 +125,7 @@ Examples of what to DISCARD vs PERSIST:
 - "I'm building a home theater in my basement" → PERSIST fact:"user is building a home theater" (goal)
 - "I'm so stressed today" → DISCARD (temporary mood)
 - "I've been a vegetarian for 10 years" → PERSIST fact:"user is vegetarian" (identity)
+- "my daughter Lily is allergic to peanuts" → PERSIST entity:Lily(person,aliases:["lily","daughter"]), fact:"daughter Lily is allergic to peanuts" (entityName:"Lily", category:relationship, tier:durable, importance:9 — health facts about family are high-stakes and must keep the name)
 - "turns out you have to hold the reset button on my arcade cabinet for 10 seconds" → PERSIST fact:"the arcade cabinet resets by holding the reset button 10 seconds" (kind:procedural)
 - Assistant: "You can reset it by holding the power button" (user never confirmed) → DISCARD (assistant statement, not user knowledge)
 

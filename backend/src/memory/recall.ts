@@ -133,7 +133,7 @@ function promptTokens(text: string): Set<string> {
 const _entityCache = new Map<string, { rows: (typeof entities.$inferSelect)[]; expiresAt: number }>()
 const ENTITY_CACHE_TTL_MS = 60_000
 
-async function loadScopeEntities(userId: string, characterId: string | null) {
+export async function loadScopeEntities(userId: string, characterId: string | null) {
   const key = `${userId}:${characterId ?? ''}`
   const cached = _entityCache.get(key)
   if (cached && cached.expiresAt > Date.now()) return cached.rows
@@ -152,7 +152,12 @@ export function invalidateEntityCache(userId: string): void {
   }
 }
 
-function buildAliasIndex(rows: (typeof entities.$inferSelect)[]): Map<string, string> {
+/** Drop every cached entity list — the admin "reset all companion data" path. */
+export function invalidateAllEntityCaches(): void {
+  _entityCache.clear()
+}
+
+export function buildAliasIndex(rows: (typeof entities.$inferSelect)[]): Map<string, string> {
   const aliasToEntityId = new Map<string, string>()
   for (const e of rows) {
     aliasToEntityId.set(e.name.toLowerCase(), e.id)

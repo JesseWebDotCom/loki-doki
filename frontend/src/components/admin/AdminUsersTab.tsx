@@ -111,6 +111,10 @@ async function clearUserMemory(userId: string): Promise<void> {
   await apiFetch(`/api/admin/memory/${userId}`, { method: 'DELETE' })
 }
 
+async function resetAllCompanionData(): Promise<void> {
+  await apiFetch('/api/admin/memory/reset-all', { method: 'POST' })
+}
+
 async function clearScopeMemory(userId: string, characterId: string | null): Promise<void> {
   await apiFetch(`/api/admin/memory/${userId}/scope`, {
     method: 'DELETE',
@@ -1344,6 +1348,8 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
   const [bulkStep, setBulkStep] = useState<'idle' | 'confirm'>('idle')
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ key: 'name' | 'role' | 'memory'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' })
+  const [resetAllOpen, setResetAllOpen] = useState(false)
+  const [resettingAll, setResettingAll] = useState(false)
 
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -1437,7 +1443,37 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
                 )
               })}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={resettingAll}
+              className="h-7 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+              onClick={() => setResetAllOpen(true)}
+            >
+              {resettingAll ? <><Spinner size="sm" className="mr-1.5 h-3 w-3" /> Resetting…</> : 'Reset all data'}
+            </Button>
           </div>
+          <ConfirmDialog
+            open={resetAllOpen}
+            onOpenChange={setResetAllOpen}
+            title="Reset ALL companion data?"
+            description="Erases every conversation, message, memory, entity, episode, knowledge summary, and mood for EVERY user and companion. Accounts, settings, notes, and media are untouched. This cannot be undone."
+            confirmLabel="Reset everything"
+            destructive
+            onConfirm={async () => {
+              setResetAllOpen(false)
+              setResettingAll(true)
+              try {
+                await resetAllCompanionData()
+                toast.success('All companion data reset')
+                await load()
+              } catch {
+                toast.error('Reset failed')
+              } finally {
+                setResettingAll(false)
+              }
+            }}
+          />
 
           {/* Bulk action bar */}
           <div className="flex items-center gap-3">

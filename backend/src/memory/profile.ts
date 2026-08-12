@@ -119,6 +119,12 @@ async function regenerateProfile(userId: string): Promise<void> {
 const _profileCache = new Map<string, { paragraph: string | null; expiresAt: number }>()
 const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000
 
+/** Drop every cached paragraph — the admin "reset all companion data" path. */
+export function clearProfileCache(): void {
+  _profileCache.clear()
+  dirtyUsers.clear()
+}
+
 /** The user's knowledge paragraph, or null when none exists yet. Cached in-process. */
 export async function getKnowledgeProfile(userId: string): Promise<string | null> {
   const cached = _profileCache.get(userId)

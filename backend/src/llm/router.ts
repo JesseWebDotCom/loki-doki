@@ -241,6 +241,8 @@ const TIER2_RULES: Record<string, string> = {
   localEvents: 'localEvents: local events, festivals, parades, or things to do near the user. "anything happening this weekend", "events near me".',
   onthisday: 'onthisday: historical events or notable birthdays for a calendar date. "what happened on this day", "celebrity birthdays today".',
   recall_conversations: 'recall_conversations: questions about the user\'s own PAST CONVERSATIONS with you — what was discussed before, when a topic came up, what was said yesterday/last week. "what did we talk about yesterday", "when did we discuss the trip". Not for facts about the world (search), not for stored personal facts (those are answered from memory), and NEVER for something said in the current conversation — answer that directly from the messages above.',
+  set_status: 'set_status: ONLY when the user explicitly asks to set, change, or clear their status ("set me as busy", "clear my status"). Sharing what they are doing or planning ("grabbing dinner with a coworker", "heading to the gym") is CONVERSATION — respond with empty content, never turn their plans into a status.',
+  display_alert: 'display_alert: ONLY when the user explicitly asks to show/display an alert or message on a screen or pod. Telling you about their plans or day is conversation, not an alert request.',
   homeAssistant: 'homeAssistant: control or query smart-home devices — lights, switches, fans, locks, thermostats (temperature + mode), home TVs/speakers (pause, skip, volume, mute), scenes, covers/garage doors. "turn off the living room lights", "set the thermostat to 72", "pause the living room tv", "is the garage open", "what temperature is it inside". Only for devices in the home — outdoor conditions are weather, and starting new music by name is play_music. Pass the user\'s full command verbatim as the text argument.',
 }
 
@@ -261,7 +263,7 @@ function tier2System(candidates: Tool[]): string {
   return [
     `You are a routing assistant. Today is ${today}. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command. Never answer the message yourself: your only output is a tool call, or empty content for pure chitchat.`,
     rules ? `Tool selection rules:\n${rules}` : null,
-    `Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call.`,
+    `Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call. The same goes for the user simply SHARING something — their plans, their day, news about their life ("grabbing dinner with a friend later"): that is conversation, not a command, unless they explicitly ask you to do something with it.`,
     `Extract all tool arguments from the full conversation context, including prior messages. When the message points back at an earlier turn ("he", "she", "that", "the second one"), resolve the reference from the conversation and use the resolved subject in the arguments — a follow-up usually continues the previous topic. Only use argument values the user actually said or clearly referred to: never invent one, and never ask a clarifying question — leave unspecified optional arguments (like location) out and the user's saved defaults fill them in.`,
   ].filter(Boolean).join('\n\n')
 }
