@@ -440,6 +440,14 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE UNIQUE INDEX IF NOT EXISTS memory_profiles_user_unique ON memory_profiles(user_id);
+    CREATE TABLE IF NOT EXISTS user_moods (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      mood TEXT NOT NULL,
+      note TEXT,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `)
 
   // Projects

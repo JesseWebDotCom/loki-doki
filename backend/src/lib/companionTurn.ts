@@ -24,6 +24,7 @@ import { recallMemories, formatMemoriesForPrompt, matchPromptEntities } from '@/
 import { recallNotesBlock } from '@/lib/notes/recall'
 import { recallMethodBlock } from '@/lib/methods/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
+import { getMoodLine, maybeUpdateMood } from '@/memory/mood'
 import { embed } from '@/llm/embed'
 import { buildInteractionFragment, ProfanityStreamBuffer, getProtections, getInteractionStyle } from '@/lib/protections'
 import { resolveToolConfig, getAllowedToolIds } from '@/lib/toolConfig'
@@ -1130,9 +1131,24 @@ export async function runCompanionTurn(
     // so it lives in the late zone. Warm-cache read; '' until the gate + a verdict exist.
     const mailLine = getMailNotifyLine({ id: p.userId, role: p.userRole })
     if (mailLine) systemParts.push(mailLine)
+    // Emotional continuity: the user's freshest mood (explicit external state,
+    // classified post-turn on the fast model) rendered as tone guidance. Warm
+    // synchronous read; changes rarely, so it's KV-friendly in the late zone.
+    const moodLine = getMoodLine(p.userId)
+    if (moodLine) systemParts.push(moodLine)
     // Per-message length nudge (Phase 3) — volatile (depends on this message's route),
     // so it sits in the late zone next to the other per-turn blocks. Cheap (~20 tokens).
     if (verbosityHint) systemParts.push(verbosityHint)
+
+    // Anti-drift persona reminder: attention over the system prompt decays with
+    // distance, and persona drift is measurable within ~8 turns even on large
+    // models — the persona sits near the TOP of this prompt, farthest from the
+    // generation point. A compressed reminder near the END re-anchors it. Stable
+    // per conversation, so it is KV-safe in the late zone.
+    if (p.characterSystemPrompt) {
+      const personaCore = p.characterSystemPrompt.split('\n\n')[0]?.trim()
+      if (personaCore) systemParts.push(`Reminder — you are still fully in character, every turn: ${personaCore}`)
+    }
 
     // Volatile date/time/location goes LAST so the heavy stable prefix above stays
     // KV-cached across turns (the time string changes every minute).
@@ -1335,6 +1351,11 @@ export async function runCompanionTurn(
     }
   }
 
+  // Emotional-state upkeep (detached, all surfaces): an emotionally loaded user
+  // message updates their mood row via a short fast-model classification. Regex-
+  // gated inside, so ordinary turns cost nothing.
+  if (completed && !p.primeOnly) maybeUpdateMood(p.userId, p.message, p.model)
+
   return {
     text: finalText, // RAW — callers persist raw and mask at read time
     toolId: tool?.id ?? null,
@@ -1483,7 +1504,7 @@ export async function resolveTurnContext(
     ? opts.replyStyleOverride as 'brief' | 'balanced' | 'detailed' | 'auto'
     : charRow?.replyStyle
   let characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig, personaExamples: charRow.personaExamples })
+    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig, personaExamples: charRow.personaExamples, backstory: charRow.backstory })
     : null
 
   // Persona ↔ clamped-dials reconciliation: when the user's profile clamps a

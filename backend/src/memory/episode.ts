@@ -5,6 +5,7 @@ import { memoryEpisodes } from '@/db/schema'
 
 const SUMMARY_PROMPT = `Summarize this conversation in 2–4 sentences from the assistant's perspective.
 Focus on what was discussed, what you learned about the user, and any notable moments.
+If the user's emotional tone was notable (excited, stressed, sad, proud), include it in ONE clause — emotional texture is what makes a later "last time you seemed stressed about this" possible.
 Be concise and factual. Do not include small talk.`
 
 export async function generateEpisode(

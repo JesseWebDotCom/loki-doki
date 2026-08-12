@@ -12,6 +12,10 @@ export interface CompanionPromptParts {
   avatarConfig?: string | null
   /** Raw JSON string[] of example lines in the character's voice (few-shot). */
   personaExamples?: string | null
+  /** Longer narrative background. Authored per character since v2 but never
+   *  injected until 2026-08 — deep questions ("where did you grow up?") had
+   *  nothing to draw on and the model invented a new past every time. */
+  backstory?: string | null
 }
 
 const REPLY_STYLE_FRAGMENT: Record<string, string> = {
@@ -49,9 +53,21 @@ function exampleLinesBlock(rawJson: string | null | undefined): string | null {
   }
 }
 
+// Backstory is background truth, not recitation material — capped so an
+// enthusiastically-authored life story can't crowd the prompt.
+const BACKSTORY_MAX_CHARS = 700
+
+function backstoryBlock(backstory: string | null | undefined): string | null {
+  const b = backstory?.trim()
+  if (!b) return null
+  return 'Your background (draw on this when your past, tastes, or life comes up — keep it consistent, never recite it unprompted):\n' +
+    (b.length <= BACKSTORY_MAX_CHARS ? b : b.slice(0, BACKSTORY_MAX_CHARS - 1).trimEnd() + '…')
+}
+
 export function buildCompanionPrompt(parts: CompanionPromptParts): string {
   const fragment = REPLY_STYLE_FRAGMENT[parts.replyStyle ?? 'balanced'] ?? ''
   const appearance = describeAppearance(parts.style, parts.avatarConfig)
   const examples = exampleLinesBlock(parts.personaExamples)
-  return [parts.personalityPrompt?.trim(), examples, appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
+  const backstory = backstoryBlock(parts.backstory)
+  return [parts.personalityPrompt?.trim(), backstory, examples, appearance, VOICE_RULE, fragment].filter(Boolean).join('\n\n')
 }
