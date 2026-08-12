@@ -30,10 +30,43 @@ interface MemCacheEntry {
   methodsBlock: string | null
   /** Entity ids the cached block was computed against. */
   entityIds: Set<string>
+  /** Rolling content-word vocabulary of the turns this block has served — the
+   *  cheap lexical proxy for "still the same topic" (see topic-shift check). */
+  topicTokens: Set<string>
   /** Owner — lets a judge write invalidate every conversation block for the user. */
   userId: string | null
   turnsServed: number
   expiresAt: number
+}
+
+// ── Topic-shift detection (2026-08) ──────────────────────────────────────────
+// The entity pass catches "mention Artie" but not "let's talk about my job" —
+// a subject change with no named entity could serve a stale block for up to
+// MEMORY_BLOCK_MAX_TURNS turns. A zero-cost lexical check closes that: each hit
+// folds the turn's content words into a rolling topic vocabulary, and a turn
+// with enough content words but ZERO overlap is a topic shift → recompute.
+// (Rebuilding is cheap now that the memory block lives in the late volatile
+// zone of the system prompt — the heavy stable prefix stays KV-cached.)
+const TOPIC_MIN_CONTENT_WORDS = 3
+const TOPIC_TOKENS_CAP = 300
+const TOPIC_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'do', 'does', 'did',
+  'what', 'who', 'when', 'where', 'why', 'how', 'which', 'you', 'your', 'yours', 'i',
+  'my', 'me', 'mine', 'we', 'our', 'us', 'it', 'its', 'that', 'this', 'these', 'those',
+  'of', 'to', 'in', 'on', 'for', 'with', 'about', 'like', 'just', 'so', 'can', 'could',
+  'would', 'should', 'will', 'have', 'has', 'had', 'be', 'been', 'being', 'am', 'not',
+  'no', 'yes', 'tell', 'know', 'think', 'get', 'got', 'going', 'really', 'very',
+  'right', 'okay', 'hey', 'please', 'thanks', 'thank', 'one', 'some', 'any', 'all',
+  'there', 'here', 'they', 'them', 'she', 'he', 'her', 'him', 'his', 'hers', 'was',
+  'want', 'wanna', 'lets', 'let', 'now', 'today', 'more', 'good', 'well',
+])
+
+function promptContentTokens(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const w of text.toLowerCase().split(/[^a-z0-9']+/)) {
+    if (w.length >= 3 && !TOPIC_STOPWORDS.has(w)) out.add(w)
+  }
+  return out
 }
 
 const cache = new Map<string, MemCacheEntry>()
@@ -58,6 +91,7 @@ export const MEMORY_BLOCK_MAX_TURNS = 8
 export function getCachedMemoryBlock(
   key: string,
   currentEntityIds?: Set<string>,
+  prompt?: string,
 ): { memoryBlock: string | null; notesBlock: string | null; methodsBlock: string | null } | null {
   const entry = cache.get(key)
   if (!entry || entry.expiresAt <= Date.now()) return null
@@ -67,6 +101,22 @@ export function getCachedMemoryBlock(
       if (!entry.entityIds.has(id)) { cache.delete(key); return null }
     }
   }
+  // Topic-shift check: a substantive message sharing NO content words with the
+  // turns this block has served is a subject change → recompute. Short follow-ups
+  // ("why?", "tell me more") ride the cached topic.
+  if (prompt) {
+    const toks = promptContentTokens(prompt)
+    if (toks.size >= TOPIC_MIN_CONTENT_WORDS) {
+      let overlap = false
+      for (const t of toks) {
+        if (entry.topicTokens.has(t)) { overlap = true; break }
+      }
+      if (!overlap) { cache.delete(key); return null }
+      if (entry.topicTokens.size < TOPIC_TOKENS_CAP) {
+        for (const t of toks) entry.topicTokens.add(t)
+      }
+    }
+  }
   entry.turnsServed++
   return { memoryBlock: entry.memoryBlock, notesBlock: entry.notesBlock, methodsBlock: entry.methodsBlock }
 }
@@ -74,13 +124,14 @@ export function getCachedMemoryBlock(
 export function setCachedMemoryBlock(
   key: string,
   memoryBlock: string | null,
-  opts?: { entityIds?: Set<string>; userId?: string; notesBlock?: string | null; methodsBlock?: string | null },
+  opts?: { entityIds?: Set<string>; userId?: string; notesBlock?: string | null; methodsBlock?: string | null; prompt?: string },
 ): void {
   cache.set(key, {
     memoryBlock,
     notesBlock: opts?.notesBlock ?? null,
     methodsBlock: opts?.methodsBlock ?? null,
     entityIds: opts?.entityIds ?? new Set(),
+    topicTokens: opts?.prompt ? promptContentTokens(opts.prompt) : new Set(),
     userId: opts?.userId ?? null,
     turnsServed: 0,
     expiresAt: Date.now() + MEMORY_BLOCK_TTL_MS,

@@ -368,6 +368,9 @@ chat.post('/stream', requireAuth, async (c) => {
     // Refresh the rolling summary after this turn when the conversation is long
     // enough for the window to be (or soon be) incomplete.
     maybeSummarize: dbRows.length >= 16,
+    // Window already dropping messages → tighten the refresh cadence so no band of
+    // conversation sits in neither the live window nor the summary.
+    windowIncomplete: historyIncomplete,
     assistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -802,6 +805,9 @@ interface ChatRunParams {
   conversationSummary?: string | null
   /** Refresh the rolling summary (detached) after this turn completes. */
   maybeSummarize?: boolean
+  /** The live history window is already dropping messages — refresh the summary on a
+   *  tighter cadence so dropped turns are never uncovered (see refreshConversationSummary). */
+  windowIncomplete?: boolean
   assistantMessageId: string
   cookieHeader: string
   locale: import('@/routes/adminLocale').LocaleSettings
@@ -944,7 +950,7 @@ function makeChatRun(p: ChatRunParams) {
           .catch(() => {})
       }
       if (p.maybeSummarize) {
-        refreshConversationSummary(p.convId).catch((err) => logger.warn(`[chat] summary refresh failed: ${err}`))
+        refreshConversationSummary(p.convId, p.windowIncomplete ?? false).catch((err) => logger.warn(`[chat] summary refresh failed: ${err}`))
       }
 
       // Memory extraction is handled out-of-band by the background sweep.
@@ -1028,8 +1034,9 @@ async function generateConversationTitle(model: string, message: string, convId:
 const SUMMARY_MIN_MESSAGES = 16   // don't bother below this
 const SUMMARY_TAIL_KEEP = 6       // the live window covers the newest turns
 const SUMMARY_STALE_AFTER = 8     // refresh once this many new messages accumulated
+const SUMMARY_STALE_AFTER_URGENT = 4  // tighter cadence once the window is dropping messages
 
-async function refreshConversationSummary(convId: string): Promise<void> {
+async function refreshConversationSummary(convId: string, windowIncomplete = false): Promise<void> {
   const [conv] = await db
     .select({ summary: conversations.summary, summaryThrough: conversations.summaryThrough })
     .from(conversations)
@@ -1049,7 +1056,12 @@ async function refreshConversationSummary(convId: string): Promise<void> {
   const head = rows.slice(0, rows.length - SUMMARY_TAIL_KEEP)
   const fresh = head.filter((m) => m.createdAt.getTime() > throughMs)
   if (fresh.length === 0) return
-  if (conv.summary && fresh.length < SUMMARY_STALE_AFTER) return // fresh enough
+  // Staleness gate. Once the live window is dropping messages, an uncovered band
+  // (older than the window, newer than summaryThrough) is REAL amnesia, so the
+  // cadence tightens: at most 4+SUMMARY_TAIL_KEEP messages can be uncovered,
+  // which the window still holds at the 1200-token budget.
+  const staleAfter = windowIncomplete ? SUMMARY_STALE_AFTER_URGENT : SUMMARY_STALE_AFTER
+  if (conv.summary && fresh.length < staleAfter) return // fresh enough
 
   const span = fresh.slice(0, 80)
   const spanText = span

@@ -418,7 +418,7 @@ export async function runCompanionTurn(
   let memoryBlock: string | null = null
   let notesBlock: string | null = null
   let methodsBlock: string | null = null
-  const cachedMem = getCachedMemoryBlock(p.convId, promptEntityIds)
+  const cachedMem = getCachedMemoryBlock(p.convId, promptEntityIds, p.primeOnly ? undefined : p.message)
   if (cachedMem) {
     memoryBlock = cachedMem.memoryBlock
     notesBlock = cachedMem.notesBlock
@@ -474,7 +474,7 @@ export async function runCompanionTurn(
     methodsBlock = computedMemory?.methods ?? null
     // A prime's block was recalled for '' — caching it would hand the real turn a
     // block with no message-specific vector hits (quality loss beats the KV win).
-    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId, notesBlock, methodsBlock })
+    if (!p.primeOnly) setCachedMemoryBlock(p.convId, memoryBlock, { entityIds: promptEntityIds, userId: p.userId, notesBlock, methodsBlock, prompt: p.message })
     _lap('memory-done(computed)')
   }
 
