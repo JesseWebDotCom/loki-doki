@@ -196,7 +196,7 @@ export async function runTelegramTurn(userId: string, chatId: number, text: stri
   const dbRows = await db
     .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
     .from(messages)
-    .where(eq(messages.conversationId, convId))
+    .where(and(eq(messages.conversationId, convId), eq(messages.active, true)))
     .orderBy(desc(messages.createdAt))
     .limit(HISTORY_LIMIT)
   dbRows.reverse()

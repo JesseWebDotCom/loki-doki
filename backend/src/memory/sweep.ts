@@ -18,7 +18,7 @@
 
 import { db } from '@/db'
 import { conversations, messages } from '@/db/schema'
-import { and, eq, gt, desc, sql } from 'drizzle-orm'
+import { and, eq, gt, desc, isNull, sql } from 'drizzle-orm'
 import { runJudge, runSelfJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
 import { runMemoryAudit } from './audit'
@@ -110,6 +110,10 @@ async function doJudgeSweep(): Promise<void> {
         sql`${latestMsg} is not null`,
         sql`${latestMsg} <= ${idleCutoffSecs}`,
         sql`(${conversations.memoryProcessedThrough} is null or ${latestMsg} > ${conversations.memoryProcessedThrough})`,
+        // Temporary (incognito) chats are never swept into memory; soft-deleted
+        // conversations already got their final judge pass at delete time.
+        eq(conversations.temporary, false),
+        isNull(conversations.deletedAt),
       ),
     )
 
@@ -144,6 +148,8 @@ async function doJudgeSweep(): Promise<void> {
         .where(
           and(
             eq(messages.conversationId, conv.id),
+            // Discarded variants/branches never happened as far as memory goes.
+            eq(messages.active, true),
             processedThrough > 0
               ? gt(messages.createdAt, new Date(processedThrough))
               : undefined,

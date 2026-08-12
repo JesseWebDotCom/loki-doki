@@ -4,7 +4,7 @@
 // Sunday?" needs dates and verbatim text, which cosine recall over facts cannot
 // answer. Strictly scoped to the asking user's conversations.
 
-import { and, desc, eq, gte, lt, like, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, lt, like, or, type SQL } from 'drizzle-orm'
 import { db } from '@/db'
 import { conversations, messages, memoryEpisodes } from '@/db/schema'
 import { parseTemporalRange } from '@/memory/recall'
@@ -84,7 +84,13 @@ export const recallConversationsTool: Tool = {
 
     // ── Raw message search (token-AND LIKE, scoped to this user's conversations) ──
     const likeConds: SQL[] = tokens.map((t) => like(messages.content, `%${t}%`))
-    const conds: (SQL | undefined)[] = [eq(conversations.userId, userId)]
+    // Live history only: no discarded variants/branches, no deleted or incognito chats.
+    const conds: (SQL | undefined)[] = [
+      eq(conversations.userId, userId),
+      eq(messages.active, true),
+      isNull(conversations.deletedAt),
+      eq(conversations.temporary, false),
+    ]
     if (range) {
       conds.push(gte(messages.createdAt, range.start), lt(messages.createdAt, range.end))
     }

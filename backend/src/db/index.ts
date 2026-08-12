@@ -2800,6 +2800,83 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_chat_document_chunks_conv ON chat_document_chunks(conversation_id);
   `)
 
+  // ── Chat product layer: variants, archive/soft-delete, temporary chats, telemetry ──
+  // Conversation lifecycle: archive (hidden, intact), soft delete (restorable 30 days),
+  // temporary/incognito (never listed/swept/indexed, purged on boot).
+  addColumn('conversations', 'archived_at', 'INTEGER')
+  addColumn('conversations', 'deleted_at', 'INTEGER')
+  addColumn('conversations', 'temporary', 'INTEGER NOT NULL DEFAULT 0')
+  // Non-destructive regenerate/edit: inactive rows are preserved siblings/branches.
+  addColumn('messages', 'active', 'INTEGER NOT NULL DEFAULT 1')
+  addColumn('messages', 'variant_group_id', 'TEXT')
+  // Per-message generation telemetry (model badge + trace inspector).
+  addColumn('messages', 'model', 'TEXT')
+  addColumn('messages', 'prompt_tokens', 'INTEGER')
+  addColumn('messages', 'gen_tokens', 'INTEGER')
+  addColumn('messages', 'duration_ms', 'INTEGER')
+  // Thumbs feedback on assistant replies.
+  addColumn('messages', 'feedback', 'TEXT')
+  addColumn('messages', 'feedback_note', 'TEXT')
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS message_traces (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      route TEXT,
+      tool_trail TEXT,
+      system_prompt TEXT,
+      model TEXT,
+      prompt_tokens INTEGER,
+      gen_tokens INTEGER,
+      duration_ms INTEGER,
+      first_token_ms INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_traces_message ON message_traces(message_id);
+    CREATE INDEX IF NOT EXISTS idx_message_traces_created ON message_traces(created_at);
+
+    CREATE TABLE IF NOT EXISTS character_revisions (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      snapshot TEXT NOT NULL,
+      edited_by TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_character_revisions_char ON character_revisions(character_id);
+
+    -- FTS5 over chat messages (external-content), kept in sync by triggers. Indexes
+    -- ALL rows; visibility (active, role, deleted/temporary conversations, ownership)
+    -- is enforced at query time by joining messages + conversations.
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content,
+      content='messages', content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+      INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+  `)
+
+  // Backfill messages_fts from existing rows — triggers only fire on FUTURE writes.
+  try {
+    const ftsCount = (sqlite.query(`SELECT count(*) AS c FROM messages_fts`).get() as { c: number }).c
+    const rowCount = (sqlite.query(`SELECT count(*) AS c FROM messages`).get() as { c: number }).c
+    if (ftsCount === 0 && rowCount > 0) {
+      sqlite.exec(`INSERT INTO messages_fts(messages_fts) VALUES('rebuild');`)
+      console.warn(`[migrations] backfilled messages_fts (${rowCount} rows)`)
+    }
+  } catch (err) {
+    console.warn('[migrations] messages_fts backfill failed:', err instanceof Error ? err.message : err)
+  }
+
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
   sqlite.exec(`

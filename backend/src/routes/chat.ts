@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { eq, desc, and, gt, inArray, sql } from 'drizzle-orm'
+import { eq, desc, and, gt, lt, inArray, isNull, isNotNull, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { userCharacters, conversations, messages, chatDocuments, chatDocumentEdits } from '@/db/schema'
+import { userCharacters, conversations, messages, messageTraces, chatDocuments, chatDocumentEdits } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { extractText } from '@/lib/rag/ingest'
 import { ollamaChat } from '@/llm/ollama'
@@ -11,6 +11,7 @@ import { getFastModel, getVisionModel } from '@/lib/models'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { maskProfanity } from '@/lib/protections'
 import { triggerJudgeForConversation } from '@/memory/sweep'
+import { hardDeleteConversations } from '@/lib/chatRetention'
 import { chunkAndEmbedDocument } from '@/lib/docChunks'
 import type { ContentDials } from '@/lib/contentPolicy'
 import { runCompanionTurn, resolveTurnContext } from '@/lib/companionTurn'
@@ -77,10 +78,21 @@ chat.get('/edited/:id/download', requireAuth, async (c) => {
 chat.get('/conversations', requireAuth, async (c) => {
   const user = c.get('user')
   const projectId = c.req.query('projectId') ?? null
+  // Default list = live conversations. ?filter=archived and ?filter=deleted expose
+  // the archive and the 30-day "Recently deleted" bin. Temporary chats never list.
+  const filter = c.req.query('filter') ?? 'active'
 
-  const conditions = projectId
-    ? and(eq(conversations.userId, user.id), eq(conversations.projectId, projectId))
-    : eq(conversations.userId, user.id)
+  const lifecycle =
+    filter === 'archived' ? and(isNull(conversations.deletedAt), isNotNull(conversations.archivedAt))
+    : filter === 'deleted' ? isNotNull(conversations.deletedAt)
+    : and(isNull(conversations.deletedAt), isNull(conversations.archivedAt))
+
+  const conditions = and(
+    eq(conversations.userId, user.id),
+    eq(conversations.temporary, false),
+    lifecycle,
+    projectId ? eq(conversations.projectId, projectId) : undefined,
+  )
 
   const rows = await db
     .select({
@@ -88,11 +100,13 @@ chat.get('/conversations', requireAuth, async (c) => {
       title: conversations.title,
       pinned: conversations.pinned,
       projectId: conversations.projectId,
+      archivedAt: conversations.archivedAt,
+      deletedAt: conversations.deletedAt,
       createdAt: conversations.createdAt,
       updatedAt: conversations.updatedAt,
       preview: sql<string>`(
         SELECT content FROM messages
-        WHERE conversation_id = ${conversations.id}
+        WHERE conversation_id = ${conversations.id} AND active = 1
         ORDER BY created_at DESC LIMIT 1
       )`,
     })
@@ -101,6 +115,58 @@ chat.get('/conversations', requireAuth, async (c) => {
     .orderBy(desc(sql`COALESCE(${conversations.updatedAt}, ${conversations.createdAt})`))
 
   return c.json(rows)
+})
+
+// ── Message search (FTS5) ─────────────────────────────────────────────────────
+// Full-text search across the user's own chat history. Visibility enforced here,
+// not in the index: active messages only, no deleted or temporary conversations.
+chat.get('/search', requireAuth, async (c) => {
+  const user = c.get('user')
+  const q = (c.req.query('q') ?? '').trim()
+  if (!q) return c.json({ results: [] })
+
+  // Quote each term so user input can't inject FTS5 query syntax (AND/OR/NEAR/*).
+  const ftsQuery = q
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((t) => `"${t.replace(/"/g, '')}"`)
+    .join(' ')
+  if (!ftsQuery) return c.json({ results: [] })
+
+  try {
+    const rows = await db.all<{
+      conversationId: string
+      messageId: string
+      title: string | null
+      role: string
+      snippet: string
+      createdAt: number
+    }>(sql`
+      SELECT
+        m.conversation_id AS conversationId,
+        m.id AS messageId,
+        c.title AS title,
+        m.role AS role,
+        snippet(messages_fts, 0, '<mark>', '</mark>', '…', 12) AS snippet,
+        m.created_at AS createdAt
+      FROM messages_fts f
+      JOIN messages m ON m.rowid = f.rowid
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE messages_fts MATCH ${ftsQuery}
+        AND c.user_id = ${user.id}
+        AND c.deleted_at IS NULL
+        AND c.temporary = 0
+        AND m.active = 1
+        AND m.role IN ('user', 'assistant')
+      ORDER BY bm25(messages_fts)
+      LIMIT 30
+    `)
+    return c.json({ results: rows })
+  } catch (err) {
+    logger.warn(`[chat] message search failed: ${err}`)
+    return c.json({ results: [] })
+  }
 })
 
 chat.get('/conversations/:id', requireAuth, async (c) => {
@@ -118,34 +184,73 @@ chat.get('/conversations/:id', requireAuth, async (c) => {
   const msgs = await db
     .select()
     .from(messages)
-    .where(eq(messages.conversationId, id))
+    .where(and(eq(messages.conversationId, id), eq(messages.active, true)))
     .orderBy(messages.createdAt)
+
+  // Sibling-variant metadata (regenerate keeps the old reply): for each active
+  // message in a variant group, report its position among siblings so the UI can
+  // render < 2/3 > navigation. Sibling ids are ordered oldest → newest.
+  const groupIds = [...new Set(msgs.map((m) => m.variantGroupId).filter((g): g is string => !!g))]
+  const variantsByGroup = new Map<string, string[]>()
+  if (groupIds.length > 0) {
+    const siblings = await db
+      .select({ id: messages.id, variantGroupId: messages.variantGroupId })
+      .from(messages)
+      .where(and(eq(messages.conversationId, id), inArray(messages.variantGroupId, groupIds)))
+      .orderBy(messages.createdAt)
+    for (const s of siblings) {
+      if (!s.variantGroupId) continue
+      const list = variantsByGroup.get(s.variantGroupId) ?? []
+      list.push(s.id)
+      variantsByGroup.set(s.variantGroupId, list)
+    }
+  }
 
   // Messages are persisted RAW (masking them in the DB fed `****` back into LLM
   // history and hid the real words from the memory judge). Masking is a READ-time
   // presentation concern, driven by the user's CURRENT dials — raising the dial
   // later unmasks old replies.
   const { maskProfanityActive } = await resolveTurnContext(user.id, conv.characterId ?? null)
-  const outMsgs = maskProfanityActive
-    ? msgs.map((m) => (m.role === 'assistant' ? { ...m, content: maskProfanity(m.content) } : m))
-    : msgs
+  const outMsgs = msgs.map((m) => {
+    const content = maskProfanityActive && m.role === 'assistant' ? maskProfanity(m.content) : m.content
+    const siblings = m.variantGroupId ? variantsByGroup.get(m.variantGroupId) : undefined
+    const variants = siblings && siblings.length > 1
+      ? { groupId: m.variantGroupId, index: siblings.indexOf(m.id), count: siblings.length, ids: siblings }
+      : undefined
+    return { ...m, content, ...(variants ? { variants } : {}) }
+  })
 
-  return c.json({ ...conv, messages: outMsgs })
+  // An in-flight generation for this conversation, so a reopened tab can re-attach
+  // to the live stream instead of waiting for a reload to show the persisted reply.
+  const activeJob = genQueue.findActiveByMeta('conversationId', id)
+  const activeGen = activeJob && activeJob.userId === user.id
+    ? { genId: activeJob.id, assistantMessageId: (activeJob.meta?.['assistantMessageId'] as string | undefined) ?? null }
+    : null
+
+  return c.json({ ...conv, messages: outMsgs, activeGen })
 })
 
+// Soft delete: the conversation moves to "Recently deleted" (restorable) and is
+// hard-purged by the maintenance sweep after 30 days. The memory judge still runs
+// on the unprocessed span NOW — deleting used to be the moment facts were lost —
+// and memoryProcessedThrough advances so the background sweep never double-judges
+// the same span while the row sits in the bin.
 chat.delete('/conversations/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  // Deleting inside the sweep's 5-10 min idle window used to cascade-delete the
-  // messages before the judge ever saw them — facts from that session were lost.
-  // Snapshot the unprocessed span first and judge it after the delete (detached).
   const [conv] = await db
-    .select({ userId: conversations.userId, memoryProcessedThrough: conversations.memoryProcessedThrough })
+    .select({ userId: conversations.userId, memoryProcessedThrough: conversations.memoryProcessedThrough, temporary: conversations.temporary })
     .from(conversations)
     .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
     .limit(1)
   if (!conv) return c.json({ ok: true })
+
+  // Temporary chats were never meant to persist — hard delete, no memory judge.
+  if (conv.temporary) {
+    await hardDeleteConversations([id])
+    return c.json({ ok: true })
+  }
 
   const processedThrough = conv.memoryProcessedThrough?.getTime() ?? 0
   const unprocessed = await db
@@ -154,6 +259,7 @@ chat.delete('/conversations/:id', requireAuth, async (c) => {
     .where(
       and(
         eq(messages.conversationId, id),
+        eq(messages.active, true),
         processedThrough > 0 ? gt(messages.createdAt, new Date(processedThrough)) : undefined,
       ),
     )
@@ -161,7 +267,8 @@ chat.delete('/conversations/:id', requireAuth, async (c) => {
     .limit(60)
 
   await db
-    .delete(conversations)
+    .update(conversations)
+    .set({ deletedAt: new Date(), memoryProcessedThrough: new Date() })
     .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
 
   if (unprocessed.length >= 2) {
@@ -172,14 +279,26 @@ chat.delete('/conversations/:id', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// Restore from "Recently deleted".
+chat.post('/conversations/:id/restore', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  await db
+    .update(conversations)
+    .set({ deletedAt: null })
+    .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
+  return c.json({ ok: true })
+})
+
 chat.patch('/conversations/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const body = await c.req.json() as { title?: string; pinned?: boolean }
+  const body = await c.req.json() as { title?: string; pinned?: boolean; archived?: boolean }
 
   const update: Record<string, unknown> = {}
   if (body.title !== undefined) update['title'] = body.title
   if (body.pinned !== undefined) update['pinned'] = body.pinned
+  if (body.archived !== undefined) update['archivedAt'] = body.archived ? new Date() : null
 
   if (Object.keys(update).length === 0) return c.json({ ok: true })
 
@@ -191,12 +310,125 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Export ────────────────────────────────────────────────────────────────────
+// Download one conversation as markdown or JSON. Active messages only — the export
+// should read like the chat did, not include discarded variants.
+chat.get('/conversations/:id/export', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const format = c.req.query('format') === 'json' ? 'json' : 'md'
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)))
+    .limit(1)
+  if (!conv) return c.json({ error: 'Not found' }, 404)
+
+  const msgs = await db
+    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt, model: messages.model })
+    .from(messages)
+    .where(and(eq(messages.conversationId, id), eq(messages.active, true)))
+    .orderBy(messages.createdAt)
+
+  const title = conv.title || 'Conversation'
+  const safeName = title.replace(/[^\w.\- ]+/g, '_').slice(0, 80) || 'conversation'
+
+  if (format === 'json') {
+    c.header('Content-Type', 'application/json; charset=utf-8')
+    c.header('Content-Disposition', `attachment; filename="${safeName}.json"`)
+    return c.body(JSON.stringify({
+      title,
+      createdAt: conv.createdAt,
+      exportedAt: new Date(),
+      messages: msgs.map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt, model: m.model ?? undefined })),
+    }, null, 2))
+  }
+
+  const lines: string[] = [`# ${title}`, '', `Exported ${new Date().toISOString().slice(0, 10)}`, '']
+  for (const m of msgs) {
+    if (m.role === 'system') continue
+    lines.push(`## ${m.role === 'user' ? 'You' : 'Companion'}`, '', m.content, '')
+  }
+  c.header('Content-Type', 'text/markdown; charset=utf-8')
+  c.header('Content-Disposition', `attachment; filename="${safeName}.md"`)
+  return c.body(lines.join('\n'))
+})
+
+// ── Message feedback ──────────────────────────────────────────────────────────
+// Thumbs up/down on an assistant reply (rating null clears it). The optional note
+// travels with a thumbs-down. Joined to message_traces by message id, so feedback
+// carries its full turn context for later triage.
+chat.post('/messages/:id/feedback', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { rating?: 'up' | 'down' | null; note?: string }
+  if (body.rating !== 'up' && body.rating !== 'down' && body.rating !== null) {
+    return c.json({ error: 'rating must be "up", "down", or null' }, 400)
+  }
+
+  const [row] = await db
+    .select({ id: messages.id, userId: conversations.userId, role: messages.role })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(eq(messages.id, id))
+    .limit(1)
+  if (!row || row.userId !== user.id) return c.json({ error: 'Not found' }, 404)
+  if (row.role !== 'assistant') return c.json({ error: 'Feedback applies to assistant replies' }, 400)
+
+  await db.update(messages).set({
+    feedback: body.rating,
+    feedbackNote: body.rating ? (body.note ?? '').slice(0, 2000) || null : null,
+  }).where(eq(messages.id, id))
+
+  return c.json({ ok: true })
+})
+
+// ── Variant switching ─────────────────────────────────────────────────────────
+// Regenerate keeps the previous reply as an inactive sibling (same variantGroupId).
+// This endpoint flips which sibling is active — the UI's < 2/3 > navigation.
+chat.post('/conversations/:id/variant', requireAuth, async (c) => {
+  const user = c.get('user')
+  const convId = c.req.param('id')
+  const { messageId } = await c.req.json().catch(() => ({})) as { messageId?: string }
+  if (!messageId) return c.json({ error: 'messageId is required' }, 400)
+
+  const [conv] = await db
+    .select({ id: conversations.id, characterId: conversations.characterId })
+    .from(conversations)
+    .where(and(eq(conversations.id, convId), eq(conversations.userId, user.id)))
+    .limit(1)
+  if (!conv) return c.json({ error: 'Not found' }, 404)
+
+  const [target] = await db
+    .select({ id: messages.id, variantGroupId: messages.variantGroupId, content: messages.content, role: messages.role })
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, convId)))
+    .limit(1)
+  if (!target?.variantGroupId) return c.json({ error: 'Not a variant message' }, 404)
+
+  if (genQueue.findActiveByMeta('conversationId', convId)) {
+    return c.json({ error: 'A reply is being generated in this conversation. Wait for it to finish first.' }, 429)
+  }
+
+  await db.update(messages)
+    .set({ active: false })
+    .where(and(eq(messages.conversationId, convId), eq(messages.variantGroupId, target.variantGroupId)))
+  await db.update(messages)
+    .set({ active: true })
+    .where(eq(messages.id, messageId))
+
+  const { maskProfanityActive } = await resolveTurnContext(user.id, conv.characterId ?? null)
+  const content = maskProfanityActive && target.role === 'assistant' ? maskProfanity(target.content) : target.content
+  return c.json({ ok: true, messageId, content })
+})
+
 // ── Stream endpoint ───────────────────────────────────────────────────────────
 
 chat.post('/stream', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments, images, focusedArtifact } = (await c.req.json()) as {
+  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, clientTz, attachments, images, focusedArtifact, temporary } = (await c.req.json()) as {
     message: string
     conversationId?: string
     characterId?: string
@@ -206,6 +438,10 @@ chat.post('/stream', requireAuth, async (c) => {
     clientLng?: number | null
     clientTz?: string | null
     attachments?: { filename: string; text: string }[]
+    /** Start this conversation as a temporary (incognito) chat: never listed,
+     *  never summarized, never swept into memory, purged on boot/daily. Only
+     *  honored at creation time — an existing conversation keeps its mode. */
+    temporary?: boolean
     /** Base64 photos for a vision turn (the iPhone app's camera/library
      *  attachments — "translate the street sign"). Routed to the vision
      *  model; companionTurn attaches them to the user message. */
@@ -250,26 +486,30 @@ chat.post('/stream', requireAuth, async (c) => {
   let convTitle = ''
 
   let convSummary: string | null = null
+  let convTemporary = false
+  let convProjectId: string | null = projectId ?? null
   if (convId) {
     // Verify ownership
     const [existing] = await db
-      .select({ title: conversations.title, summary: conversations.summary })
+      .select({ title: conversations.title, summary: conversations.summary, temporary: conversations.temporary, projectId: conversations.projectId })
       .from(conversations)
       .where(and(eq(conversations.id, convId), eq(conversations.userId, user.id)))
       .limit(1)
     if (!existing) convId = null  // reset if not found/owned
-    else { convTitle = existing.title ?? ''; convSummary = existing.summary }
+    else { convTitle = existing.title ?? ''; convSummary = existing.summary; convTemporary = existing.temporary; convProjectId = existing.projectId }
   }
 
   if (!convId) {
     convId = crypto.randomUUID()
     convTitle = truncateTitle(message)
+    convTemporary = temporary === true
     await db.insert(conversations).values({
       id: convId,
       userId: user.id,
       characterId: characterId ?? null,
       projectId: projectId ?? null,
       title: convTitle,
+      temporary: convTemporary,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -309,7 +549,7 @@ chat.post('/stream', requireAuth, async (c) => {
   const dbRows = await db
     .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
     .from(messages)
-    .where(eq(messages.conversationId, convId))
+    .where(and(eq(messages.conversationId, convId), eq(messages.active, true)))
     .orderBy(desc(messages.createdAt))
     .limit(40)
   dbRows.reverse()
@@ -364,10 +604,13 @@ chat.post('/stream', requireAuth, async (c) => {
     // relationship-stage line in the system prompt derives from this.
     firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
     conversationSummary: historyIncomplete ? convSummary : null,
+    projectId: convProjectId,
     focusedArtifact: focusedArtifact ?? null,
     // Refresh the rolling summary after this turn when the conversation is long
-    // enough for the window to be (or soon be) incomplete.
-    maybeSummarize: dbRows.length >= 16,
+    // enough for the window to be (or soon be) incomplete. Never for temporary
+    // chats — nothing derived from them should persist beyond the session.
+    maybeSummarize: dbRows.length >= 16 && !convTemporary,
+    temporary: convTemporary,
     // Window already dropping messages → tighten the refresh cadence so no band of
     // conversation sits in neither the live window nor the summary.
     windowIncomplete: historyIncomplete,
@@ -450,24 +693,26 @@ chat.post('/prime', requireAuth, async (c) => {
   // would, so the primed prompt token-matches the upcoming real turn.
   let convId: string | null = null
   let convSummary: string | null = null
+  let convProjectId: string | null = null
   let historyIncomplete = false
   let dbMessages: { role: string; content: string }[] = []
   if (conversationId) {
     const [existing] = await db
-      .select({ summary: conversations.summary })
+      .select({ summary: conversations.summary, projectId: conversations.projectId })
       .from(conversations)
       .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
       .limit(1)
     if (existing) {
       convId = conversationId
       convSummary = existing.summary
+      convProjectId = existing.projectId
       // A generation is already running here — its reply will change history, and
       // the prime would fight it for the runner slot. Skip.
       if (genQueue.findActiveByMeta('conversationId', convId)) return c.json({ ok: false, skipped: 'generating' })
       const dbRows = await db
         .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
         .from(messages)
-        .where(eq(messages.conversationId, convId))
+        .where(and(eq(messages.conversationId, convId), eq(messages.active, true)))
         .orderBy(desc(messages.createdAt))
         .limit(40)
       dbRows.reverse()
@@ -505,6 +750,9 @@ chat.post('/prime', requireAuth, async (c) => {
       prefs: ctx.prefs,
       firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
       conversationSummary: historyIncomplete ? convSummary : null,
+      // The project-instructions block sits in the STABLE prefix — the prime must
+      // include it or the primed prefill never matches the real turn's prompt.
+      projectId: convProjectId,
       cookieHeader,
       locale: ctx.locale,
       interactionStyle: ctx.interactionStyle,
@@ -522,8 +770,9 @@ chat.post('/prime', requireAuth, async (c) => {
 // ── Regenerate endpoint ─────────────────────────────────────────────────────
 // Re-runs the turn that produced `assistantMessageId`: streams a fresh reply for the
 // SAME user turn rather than resubmitting it as a new one (which would duplicate the
-// question in history). The old reply is only removed once the new one completes —
-// see makeChatRun's replaceMessageId handling.
+// question in history). The old reply is KEPT as an inactive sibling variant (shared
+// variantGroupId) once the new one completes — see makeChatRun's replaceMessageId
+// handling — so the UI can flip between attempts with < 2/3 > navigation.
 
 chat.post('/regenerate', requireAuth, async (c) => {
   const user = c.get('user')
@@ -536,17 +785,18 @@ chat.post('/regenerate', requireAuth, async (c) => {
   }
 
   const [conv] = await db
-    .select({ id: conversations.id, title: conversations.title, characterId: conversations.characterId })
+    .select({ id: conversations.id, title: conversations.title, characterId: conversations.characterId, projectId: conversations.projectId })
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
     .limit(1)
   if (!conv) return c.json({ error: 'conversation not found' }, 404)
 
-  // Full turn order to find the user message this reply answered.
+  // Full ACTIVE turn order to find the user message this reply answered (inactive
+  // siblings/branches are not part of the live history).
   const all = await db
-    .select({ id: messages.id, role: messages.role, content: messages.content, toolNote: messages.toolNote })
+    .select({ id: messages.id, role: messages.role, content: messages.content, toolNote: messages.toolNote, variantGroupId: messages.variantGroupId })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.active, true)))
     .orderBy(messages.createdAt)
   const targetIdx = all.findIndex((m) => m.id === assistantMessageId && m.role === 'assistant')
   const userMsg = targetIdx > 0 ? all[targetIdx - 1] : undefined
@@ -572,6 +822,9 @@ chat.post('/regenerate', requireAuth, async (c) => {
   const dbMessages = foldToolNotes(all.slice(0, targetIdx - 1))
   trimHistory(dbMessages, 1200)
 
+  // The old reply becomes an inactive sibling in this group; the new reply joins it.
+  const variantGroupId = all[targetIdx]!.variantGroupId ?? crypto.randomUUID()
+
   const newAssistantMessageId = crypto.randomUUID()
   const run = makeChatRun({
     userId: user.id,
@@ -590,6 +843,7 @@ chat.post('/regenerate', requireAuth, async (c) => {
     dbMessages,
     prefs,
     firstMetAt: characterId ? (regenRelation?.createdAt ?? null) : undefined,
+    projectId: conv.projectId,
     assistantMessageId: newAssistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -599,6 +853,7 @@ chat.post('/regenerate', requireAuth, async (c) => {
     maskProfanityActive,
     insertUserMessage: false,
     replaceMessageId: assistantMessageId,
+    variantGroupId,
   })
 
   let job: genQueue.Job
@@ -622,10 +877,11 @@ chat.post('/regenerate', requireAuth, async (c) => {
 })
 
 // ── Edit-and-resubmit endpoint ────────────────────────────────────────────────
-// Rewrites a past USER message and re-runs the turn from there: everything after
-// the edited message is removed (linear history, no branching — the removed tail
-// answered a question that no longer exists), then a fresh reply streams with the
-// same SSE protocol as /stream.
+// Rewrites a past USER message and re-runs the turn from there. History stays
+// linear (no branch navigation), but nothing is destroyed anymore: the original
+// message text is preserved as an inactive copy and the discarded tail is marked
+// inactive rather than deleted, so an edit is recoverable from the DB. A fresh
+// reply then streams with the same SSE protocol as /stream.
 
 chat.post('/edit', requireAuth, async (c) => {
   const user = c.get('user')
@@ -650,6 +906,7 @@ chat.post('/edit', requireAuth, async (c) => {
       title: conversations.title,
       characterId: conversations.characterId,
       summaryThrough: conversations.summaryThrough,
+      projectId: conversations.projectId,
     })
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)))
@@ -659,7 +916,7 @@ chat.post('/edit', requireAuth, async (c) => {
   const all = await db
     .select({ id: messages.id, role: messages.role, content: messages.content, toolNote: messages.toolNote, createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.active, true)))
     .orderBy(messages.createdAt)
   const targetIdx = all.findIndex((m) => m.id === userMessageId && m.role === 'user')
   if (targetIdx < 0) return c.json({ error: 'could not find the message to edit' }, 404)
@@ -680,13 +937,25 @@ chat.post('/edit', requireAuth, async (c) => {
         : Promise.resolve(null),
     ])
 
-  // Commit the edit: rewrite the user message, drop everything after it. The
-  // rolling summary is invalidated if it covered any of the removed/edited span
+  // Commit the edit: preserve the ORIGINAL text as an inactive copy (same
+  // timestamp — display and history only ever read active rows, so ordering
+  // ambiguity can't surface), rewrite the user message in place, then mark
+  // everything after it inactive. The discarded tail answered a question that
+  // no longer exists, but it stays recoverable instead of being destroyed.
+  // The rolling summary is invalidated if it covered any of the edited span
   // (it would keep "remembering" turns that no longer happened).
+  await db.insert(messages).values({
+    id: crypto.randomUUID(),
+    conversationId,
+    role: 'user',
+    content: target.content,
+    active: false,
+    createdAt: target.createdAt,
+  }).catch(() => {})
   await db.update(messages).set({ content: newText.trim() }).where(eq(messages.id, userMessageId))
   const removedIds = all.slice(targetIdx + 1).map((m) => m.id)
   if (removedIds.length > 0) {
-    await db.delete(messages).where(inArray(messages.id, removedIds))
+    await db.update(messages).set({ active: false }).where(inArray(messages.id, removedIds))
   }
   if (conv.summaryThrough && conv.summaryThrough.getTime() >= target.createdAt.getTime()) {
     await db.update(conversations)
@@ -715,6 +984,7 @@ chat.post('/edit', requireAuth, async (c) => {
     dbMessages,
     prefs,
     firstMetAt: characterId ? (editRelation?.createdAt ?? null) : undefined,
+    projectId: conv.projectId,
     assistantMessageId: newAssistantMessageId,
     cookieHeader: c.req.header('cookie') ?? '',
     locale,
@@ -803,6 +1073,8 @@ interface ChatRunParams {
   firstMetAt?: Date | null
   /** Rolling summary of content older than the trimmed window (null = don't inject). */
   conversationSummary?: string | null
+  /** Project this conversation is filed under — injects instructions + doc RAG. */
+  projectId?: string | null
   /** Refresh the rolling summary (detached) after this turn completes. */
   maybeSummarize?: boolean
   /** The live history window is already dropping messages — refresh the summary on a
@@ -819,10 +1091,19 @@ interface ChatRunParams {
   focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
   /** false for /regenerate — the user turn already exists in the DB, don't re-insert it. */
   insertUserMessage?: boolean
-  /** /regenerate only — the old assistant reply to remove once the new one lands. Left
-   *  alone on failure/cancellation, so a failed regenerate doesn't lose the prior answer. */
+  /** /regenerate only — the old assistant reply to DEACTIVATE (kept as a sibling
+   *  variant) once the new one lands. Left alone on failure/cancellation, so a
+   *  failed regenerate doesn't lose the prior answer. */
   replaceMessageId?: string
+  /** /regenerate only — the variant group shared by the old and new replies. */
+  variantGroupId?: string
+  /** Temporary (incognito) conversation — skip the turn trace and title generation. */
+  temporary?: boolean
 }
+
+/** Newest-N cap for message_traces (devtools trace inspector). Pruned after each
+ *  write so the table never grows unbounded — each row can carry an ~8KB prompt. */
+const TRACE_KEEP = 500
 
 function makeChatRun(p: ChatRunParams) {
   return async (ctx: JobRunContext): Promise<void> => {
@@ -874,6 +1155,7 @@ function makeChatRun(p: ChatRunParams) {
           prefs: p.prefs,
           firstMetAt: p.firstMetAt,
           conversationSummary: p.conversationSummary ?? null,
+          projectId: p.projectId ?? null,
           focusedArtifact: p.focusedArtifact ?? null,
           cookieHeader: p.cookieHeader,
           locale: p.locale,
@@ -920,7 +1202,13 @@ function makeChatRun(p: ChatRunParams) {
         return
       }
 
-      if (p.replaceMessageId) await db.delete(messages).where(eq(messages.id, p.replaceMessageId))
+      // Regenerate: the old reply becomes an inactive sibling in the variant group
+      // (previously it was deleted — non-destructive regenerate keeps every attempt).
+      if (p.replaceMessageId) {
+        await db.update(messages)
+          .set({ active: false, variantGroupId: p.variantGroupId ?? null })
+          .where(eq(messages.id, p.replaceMessageId))
+      }
 
       const now = new Date()
       await db.insert(messages).values({
@@ -932,6 +1220,11 @@ function makeChatRun(p: ChatRunParams) {
         sources: capturedSources,
         // A reply that hit the num_predict cap is a form of truncation too.
         truncated: result.capped ?? false,
+        variantGroupId: p.variantGroupId ?? null,
+        model: p.model,
+        promptTokens: result.promptTokens ?? null,
+        genTokens: result.genTokens ?? null,
+        durationMs: result.durationMs ?? null,
         createdAt: now,
       })
       await db
@@ -939,12 +1232,25 @@ function makeChatRun(p: ChatRunParams) {
         .set({ updatedAt: now })
         .where(eq(conversations.id, p.convId))
 
+      // Turn trace for the devtools inspector: the exact assembled prompt, route
+      // decision, and tool trail behind this reply. Skipped for temporary chats
+      // (incognito means no debug residue either). Best-effort + pruned.
+      if (!p.temporary) {
+        void writeTurnTrace({
+          messageId: p.assistantMessageId,
+          conversationId: p.convId,
+          userId: p.userId,
+          model: p.model,
+          result,
+        })
+      }
+
       // First turn: emit `done` immediately with the provisional title and generate
       // the real one DETACHED on the fast model — title generation used to hold the
       // UI in "generating" through an entire extra LLM call. The conversations list
       // picks the final title up from the DB on its next refresh.
       ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: p.convTitle }))
-      if (p.dbMessages.length === 0) {
+      if (p.dbMessages.length === 0 && !p.temporary) {
         getFastModel()
           .then((fastModel) => generateConversationTitle(fastModel, p.message, p.convId))
           .catch(() => {})
@@ -963,6 +1269,41 @@ function makeChatRun(p: ChatRunParams) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Persist a per-turn trace row and prune the table to the newest TRACE_KEEP. */
+async function writeTurnTrace(t: {
+  messageId: string
+  conversationId: string
+  userId: string
+  model: string
+  result: import('@/lib/companionTurn').CompanionTurnResult
+}): Promise<void> {
+  try {
+    await db.insert(messageTraces).values({
+      id: crypto.randomUUID(),
+      messageId: t.messageId,
+      conversationId: t.conversationId,
+      userId: t.userId,
+      route: t.result.routeInfo ? JSON.stringify(t.result.routeInfo) : null,
+      toolTrail: t.result.toolTrail?.length ? JSON.stringify(t.result.toolTrail) : null,
+      systemPrompt: t.result.systemPrompt ?? null,
+      model: t.model,
+      promptTokens: t.result.promptTokens ?? null,
+      genTokens: t.result.genTokens ?? null,
+      durationMs: t.result.durationMs ?? null,
+      firstTokenMs: t.result.firstTokenMs ?? null,
+      createdAt: new Date(),
+    })
+    await db.run(sql`
+      DELETE FROM message_traces WHERE id IN (
+        SELECT id FROM message_traces ORDER BY created_at DESC LIMIT -1 OFFSET ${TRACE_KEEP}
+      )
+    `)
+  } catch (err) {
+    logger.warn(`[chat] trace write failed: ${err}`)
+  }
+}
+
 
 /** Fold each reply's persisted toolNote back into its content so follow-ups see
  *  what the tools actually returned. Only the NEWEST note stays full-size (deep
@@ -1047,7 +1388,7 @@ async function refreshConversationSummary(convId: string, windowIncomplete = fal
   const rows = await db
     .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.conversationId, convId))
+    .where(and(eq(messages.conversationId, convId), eq(messages.active, true)))
     .orderBy(messages.createdAt)
   if (rows.length < SUMMARY_MIN_MESSAGES) return
 

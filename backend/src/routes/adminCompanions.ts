@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { eq, and, desc } from 'drizzle-orm'
 import { db } from '@/db'
-import { characters, characterUserGrants, users } from '@/db/schema'
+import { characters, characterRevisions, characterUserGrants, users } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import { ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
@@ -118,8 +118,96 @@ adminCompanions.post('/', requireAdmin, async (c) => {
   return c.json({ ...toCompanionPayload(row!), wakePhraseWarning })
 })
 
+// ── Persona revisions ────────────────────────────────────────────────────────
+// Prompts are code: a silent persona edit that tanks reply quality is unfixable
+// without history. Every PATCH that changes a persona-bearing field snapshots the
+// PRE-edit values, capped at the newest REVISION_KEEP per character.
+const REVISION_KEEP = 20
+const PERSONA_FIELDS = ['personalityPrompt', 'backstory', 'personaExamples', 'interests', 'replyStyle'] as const
+
+type PersonaSnapshot = Record<(typeof PERSONA_FIELDS)[number], string | null>
+
+function personaSnapshotOf(row: typeof characters.$inferSelect): PersonaSnapshot {
+  return {
+    personalityPrompt: row.personalityPrompt ?? null,
+    backstory: row.backstory ?? null,
+    personaExamples: row.personaExamples ?? null,
+    interests: row.interests ?? null,
+    replyStyle: row.replyStyle ?? null,
+  }
+}
+
+async function snapshotPersonaIfChanging(
+  id: string,
+  update: Record<string, unknown>,
+  editedBy: string | null,
+): Promise<void> {
+  if (!PERSONA_FIELDS.some((f) => f in update)) return
+  const [current] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
+  if (!current) return
+  const snapshot = personaSnapshotOf(current)
+  // Only snapshot when a persona field actually changes value — a PATCH that
+  // resends identical text must not pile up no-op revisions.
+  const changed = PERSONA_FIELDS.some((f) => f in update && (update[f] ?? null) !== snapshot[f])
+  if (!changed) return
+  await db.insert(characterRevisions).values({
+    id: crypto.randomUUID(),
+    characterId: id,
+    snapshot: JSON.stringify(snapshot),
+    editedBy,
+    createdAt: new Date(),
+  })
+  const old = await db
+    .select({ id: characterRevisions.id })
+    .from(characterRevisions)
+    .where(eq(characterRevisions.characterId, id))
+    .orderBy(desc(characterRevisions.createdAt))
+  if (old.length > REVISION_KEEP) {
+    for (const r of old.slice(REVISION_KEEP)) {
+      await db.delete(characterRevisions).where(eq(characterRevisions.id, r.id))
+    }
+  }
+}
+
+adminCompanions.get('/:id/revisions', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  const rows = await db
+    .select()
+    .from(characterRevisions)
+    .where(eq(characterRevisions.characterId, id))
+    .orderBy(desc(characterRevisions.createdAt))
+  return c.json(rows.map((r) => {
+    let snapshot: PersonaSnapshot | null = null
+    try { snapshot = JSON.parse(r.snapshot) } catch { /* corrupt row — surfaced as null */ }
+    return { id: r.id, createdAt: r.createdAt, editedBy: r.editedBy, snapshot }
+  }))
+})
+
+adminCompanions.post('/:id/revisions/:revId/revert', requireAdmin, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const revId = c.req.param('revId')
+  const [rev] = await db
+    .select()
+    .from(characterRevisions)
+    .where(and(eq(characterRevisions.id, revId), eq(characterRevisions.characterId, id)))
+    .limit(1)
+  if (!rev) return c.json({ error: 'Revision not found' }, 404)
+  let snapshot: PersonaSnapshot
+  try { snapshot = JSON.parse(rev.snapshot) } catch { return c.json({ error: 'Revision is corrupt' }, 422) }
+
+  // Reverting is itself an edit — snapshot the current state first so it's undoable.
+  const revertUpdate: Record<string, unknown> = { ...snapshot, updatedAt: new Date() }
+  await snapshotPersonaIfChanging(id, revertUpdate, user.id)
+  await db.update(characters).set(revertUpdate).where(eq(characters.id, id))
+  const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  return c.json(toCompanionPayload(row))
+})
+
 // ── Update ───────────────────────────────────────────────────────────────────
 adminCompanions.patch('/:id', requireAdmin, async (c) => {
+  const user = c.get('user')
   const id = c.req.param('id')
   const body = (await c.req.json()) as CompanionInput
 
@@ -158,6 +246,7 @@ adminCompanions.patch('/:id', requireAdmin, async (c) => {
   if (body.isActive !== undefined) update['isActive'] = body.isActive
   if (body.published !== undefined) update['published'] = body.published
 
+  await snapshotPersonaIfChanging(id, update, user.id)
   await db.update(characters).set(update).where(eq(characters.id, id))
   const [row] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
   if (!row) return c.json({ error: 'Not found' }, 404)

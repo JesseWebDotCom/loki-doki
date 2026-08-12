@@ -19,6 +19,17 @@ export async function extractText(filename: string, mime: string, bytes: Uint8Ar
   const lower = filename.toLowerCase()
   const isPdf = mime.includes('pdf') || lower.endsWith('.pdf')
   const isHtml = mime.includes('html') || lower.endsWith('.html') || lower.endsWith('.htm')
+  const isDocx = mime.includes('officedocument.wordprocessingml') || lower.endsWith('.docx')
+
+  if (isDocx) {
+    try {
+      const { extractDocxText } = await import('@/lib/docx')
+      return extractDocxText(bytes)
+    } catch (e) {
+      logger.warn(`[rag] docx extract failed for ${filename}: ${e}`)
+      return ''
+    }
+  }
 
   if (isPdf) {
     try {

@@ -23,7 +23,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note' | 'book' | 'music'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast' | 'clip' | 'video' | 'note' | 'book' | 'music' | 'chat'
   id: string
   title: string
   subtitle: string | null
@@ -443,7 +443,40 @@ const musicProvider: Provider = async (userId, q) => {
   return hits.slice(0, PER_PROVIDER)
 }
 
+// Chat history: FTS5 over the user's own messages. Visibility enforced at query
+// time (active rows, no deleted/temporary conversations) — the index mirrors all.
+const chatProvider: Provider = async (userId, q) => {
+  const match = buildMatch(q)
+  if (!match) return []
+  const rows = await db.all<{ convId: string; title: string | null; snippet: string }>(sql`
+    SELECT m.conversation_id AS convId, c.title AS title,
+           snippet(messages_fts, 0, '', '', '…', 10) AS snippet
+    FROM messages_fts f
+    JOIN messages m ON m.rowid = f.rowid
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE messages_fts MATCH ${match}
+      AND c.user_id = ${userId}
+      AND c.deleted_at IS NULL
+      AND c.temporary = 0
+      AND m.active = 1
+      AND m.role IN ('user', 'assistant')
+    GROUP BY m.conversation_id
+    ORDER BY bm25(messages_fts)
+    LIMIT ${PER_PROVIDER}
+  `)
+  return rows.map((r) => ({
+    type: 'chat' as const,
+    id: r.convId,
+    title: r.title || 'Conversation',
+    subtitle: r.snippet || null,
+    icon: null,
+    route: `/chat/${r.convId}`,
+    group: 'Chats',
+  }))
+}
+
 const PROVIDERS: Provider[] = [
+  chatProvider,
   bookmarksProvider,
   booksProvider,
   notesProvider,

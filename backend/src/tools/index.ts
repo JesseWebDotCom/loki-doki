@@ -207,6 +207,7 @@ import { saveMethodTool } from './saveMethod'
 import { machineStatusTool } from './machineStatus'
 import { dockFilesTool } from './dockFiles'
 import { recallConversationsTool } from './recallConversations'
+import { fetchUrlTool } from './fetchUrl'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -269,4 +270,5 @@ export const toolRegistry: Tool[] = [
   machineStatusTool,
   dockFilesTool,
   recallConversationsTool,
+  fetchUrlTool,
 ]

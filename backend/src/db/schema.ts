@@ -326,6 +326,14 @@ export const conversations = sqliteTable('conversations', {
   // model simply forgot turn 10 by turn 20.
   summary: text('summary'),
   summaryThrough: integer('summary_through', { mode: 'timestamp' }),
+  // Archived conversations are hidden from the default list but fully intact.
+  archivedAt: integer('archived_at', { mode: 'timestamp' }),
+  // Soft delete: hidden everywhere, restorable from "Recently deleted", purged
+  // for real (with a final memory-judge snapshot) after 30 days.
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+  // Temporary (incognito) chat: never listed, never summarized, never swept into
+  // memory, never indexed for search; purged on boot and by the daily sweep.
+  temporary: integer('temporary', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 })
@@ -344,6 +352,57 @@ export const messages = sqliteTable('messages', {
   // JSON array of citation sources ({ n, title, url }) backing the [n] markers in content,
   // so tappable citation chips survive a reload. Null for messages with no sources.
   sources: text('sources'),
+  // Inactive rows are preserved variants/discarded branches, excluded from history,
+  // summaries, memory sweep, search, and the default GET. Regenerate keeps the old
+  // reply as an inactive sibling; editing a user message keeps the discarded tail.
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  // Shared by sibling assistant replies to the same user turn (regenerate keeps the
+  // old reply; the UI navigates siblings with < 2/3 >). Null for single-variant rows.
+  variantGroupId: text('variant_group_id'),
+  // Which model produced this assistant reply, plus Ollama's real token counts and
+  // wall-clock duration; shown as a badge and used by the trace inspector.
+  model: text('model'),
+  promptTokens: integer('prompt_tokens'),
+  genTokens: integer('gen_tokens'),
+  durationMs: integer('duration_ms'),
+  // User feedback on an assistant reply ('up' | 'down'), with an optional free-text
+  // note. Joined to message_traces so a thumbs-down carries its full turn context.
+  feedback: text('feedback', { enum: ['up', 'down'] }),
+  feedbackNote: text('feedback_note'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Per-turn trace behind an assistant reply: route decision, tool trail, the exact
+// assembled system prompt, and token/latency numbers. Devtools/admin-only surface;
+// pruned to the newest TRACE_KEEP rows so it never grows unbounded.
+export const messageTraces = sqliteTable('message_traces', {
+  id: text('id').primaryKey(),
+  messageId: text('message_id').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  userId: text('user_id').notNull(),
+  // JSON: { path, toolId, confidence, tier, ... } from the router decision.
+  route: text('route'),
+  // JSON array of { toolId, ok, ms, error? } for every tool executed this turn.
+  toolTrail: text('tool_trail'),
+  // The full assembled system prompt (joined parts) the model actually saw.
+  systemPrompt: text('system_prompt'),
+  model: text('model'),
+  promptTokens: integer('prompt_tokens'),
+  genTokens: integer('gen_tokens'),
+  durationMs: integer('duration_ms'),
+  firstTokenMs: integer('first_token_ms'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Snapshot-on-write history of a character's persona-bearing fields, so a persona
+// edit that tanks quality can be diffed and reverted (prompts are code).
+export const characterRevisions = sqliteTable('character_revisions', {
+  id: text('id').primaryKey(),
+  characterId: text('character_id').notNull().references(() => characters.id, { onDelete: 'cascade' }),
+  // JSON snapshot of { personalityPrompt, backstory, personaExamples, interests, replyStyle }
+  // as they were BEFORE the edit that created this revision.
+  snapshot: text('snapshot').notNull(),
+  editedBy: text('edited_by'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 

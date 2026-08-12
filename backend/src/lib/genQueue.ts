@@ -74,8 +74,12 @@ interface SSEStream {
 /** ~6500-word generation fits comfortably; a 2048-token response is trivially small. */
 const MAX_BUFFER = 8_000
 
-/** Matches the GC window in image.ts */
-const GC_DELAY_MS = 60_000
+/** How long a finished job (and its replay buffer) stays re-attachable. Raised from
+ *  60s (which matched image.ts) — a closed tab reopened a few minutes later should
+ *  still find the stream via GET /conversations/:id activeGen → stream/:genId replay
+ *  instead of falling back to the persisted message. Buffers are small (text events,
+ *  capped at MAX_BUFFER), so a few extra minutes of retention is cheap. */
+const GC_DELAY_MS = 300_000
 
 const DEFAULT_LIMITS: Record<GenType, number> = { chat: 2, image: 1, vision: 1, convert: 2 }
 
