@@ -300,9 +300,12 @@ chat.post('/stream', requireAuth, async (c) => {
 
   // Load recent messages then trim to a token budget so prefill stays fast.
   // Older context is covered by the episode/memory system injected into the system prompt.
-  // Budget: 800 tokens ≈ 3–6 turns. Keeps cold-prefill time reasonable on 12B models
-  // (~3s at actual observed rates vs ~6s at 1500 tokens). Long-term context handled by memory.
-  const TOKEN_HISTORY_BUDGET = 800
+  // Budget: 1200 tokens ≈ 5–9 turns — the documented ceiling before prefill delay is
+  // perceptible on 12B models (chat-latency.md). Raised from 800 (2026-08): follow-ups
+  // referencing 4+ turns back were falling out of the window before the rolling summary
+  // covered them. trimHistory always keeps the newest 4 messages regardless, so the
+  // last full exchange is never trimmed. Long-term context handled by memory.
+  const TOKEN_HISTORY_BUDGET = 1200
   const dbRows = await db
     .select({ role: messages.role, content: messages.content, toolNote: messages.toolNote })
     .from(messages)
@@ -312,10 +315,7 @@ chat.post('/stream', requireAuth, async (c) => {
   dbRows.reverse()
   // Fold each reply's tool note back in so follow-ups ("tell me more") elaborate
   // on the actual tool data instead of re-searching or deflecting.
-  const dbMessages = dbRows.map((m) => ({
-    role: m.role,
-    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
-  }))
+  const dbMessages = foldToolNotes(dbRows)
 
   const droppedFromWindow = trimHistory(dbMessages, TOKEN_HISTORY_BUDGET)
   // The summary only earns its prompt tokens once the live window is incomplete.
@@ -468,11 +468,8 @@ chat.post('/prime', requireAuth, async (c) => {
         .orderBy(desc(messages.createdAt))
         .limit(40)
       dbRows.reverse()
-      dbMessages = dbRows.map((m) => ({
-        role: m.role,
-        content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
-      }))
-      const droppedFromWindow = trimHistory(dbMessages, 800)
+      dbMessages = foldToolNotes(dbRows)
+      const droppedFromWindow = trimHistory(dbMessages, 1200)
       historyIncomplete = droppedFromWindow > 0 || dbRows.length >= 40
     }
   }
@@ -569,11 +566,8 @@ chat.post('/regenerate', requireAuth, async (c) => {
         : Promise.resolve(null),
     ])
 
-  const dbMessages = all.slice(0, targetIdx - 1).map((m) => ({
-    role: m.role,
-    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
-  }))
-  trimHistory(dbMessages, 800)
+  const dbMessages = foldToolNotes(all.slice(0, targetIdx - 1))
+  trimHistory(dbMessages, 1200)
 
   const newAssistantMessageId = crypto.randomUUID()
   const run = makeChatRun({
@@ -697,11 +691,8 @@ chat.post('/edit', requireAuth, async (c) => {
       .where(eq(conversations.id, conversationId))
   }
 
-  const dbMessages = all.slice(0, targetIdx).map((m) => ({
-    role: m.role,
-    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
-  }))
-  trimHistory(dbMessages, 800)
+  const dbMessages = foldToolNotes(all.slice(0, targetIdx))
+  trimHistory(dbMessages, 1200)
 
   const newAssistantMessageId = crypto.randomUUID()
   const run = makeChatRun({
@@ -966,6 +957,26 @@ function makeChatRun(p: ChatRunParams) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Fold each reply's persisted toolNote back into its content so follow-ups see
+ *  what the tools actually returned. Only the NEWEST note stays full-size (deep
+ *  follow-ups target the latest tool turn); older notes are clipped hard so a
+ *  long tool-using conversation doesn't burn its history token budget on stale
+ *  payloads. Shared by /stream, /prime, /regenerate, and /edit. */
+function foldToolNotes<R extends string>(
+  rows: Array<{ role: R; content: string; toolNote: string | null }>,
+): Array<{ role: R; content: string }> {
+  let lastNoteIdx = -1
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i]!.toolNote) { lastNoteIdx = i; break }
+  }
+  return rows.map((m, i) => ({
+    role: m.role,
+    content: m.toolNote
+      ? `${m.content}\n\n[tool data behind this reply: ${i === lastNoteIdx ? m.toolNote : m.toolNote.slice(0, 300)}]`
+      : m.content,
+  }))
+}
 
 /** Drop oldest messages (in place) until estimated token count fits the budget.
  *  Keeps at least 4 messages (2 turns) regardless. Returns how many were dropped.

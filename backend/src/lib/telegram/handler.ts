@@ -142,7 +142,7 @@ async function saveUrl(userId: string, chatId: number, url: string, note: string
 // ── Companion turn ─────────────────────────────────────────────────────────────
 
 const HISTORY_LIMIT = 40
-const TOKEN_HISTORY_BUDGET = 800
+const TOKEN_HISTORY_BUDGET = 1200 // keep in sync with chat.ts (raised from 800, 2026-08)
 
 /** Drop oldest messages until the estimated token count fits (mirrors chat.ts). */
 function trimHistory(rows: Array<{ content: string }>, budget: number): void {
@@ -200,9 +200,16 @@ export async function runTelegramTurn(userId: string, chatId: number, text: stri
     .orderBy(desc(messages.createdAt))
     .limit(HISTORY_LIMIT)
   dbRows.reverse()
-  const history = dbRows.map((m) => ({
+  // Newest tool note stays full-size, older ones clipped (mirrors chat.ts foldToolNotes).
+  let lastNoteIdx = -1
+  for (let i = dbRows.length - 1; i >= 0; i--) {
+    if (dbRows[i]!.toolNote) { lastNoteIdx = i; break }
+  }
+  const history = dbRows.map((m, i) => ({
     role: m.role,
-    content: m.toolNote ? `${m.content}\n\n[tool data behind this reply: ${m.toolNote}]` : m.content,
+    content: m.toolNote
+      ? `${m.content}\n\n[tool data behind this reply: ${i === lastNoteIdx ? m.toolNote : m.toolNote.slice(0, 300)}]`
+      : m.content,
   }))
   trimHistory(history, TOKEN_HISTORY_BUDGET)
 

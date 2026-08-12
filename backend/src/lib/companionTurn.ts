@@ -296,6 +296,48 @@ async function personaFlavorReply(canned: string, p: CompanionTurnParams): Promi
   }
 }
 
+// ── Gated contextual query rewrite (CHIQ pattern) ─────────────────────────────
+// A search query that still points at the conversation ("who was he", "where is
+// that") web-searches the pronoun, not the subject. Rewrite ONLY queries that are
+// short and carry a dangling reference — rewriting a self-contained query
+// measurably hurts retrieval — and only on a dedicated fast model (rewriting on
+// the chat model would clobber the speculative KV prime). Any failure or timeout
+// keeps the original query; this path can never break a search.
+const REWRITE_DEIXIS_RE = /\b(?:he|she|him|her|his|hers|they|them|their|it|its|that|this|those|these)\b/i
+const REWRITE_MAX_QUERY_LEN = 60
+const QUERY_REWRITE_BUDGET_MS = 1500
+
+function isContextualQuery(query: string, historyLen: number): boolean {
+  const q = query.trim()
+  return historyLen > 0 && q.length <= REWRITE_MAX_QUERY_LEN && REWRITE_DEIXIS_RE.test(q)
+}
+
+async function rewriteContextualQuery(query: string, history: OllamaChatMessage[], chatModel: string): Promise<string | null> {
+  try {
+    const fastModel = await getFastModel()
+    if (fastModel === chatModel) return null // no dedicated fast model — keep the original
+    const context = history.slice(-4)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 400)}`)
+      .join('\n')
+    const res = await ollamaChat(
+      fastModel,
+      [
+        { role: 'system', content: 'Rewrite the search query so it stands alone: replace pronouns and vague references ("he", "that movie", "there") with the actual names or subjects from the conversation. Keep it a short web search query. Reply with ONLY the rewritten query and nothing else. If the query already stands alone, reply with it unchanged.' },
+        { role: 'user', content: `Conversation:\n${context}\n\nSearch query: ${query}` },
+      ],
+      undefined,
+      { temperature: 0.1, num_predict: 40 },
+      undefined,
+      QUERY_REWRITE_BUDGET_MS,
+    )
+    const out = res.message.content?.trim().replace(/^["']|["']$/g, '').replace(/\n[\s\S]*$/, '')
+    if (!out || out.length < 3 || out.length > 200) return null
+    return out
+  } catch {
+    return null
+  }
+}
+
 // A tool ran successfully but returned no findings — e.g. web search with an empty
 // `results` array. Triggers the "found nothing, don't make it up" instruction.
 function isEmptyResult(data: unknown): boolean {
@@ -565,11 +607,19 @@ export async function runCompanionTurn(
   const extraCalls = (routeResult.extraCalls ?? []).filter(
     (c) => allowedToolIds.has(c.tool.id) && (c.tool.offline || !offlineMode),
   )
-  // Compact per-tool notes, persisted with the reply so follow-up turns still see
-  // what the tools actually returned (history otherwise only keeps raw text).
+  // Per-tool notes, persisted with the reply so follow-up turns still see what
+  // the tools actually returned (history otherwise only keeps raw text). The note
+  // records the answer_payload — the SAME view the LLM synthesized from — so a
+  // follow-up turn reconstructs the model's actual context, not a differently
+  // truncated raw dump. Caps raised 600→1500 per tool / 800→2400 total (2026-08):
+  // "what was the third headline's source?" was unanswerable because the detail
+  // was summarized away. History folding keeps only the NEWEST note at full size
+  // (see chat.ts), so the token budget doesn't bloat across turns.
   const toolNotes: string[] = []
-  const noteFor = (name: string, data: unknown): string =>
-    `${name} → ${JSON.stringify(data ?? null).slice(0, 600)}`
+  const noteFor = (name: string, data: unknown): string => {
+    const payload = (data as { answer_payload?: unknown } | null)?.answer_payload
+    return `${name} → ${JSON.stringify(payload ?? data ?? null).slice(0, 1500)}`
+  }
 
   // What the LLM sees of a tool result. Tools that provide an answer_payload
   // (gist/highlights/sources — the ~20-tool convention) get ONLY that: folding the
@@ -692,6 +742,21 @@ export async function runCompanionTurn(
     } else {
       // Prefill the prompt prefix while the tool does its (network-bound) work.
       fireKvPrime()
+
+      // Contextual search queries get one budgeted standalone-rewrite on the fast
+      // model, so "who was he?" searches the person from the prior turn instead of
+      // the literal pronoun. Runs while the KV prime prefills (different model).
+      if (tool.id === 'search') {
+        const q = (args as { query?: unknown } | null)?.query
+        if (typeof q === 'string' && isContextualQuery(q, history.length)) {
+          const rewritten = await rewriteContextualQuery(q, history, p.model)
+          if (rewritten && rewritten.toLowerCase() !== q.trim().toLowerCase()) {
+            logger.info(`[companion-turn] contextual query rewrite: "${q.slice(0, 60)}" → "${rewritten.slice(0, 80)}"`)
+            args = { ...(args as object), query: rewritten }
+          }
+        }
+      }
+
       const toolConfig = await buildToolConfig(tool.id)
 
       // A tool that THROWS (vs. returning {success:false}) must not kill the turn —
@@ -1246,7 +1311,7 @@ export async function runCompanionTurn(
     completed,
     capped,
     ...(streamError && { error: streamError }),
-    ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 800) }),
+    ...(toolNotes.length > 0 && { toolNote: toolNotes.join(' | ').slice(0, 2400) }),
   }
 }
 

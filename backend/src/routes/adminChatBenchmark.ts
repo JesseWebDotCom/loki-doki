@@ -116,7 +116,7 @@ adminChatBenchmark.get('/stream', requireAdmin, async (c) => {
     let historyMsgs: OllamaChatMessage[] = []
     let historyTokens = 0
     if (recentConv) {
-      const TOKEN_HISTORY_BUDGET = 800
+      const TOKEN_HISTORY_BUDGET = 1200 // keep in sync with chat.ts
       const rows = await db
         .select({ role: messages.role, content: messages.content })
         .from(messages)

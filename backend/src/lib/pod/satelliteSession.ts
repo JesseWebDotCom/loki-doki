@@ -21,6 +21,7 @@ import { kokoroEngine } from '@/lib/voice/engines/kokoroEngine'
 import { parseVoiceId, segmentSentences, voiceConfig } from '@/lib/voice'
 import { stripForSpeech, createFenceStripper } from '@/lib/voice/speechText'
 import { runPodBrain } from '@/lib/pod/brain'
+import type { OllamaChatMessage } from '@/llm/ollama'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { getSileroStream, type SileroVadStream } from '@/lib/voice/sileroVad'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
@@ -84,6 +85,12 @@ export class SatelliteSession implements PodFireTarget {
   private _deviceId: string | null = null
   private _areaId: string | null = null   // HA area this device is in — origin for room-context resolution
   private hwid: string | null = null
+  // Short-term conversation window for this device session. Spoken follow-ups
+  // ("tell me more", "who was he?") are meaningless without the prior turns, so
+  // every exchange is recorded here and replayed into runPodBrain. Entries expire
+  // after a few minutes of silence: a wake the next morning should not inherit
+  // last night's thread.
+  private turns: Array<{ msg: OllamaChatMessage; at: number }> = []
   // Wake mode: ON by default (the Pod streams continuously; the Host runs
   // openWakeWord and opens an STT capture window after each detection — this is
   // what enables repeated, hands-free "Hey Jarvis …" turns). Opt out with
@@ -582,17 +589,40 @@ export class SatelliteSession implements PodFireTarget {
     const ac = new AbortController()
     this.turnAbort = ac
 
-    const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, originAreaId: this._areaId, signal: ac.signal })
+    const history = this.recentTurns()
+    const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, history, replyStyleOverride: this.replyStyleOverride, originAreaId: this._areaId, signal: ac.signal })
+    // Tee the stream: deliverReply consumes it for screen/TTS while we accumulate
+    // the full reply text so the NEXT turn can see what the companion just said.
+    let fullReply = ''
+    const teed = async function* (src: AsyncIterable<string>): AsyncGenerator<string> {
+      for await (const tok of src) { fullReply += tok; yield tok }
+    }(tokens)
     try {
       // The reply is ALWAYS typed onto the device screen; it's ALSO spoken aloud when
       // the device's audio output is on (replyMode 'voice'). Audio off ('text') → typed
       // only, no TTS.
-      await this.deliverReply(tokens, this.replyMode === 'voice', ac.signal)
+      await this.deliverReply(teed, this.replyMode === 'voice', ac.signal)
     } catch (e) {
       logger.warn(`[pod] brain/reply error: ${(e as Error).message}`)
     }
+    // Record the exchange even when barge-in truncated the reply: the user heard
+    // (part of) it, so a follow-up may still reference it.
+    const now = Date.now()
+    this.turns.push({ msg: { role: 'user', content: text }, at: now })
+    if (fullReply.trim()) this.turns.push({ msg: { role: 'assistant', content: fullReply.trim() }, at: now })
+    if (this.turns.length > SatelliteSession.MAX_TURN_MSGS) this.turns.splice(0, this.turns.length - SatelliteSession.MAX_TURN_MSGS)
     if (!ac.signal.aborted) this.setState('idle')
   }
+
+  /** Messages a spoken follow-up can still plausibly reference: recent, capped. */
+  private recentTurns(): OllamaChatMessage[] {
+    const cutoff = Date.now() - SatelliteSession.TURN_TTL_MS
+    this.turns = this.turns.filter((t) => t.at >= cutoff)
+    return this.turns.map((t) => t.msg)
+  }
+
+  private static readonly TURN_TTL_MS = 10 * 60 * 1000
+  private static readonly MAX_TURN_MSGS = 12
 
   /** Deliver the reply sentence-by-sentence as the LLM streams it. ALWAYS types each
    *  completed sentence onto the device's screen (one reply_text per sentence — sparse

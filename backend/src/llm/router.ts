@@ -115,6 +115,27 @@ const CONTEXTUAL_LOOKUP_RE = /\b(?:look\s+(?:it|that|this|him|her|them|those|the
 // explicit-subject form ("tell me more about X") is caught by SEARCH_INTENT_RE first.
 const CONTINUATION_RE = /^(?:tell me more|more (?:about|on) (?:it|that|this|him|her|them)|go on|keep going|carry on|continue|elaborate(?: on (?:it|that|this))?|expand on (?:it|that|this)|what else|anything else|say more|what happened|then what|what(?:'s| is)? next|and then|what about (?:it|that|him|her|them|this))\b[\s.!?]*$/i
 
+// Anaphoric follow-ups: a SHORT question whose subject is a pronoun or
+// demonstrative pointing at the PRIOR turns ("who was he?", "where is that?",
+// "how old is she?", "what's it called?"). The literal search passthrough would
+// web-search the pronoun; these must go to a history-aware Tier 2 that resolves
+// the reference first. Gated on message length so a long self-contained question
+// that merely contains "it" ("what is the tallest building, is it in Dubai?")
+// never trips it — length is the cheapest proxy for "no antecedent in-message".
+const ANAPHORIC_RE = /\b(?:he|she|him|her|his|hers|they|them|theirs?|it|its|that|this|those|these|there)\b|\bthe (?:first|second|third|last|other) one\b/i
+const ANAPHORIC_MAX_LEN = 60
+function isAnaphoricFollowUp(prompt: string, historyLen: number): boolean {
+  const trimmed = prompt.trim()
+  return historyLen > 0 && trimmed.length <= ANAPHORIC_MAX_LEN && ANAPHORIC_RE.test(trimmed)
+}
+
+// Clarification follow-ups about the assistant's own last reply ("what did you
+// mean?", "what does that mean?", "say that again"). These need NO tool — the
+// chat model answers them from conversation history — but they are question-
+// shaped, so without a fast path they paid a Tier-2 round trip (and risked a
+// pointless search). Anchored to short whole messages like CONTINUATION_RE.
+const CLARIFY_RE = /^(?:wait[,\s]+)?(?:what (?:did|do) you mean|what does that mean|what was that|say (?:that|it) again|come again|repeat that|i don'?t (?:get|understand) (?:it|that)|can you (?:rephrase|clarify)(?: that)?|huh|what)\b[\s.!?]*$/i
+
 // Backchannel / emotional reactions ("wow", "no way", "really?", "oh man",
 // "seriously?") — the user is reacting, not asking for anything. These must
 // short-circuit to a plain conversational reply. Without this, the "?"-ending
@@ -194,7 +215,7 @@ function tier2System(candidates: Tool[]): string {
     `You are a routing assistant. Today is ${today}. Call the right tool for the user's message — even when phrased naturally or implicitly, not as an explicit command. Never answer the message yourself: your only output is a tool call, or empty content for pure chitchat.`,
     rules ? `Tool selection rules:\n${rules}` : null,
     `Conversational messages (greetings, opinions, "thanks", chitchat with no factual need) → respond with empty content, no tool call.`,
-    `Extract all tool arguments from the full conversation context, including prior messages. Only use argument values the user actually said: never invent one, and never ask a clarifying question — leave unspecified optional arguments (like location) out and the user's saved defaults fill them in.`,
+    `Extract all tool arguments from the full conversation context, including prior messages. When the message points back at an earlier turn ("he", "she", "that", "the second one"), resolve the reference from the conversation and use the resolved subject in the arguments — a follow-up usually continues the previous topic. Only use argument values the user actually said or clearly referred to: never invent one, and never ask a clarifying question — leave unspecified optional arguments (like location) out and the user's saved defaults fill them in.`,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -354,6 +375,14 @@ export async function routePrompt(
   if (REACTION_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=reaction msg="${excerpt}"`)
     return { tool: null, args: {}, path: 'reaction' }
+  }
+
+  // Fast path: clarification about the assistant's own last reply ("what did you
+  // mean?", "say that again"). No tool can help — the chat model answers from the
+  // conversation history it already sees. Never search these.
+  if (CLARIFY_RE.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=clarify msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'clarify' }
   }
 
   // Fast path: recall QUESTIONS ("do you remember when we first met?") are asking
@@ -546,9 +575,17 @@ export async function routePrompt(
   // Search-shaped prompt with no plausible specialized tool → direct passthrough,
   // same 0ms cost the old unconditional fast path had. Anything at/above the
   // ambiguous band falls through so Tier 1/Tier 2 can pick the specialized tool.
+  // EXCEPTION: an anaphoric follow-up ("who was he?", "where is that?") must not
+  // web-search the literal pronoun — Tier 2 sees the prior turns and resolves the
+  // reference into a real query (or answers no-tool and the chat model, which also
+  // sees history, takes it conversationally).
   if (searchIntent && bestScore < CONVERSATIONAL_THRESHOLD) {
     const searchTool = toolRegistry.find((t) => t.id === 'search')
     if (searchTool && isAllowed(searchTool)) {
+      if (model && isAnaphoricFollowUp(prompt, history.length)) {
+        logger.info(`[ROUTER] path=anaphoric-search→tier2 score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+        return tier2Call(model, prompt, history, [searchTool], chatNumCtx)
+      }
       logger.info(`[ROUTER] path=search-intent score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
       return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {}, path: 'search-intent' }
     }
