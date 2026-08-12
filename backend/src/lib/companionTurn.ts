@@ -401,6 +401,36 @@ function statedLocationFromConversation(message: string, history: OllamaChatMess
   return null
 }
 
+// ── Big-moment modes (celebration / grief) ────────────────────────────────────
+// Mood tracking adjusts tone; big moments must change BEHAVIOR. Celebration:
+// lead with excitement, ask for the story, drop all tasks. Grief: brief, warm,
+// present — no advice, no tools, no curiosity. Regex-gated (no model call), and
+// the mode line lands in the late volatile zone with maximum recency weight.
+const BIG_NEWS_RE = /\b(?:got the job|got promoted|got the promotion|we(?:'| a)re engaged|got engaged|(?:she|he|they) said yes|i(?:'| a)m pregnant|we(?:'| a)re (?:pregnant|having a baby)|passed (?:the|my) (?:bar|boards|exam|test|defense)|got accepted|we won|i won|closed on the house|bought (?:a|the|our) house|i graduated|paid off (?:the|my|our)|in remission|cancer[- ]free)\b/i
+const GRIEF_RE = /\b(?:passed away|just died|(?:my|our) \w+ died|we lost (?:my|our|him|her|the baby)|put (?:him|her|them) down|had to put \w+ down|miscarr\w+|getting (?:a )?divorced?|we broke up|broke up with me|lost my job|got laid off|got fired|diagnosed with|in the hospital|the funeral)\b/i
+
+type TurnMode = 'celebration' | 'grief' | null
+function detectTurnMode(message: string): TurnMode {
+  if (GRIEF_RE.test(message)) return 'grief'      // grief wins if both somehow match
+  if (BIG_NEWS_RE.test(message)) return 'celebration'
+  return null
+}
+
+// ── Conversational repair (disengagement) ─────────────────────────────────────
+// Two-plus consecutive terse user replies after substantial assistant turns read
+// as cooling interest or annoyance. A friend notices and pulls back; the model
+// cannot tell engaged from annoyed on its own, so this is detected mechanically.
+const TERSE_RE = /^(?:ok(?:ay)?|k+|sure|fine|yeah|yep|yup|no|nah|whatever|cool|nice|right|mhm+|hm+|i guess|if you say so)[.!\s]*$/i
+
+function isDisengaged(message: string, history: OllamaChatMessage[]): boolean {
+  if (!TERSE_RE.test(message.trim())) return false
+  const users = history.filter((m) => m.role === 'user')
+  const lastUser = users[users.length - 1]
+  if (!lastUser || !TERSE_RE.test(lastUser.content.trim())) return false
+  // Only counts as disengagement when the assistant has been giving real content.
+  return history.some((m) => m.role === 'assistant' && m.content.length > 150)
+}
+
 /** Does this message look like it's about / acting on the conversation's attached document? */
 function refersToAttachedDocument(msg: string): boolean {
   if (DOC_NOUN_RE.test(msg)) return true
@@ -442,6 +472,19 @@ export async function runCompanionTurn(
   // below — prompt instructions alone could not stop a small model from
   // narrating the Milford weather block at a user in Tokyo.
   const statedLocation = p.primeOnly ? null : statedLocationFromConversation(p.message, history)
+
+  // Big-moment mode + disengagement (both mechanical). They reshape the whole
+  // turn: modes change behavior via a late-zone directive; both suppress the
+  // proactive extras (curiosity, open threads, callbacks) that would read as
+  // tone-deaf right now.
+  const turnMode = p.primeOnly ? null : detectTurnMode(p.message)
+  const disengaged = p.primeOnly ? false : isDisengaged(p.message, history)
+  // Repair is enforced mechanically, not just asked for: a disengaged turn gets a
+  // hard token ceiling so the reply physically cannot ramble on (the directive
+  // alone lost to the model's own momentum in testing).
+  const turnOptions: Record<string, unknown> = disengaged
+    ? { ...p.options, num_predict: Math.min(60, (p.options['num_predict'] as number | undefined) ?? 60) }
+    : p.options
 
   // Allowed tools must be known BEFORE routing so denied tools never occupy
   // candidate slots or silently swallow a turn. Two fast indexed queries. The
@@ -485,8 +528,11 @@ export async function runCompanionTurn(
             // Memory, notes, and learned-methods recall all share the message
             // embedding; notes/methods failures never cost the turn its memory block.
             const [memory, notes, methods] = await Promise.all([
-              recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds)
-                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding, p.message, { suppressOpenThreads: !!statedLocation })),
+              recallMemories(p.message, p.userId, p.characterId, embedding, promptEntityIds, { excludeSensitive: p.surface === 'pod' })
+                .then((recalled) => formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding, p.message, {
+                  suppressOpenThreads: !!statedLocation || turnMode !== null || disengaged,
+                  suppressCallbacks: turnMode === 'grief' || disengaged,
+                })),
               recallNotesBlock(p.message, p.userId, embedding).catch(() => null),
               recallMethodBlock(p.message, p.userId, embedding).catch(() => null),
             ])
@@ -568,6 +614,17 @@ export async function runCompanionTurn(
   if (p.focusedArtifact && allowedToolIds.has('canvas') && (!tool || tool.id === 'canvas') && looksLikeArtifactEdit(p.message)) {
     const canvasTool = toolRegistry.find((t) => t.id === 'canvas')
     if (canvasTool) { tool = canvasTool; args = { editArtifactId: p.focusedArtifact.id, instruction: p.message } }
+  }
+
+  // Big-moment override: celebration/grief turns are NEVER tool turns — caught
+  // live when "I GOT THE JOB!!!" routed to the remember tool and got "Got it —
+  // I'll remember that" as its reaction. The human response is the whole job of
+  // these turns; the background judge still captures the fact afterward. Staged
+  // confirmations are exempt (a pending "yes" must resolve regardless).
+  if (turnMode !== null && tool && tool.id !== 'confirm_pending') {
+    logger.info(`[companion-turn] ${turnMode} mode overrides tool ${tool.id} → conversational`)
+    tool = null
+    args = {}
   }
 
   // Freshness grounding for STATEMENTS (audit Phase 4): an opinion or remark about
@@ -685,6 +742,18 @@ export async function runCompanionTurn(
     return JSON.stringify(payload ?? data ?? null)
   }
 
+  // Hard ceiling on tool execution: a single hung network call inside a tool
+  // (caught live: DuckDuckGo timing out wedged a search turn for 5+ minutes,
+  // stalling everything queued behind it) must degrade to the normal error fold,
+  // never freeze the turn. The orphaned promise settles harmlessly later.
+  const TOOL_EXECUTE_TIMEOUT_MS = 30_000
+  const executeWithTimeout = (t: Tool, a: unknown, cfg: Record<string, unknown>): Promise<import('@/tools').ToolResult> =>
+    Promise.race([
+      t.execute(a, cfg),
+      new Promise<import('@/tools').ToolResult>((resolve) =>
+        setTimeout(() => resolve({ success: false, error: `${t.name} timed out after ${TOOL_EXECUTE_TIMEOUT_MS / 1000}s` }), TOOL_EXECUTE_TIMEOUT_MS)),
+    ])
+
   // Shared tool-config assembly (identical for primary and extra calls).
   const buildToolConfig = async (toolId: string): Promise<Record<string, unknown>> => {
     const cfg = await resolveToolConfig(toolId, p.userId)
@@ -754,7 +823,7 @@ export async function runCompanionTurn(
 
     let res: import('@/tools').ToolResult
     try {
-      res = await r.tool.execute(r.args, await buildToolConfig(r.tool.id))
+      res = await executeWithTimeout(r.tool, r.args, await buildToolConfig(r.tool.id))
     } catch (err) {
       logger.warn(`[companion-turn] replan tool ${r.tool.id} threw: ${err}`)
       return null
@@ -764,6 +833,17 @@ export async function runCompanionTurn(
     // the original fold says so honestly rather than looping.
     if (!res.success || res.offline || isEmptyResult(res.data)) return null
     return { tool: r.tool, args: r.args, result: res }
+  }
+
+  // Disengaged turns: the strongest lever is a user-turn fold (system-zone "be
+  // brief" lines lost to the model's helpful momentum in testing — it kept
+  // launching hardwood lectures at someone saying "sure"). The token clamp above
+  // is the safety net; this is the actual instruction.
+  if (!tool && disengaged) {
+    ollamaMessages = [
+      ...history,
+      { role: 'user', content: `${p.message}\n\n[note]: Their replies have gone short — they may be done talking or just busy. Reply in ONE brief, low-key sentence. No new information, no suggestions, no questions. Give them room.` },
+    ]
   }
 
   // Personal-fact recall turns ("whats my sister's name?") answer from the
@@ -835,7 +915,7 @@ export async function runCompanionTurn(
       // fold it into the same failure-acknowledgement path as a returned error.
       let result: import('@/tools').ToolResult
       try {
-        result = await tool.execute(args, toolConfig)
+        result = await executeWithTimeout(tool, args, toolConfig)
       } catch (err) {
         logger.warn(`[companion-turn] tool ${tool.id} threw: ${err}`)
         result = { success: false, error: String(err) }
@@ -979,7 +1059,7 @@ export async function runCompanionTurn(
     emitEvent('status', JSON.stringify({ phase: statusPhaseFor(call.tool.id), toolId: call.tool.id }))
     let extraResult: import('@/tools').ToolResult
     try {
-      extraResult = await call.tool.execute(call.args, await buildToolConfig(call.tool.id))
+      extraResult = await executeWithTimeout(call.tool, call.args, await buildToolConfig(call.tool.id))
     } catch (err) {
       logger.warn(`[companion-turn] extra tool ${call.tool.id} threw: ${err}`)
       extraResult = { success: false, error: String(err) }
@@ -1193,6 +1273,29 @@ export async function runCompanionTurn(
       'focused on a task, and never ask about something twice.',
     )
 
+    // Reciprocity + honest disagreement (static traits): friendship is two-way
+    // and honest, not an interview conducted by a yes-man.
+    systemParts.push(
+      'Friendship goes both ways: when they share about their life and you have a small, ' +
+      'relevant experience or opinion of your own (see "Your own past statements" when ' +
+      'present), share it in one sentence — never letting your story overshadow theirs. ' +
+      'And you are honest the way a good friend is: when you genuinely disagree or see a ' +
+      'real problem with a plan, say so kindly and directly ("honestly, I\'d think twice ' +
+      'about that, because..."), then respect their call. Agree only when you actually ' +
+      'agree — reflexive validation is not warmth.',
+    )
+
+    // Discretion (shared/overhearable surfaces): sensitive memories are already
+    // EXCLUDED from recall on pods (family-room devices); this line covers what
+    // the filter can't — topics raised earlier in the same conversation.
+    if (p.surface === 'pod') {
+      systemParts.push(
+        'You are speaking on a shared device that others in the home may overhear. Be a ' +
+        'discreet friend: do not raise private topics (health, money, relationship trouble, ' +
+        'gifts or surprises) unless the user raises them right now themselves.',
+      )
+    }
+
     // ── Late volatile zone ── everything below changes turn-to-turn (memory =
     // per-message recall, summary = every few turns, uiContext = per page), so it
     // sits after the stable prefix. Bonus: end-of-prompt recency bias gives the
@@ -1217,8 +1320,9 @@ export async function runCompanionTurn(
     // Curiosity gaps (per-message, late zone): concrete things in THIS message
     // the companion doesn't know yet — the mechanical trigger for the curiosity
     // trait above. Ask about one, learn the answer, and the judge turns it into
-    // memory: the loop that builds understanding over time.
-    if (!p.primeOnly) {
+    // memory: the loop that builds understanding over time. Suppressed during
+    // big moments and disengagement — questions read as tone-deaf there.
+    if (!p.primeOnly && turnMode === null && !disengaged) {
       const gaps = await detectCuriosityGaps(p.message, p.userId, p.characterId).catch(() => [] as string[])
       if (gaps.length > 0) {
         systemParts.push(
@@ -1226,6 +1330,30 @@ export async function runCompanionTurn(
           'you may ask ONE short, warm question about ONE of these after responding to their message.',
         )
       }
+    }
+
+    // Big-moment directive (late zone, maximum recency weight): behavior, not
+    // just tone. Exactly one of these can be active per turn.
+    if (turnMode === 'celebration') {
+      systemParts.push(
+        'THEY JUST SHARED BIG NEWS. React like their best friend, not an assistant: lead ' +
+        'with genuine excitement in your own voice, congratulate them, and ask for the ' +
+        'story ("tell me everything — how did it happen?"). No tasks, no information, no ' +
+        'practical advice unless they ask. This moment is about them.',
+      )
+    } else if (turnMode === 'grief') {
+      systemParts.push(
+        'THEY JUST SHARED SOMETHING HEAVY. Be brief, warm, and present: acknowledge it in ' +
+        'one or two sincere sentences, in your own voice. NO advice, NO silver linings, NO ' +
+        'practical suggestions, NO facts, and no more than one gentle question ("do you ' +
+        'want to talk about it?"). Do not change the subject. Just be with them.',
+      )
+    } else if (disengaged) {
+      systemParts.push(
+        'Their last few replies have been very short — they may be losing interest, busy, ' +
+        'or annoyed. Pull back: answer in ONE short sentence, drop all questions, extras, ' +
+        'and enthusiasm, and give them room. If they want more, they\'ll say so.',
+      )
     }
     // Per-message length nudge (Phase 3) — volatile (depends on this message's route),
     // so it sits in the late zone next to the other per-turn blocks. Cheap (~20 tokens).
@@ -1315,7 +1443,7 @@ export async function runCompanionTurn(
   // A mid-stream failure must not discard the partial reply — capture the error
   // and return the text streamed so far so the caller can persist/surface it.
   try {
-    for await (const chunk of ollamaChatStream(p.model, ollamaMessages, p.options)) {
+    for await (const chunk of ollamaChatStream(p.model, ollamaMessages, turnOptions)) {
       // Respect explicit cancel signals
       if (h.signal.aborted) break
 

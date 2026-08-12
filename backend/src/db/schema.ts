@@ -394,6 +394,10 @@ export const memories = sqliteTable('memories', {
   // the id of the fact that replaced it, so recall can render "previously: X".
   validFrom: integer('valid_from', { mode: 'timestamp' }),
   supersededBy: text('superseded_by'),
+  // Discretion: health, romance, finances, conflicts, surprises. Sensitive rows
+  // are EXCLUDED from recall on shared/overhearable surfaces (pods in a family
+  // room) — a friend knows what not to bring up in front of others.
+  sensitive: integer('sensitive', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })

@@ -202,15 +202,21 @@ export async function recallMemories(
   characterId: string | null,
   precomputedEmbedding?: number[],
   precomputedEntityIds?: Set<string>,
+  opts?: {
+    /** Discretion: drop sensitive rows entirely (shared/overhearable surfaces —
+     *  a pod in the family room must never voice health/money/surprise facts). */
+    excludeSensitive?: boolean
+  },
 ): Promise<ScoredMemory[]> {
   // Load up to 150 candidates — most important/pinned first — so cosine scoring
   // stays O(constant) instead of growing as the memory sweep accumulates entries.
-  const rows = await db
+  let rows = await db
     .select()
     .from(memories)
     .where(and(memoryScopeWhere(userId, characterId), eq(memories.status, 'active')))
     .orderBy(desc(memories.pinned), desc(memories.importance))
     .limit(150)
+  if (opts?.excludeSensitive) rows = rows.filter((r) => !r.sensitive)
 
   if (rows.length === 0) return []
 
@@ -442,6 +448,34 @@ async function recallEpisodes(
   return [...picked.values()]
 }
 
+// ─── Callback moments (inside jokes) ─────────────────────────────────────────
+// Friendship runs on shared moments, not just facts. Episodes whose summaries
+// carry humor/joy markers become callback material: one is rotated in per day
+// (deterministic, so the prompt stays KV-stable within a day) with a use-it-
+// sparingly instruction. No schema, no LLM — the episode store already has it.
+
+const CALLBACK_MARKERS = /funny|laugh|joke|joking|hilarious|amus\w+|teas\w+|silly|banter|delight|excited|celebrat\w+|proud|thrilled/i
+const CALLBACK_MIN_AGE_DAYS = 3
+
+async function recallCallbackMoment(userId: string, characterId: string | null): Promise<string | null> {
+  const rows = await db
+    .select({ summary: memoryEpisodes.summary, createdAt: memoryEpisodes.createdAt })
+    .from(memoryEpisodes)
+    .where(
+      and(
+        eq(memoryEpisodes.userId, userId),
+        characterId ? eq(memoryEpisodes.characterId, characterId) : isNull(memoryEpisodes.characterId),
+      ),
+    )
+    .orderBy(desc(memoryEpisodes.createdAt))
+    .limit(30)
+  const cutoff = Date.now() - CALLBACK_MIN_AGE_DAYS * DAY_MS
+  const candidates = rows.filter((r) => r.createdAt.getTime() < cutoff && CALLBACK_MARKERS.test(r.summary))
+  if (candidates.length === 0) return null
+  const day = Math.floor(Date.now() / DAY_MS)
+  return candidates[day % candidates.length]!.summary
+}
+
 // ─── Format for prompt injection ─────────────────────────────────────────────
 
 /** Recent goal/event/project/state memories eligible for a proactive follow-up. */
@@ -503,15 +537,20 @@ export async function formatMemoriesForPrompt(
     /** Skip the proactive "Open threads" section — e.g. while the user is
      *  traveling, when raising home-life chores is exactly the wrong move. */
     suppressOpenThreads?: boolean
+    /** Skip the playful callback moment (grief/disengaged turns). */
+    suppressCallbacks?: boolean
   },
 ): Promise<string | null> {
   const { getKnowledgeProfile } = await import('./profile')
-  const [openThreads, profile, previously] = await Promise.all([
+  const [openThreads, profile, previously, callback] = await Promise.all([
     opts?.suppressOpenThreads
       ? Promise.resolve([] as string[])
       : recallOpenThreads(userId, characterId, new Set(mems.map((m) => m.id))).catch(() => [] as string[]),
     getKnowledgeProfile(userId).catch(() => null),
     previouslyMap(mems.map((m) => m.id)).catch(() => new Map<string, string>()),
+    opts?.suppressCallbacks
+      ? Promise.resolve(null as string | null)
+      : recallCallbackMoment(userId, characterId).catch(() => null),
   ])
   if (mems.length === 0 && openThreads.length === 0 && !profile) return null
 
@@ -560,6 +599,10 @@ export async function formatMemoriesForPrompt(
   if (openThreads.length > 0) {
     lines.push('Open threads — recent things going on in their life. You MAY bring ONE up, only when they greet you with nothing else going on or the conversation has stalled ("how\'d the interview go?"). Never when they are sharing news, asking something, or mid-topic — and never more than one. Skip any they\'ve already updated you on:')
     for (const t of openThreads) lines.push(`- ${t}`)
+  }
+
+  if (callback) {
+    lines.push(`A shared moment you two had, for a playful callback ONLY when the conversation is light and it genuinely fits (sparingly — an inside reference lands once, not every chat): ${callback}`)
   }
 
   // Include relevant episode summaries if we have an embedding

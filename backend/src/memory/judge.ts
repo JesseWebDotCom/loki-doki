@@ -48,6 +48,9 @@ interface ExtractedFact {
   // the Notes app instead of the memories table. OPTIONAL by design: a model that
   // omits it degrades to 'personal', which is exactly the pre-notes behavior.
   kind?: 'personal' | 'procedural'
+  // Discretion flag: health, romance, finances, conflicts, gifts/surprises.
+  // Sensitive rows never reach the prompt on shared/overhearable surfaces.
+  sensitive?: boolean
 }
 
 interface DedupeDecision {
@@ -97,6 +100,8 @@ SCOPE — each fact carries a "scope":
 - "user" (default): a fact about THIS person specifically.
 - "household": a shared fact about the home everyone in the family should know — the wifi network name, the dog's name, where the spare key lives, the trash pickup day, the address. If a new family member would need to be told it, it's household.
 
+SENSITIVE — each fact carries "sensitive": true when a discreet friend would NOT mention it in front of other family members: health and medical matters, romance and relationships trouble, money and finances, conflicts with people, gifts and surprises being planned, private struggles. Default false for everyday facts (hobbies, tastes, pets, plans everyone knows).
+
 KIND — each fact carries a "kind":
 - "personal" (default): a fact ABOUT the user or their people (preferences, identity, relationships, events, states).
 - "procedural": how-to, reference, or technical knowledge about the user's OWN things, stated by the user — device procedures ("hold the reset button 10 seconds"), configs, measurements, materials used, install gotchas. These are filed as notes, not personal memories. Only what the USER asserted from their own experience — never the assistant's own instructions or answers.
@@ -137,7 +142,8 @@ Return ONLY a JSON object in this exact shape (empty arrays if nothing to extrac
     { "name": "Artie", "kind": "person", "aliases": ["artie", "brother", "art"], "importance": 8 }
   ],
   "facts": [
-    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car", "scope": "user", "kind": "personal" },
+    { "text": "user has an electric car", "category": "thing", "tier": "episodic", "importance": 5, "entityName": null, "sourceQuote": "I forgot to charge my car", "scope": "user", "kind": "personal", "sensitive": false },
+    { "text": "user is worried about a lump on his back, doctor visit August 20", "category": "state", "tier": "episodic", "importance": 8, "entityName": null, "sourceQuote": "the doctor is looking at the lump on the 20th", "scope": "user", "kind": "personal", "sensitive": true },
     { "text": "Artie loves horror movies", "category": "preference", "tier": "durable", "importance": 7, "entityName": "Artie", "sourceQuote": "My brother Artie loves horror movies", "scope": "user", "kind": "personal" },
     { "text": "the family dog is named Biscuit", "category": "fact", "tier": "durable", "importance": 7, "entityName": null, "sourceQuote": "Biscuit chewed the couch again", "scope": "household", "kind": "personal" },
     { "text": "the arcade cabinet resets by holding the reset button 10 seconds", "category": "fact", "tier": "episodic", "importance": 5, "entityName": "arcade cabinet", "sourceQuote": "you have to hold the reset button for 10 seconds", "scope": "user", "kind": "procedural" }
@@ -490,6 +496,7 @@ export async function runJudge(
         lastUsedAt: null,
         validFrom: now,
         supersededBy: null,
+        sensitive: fact.sensitive === true,
         createdAt: now,
         updatedAt: now,
       })
@@ -510,6 +517,7 @@ export async function runJudge(
         lastUsedAt: null,
         validFrom: now,
         supersededBy: null,
+        sensitive: fact.sensitive === true,
         createdAt: now,
         updatedAt: now,
       })

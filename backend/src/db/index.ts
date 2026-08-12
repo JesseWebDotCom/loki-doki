@@ -431,6 +431,7 @@ export function runMigrations() {
   // Memory v3 (2026-08): bi-temporal validity + the per-user knowledge paragraph.
   addColumn('memories', 'valid_from', 'INTEGER')
   addColumn('memories', 'superseded_by', 'TEXT')
+  addColumn('memories', 'sensitive', 'INTEGER NOT NULL DEFAULT 0')
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memory_profiles (
       id TEXT NOT NULL PRIMARY KEY,

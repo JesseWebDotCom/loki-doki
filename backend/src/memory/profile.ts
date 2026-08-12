@@ -26,7 +26,7 @@ const PROFILE_EPISODE_LIMIT = 5
 const PROFILE_MAX_CHARS = 900
 
 const PROFILE_PROMPT =
-  'Write ONE paragraph (at most 120 words, plain prose) describing this person for an assistant that talks with them daily: who they are, the people and things that matter to them, their stable preferences, and anything ongoing in their life. Only use the facts given. No headers, no bullet points, no speculation. Reply with ONLY the paragraph.'
+  'Write ONE paragraph (at most 130 words, plain prose) describing this person for an assistant that talks with them daily: who they are, the people and things that matter to them, their stable preferences, and anything ongoing in their life. The facts are dated — if they show a change over time or a multi-week pattern (an interest growing, a stress persisting, a habit shifting), include ONE sentence naming that arc ("has been running a lot more lately", "work stress has been ongoing for weeks"). Only use the facts given. No headers, no bullet points, no speculation. Reply with ONLY the paragraph.'
 
 export function markProfileDirty(userId: string): void {
   dirtyUsers.add(userId)
@@ -59,7 +59,7 @@ async function regenerateProfile(userId: string): Promise<void> {
   const name = userRow.nickname?.trim() || userRow.firstName?.trim() || 'this person'
 
   const facts = await db
-    .select({ text: memories.text, tier: memories.tier, category: memories.category })
+    .select({ text: memories.text, tier: memories.tier, category: memories.category, createdAt: memories.createdAt })
     .from(memories)
     .where(and(
       eq(memories.userId, userId),
@@ -70,6 +70,7 @@ async function regenerateProfile(userId: string): Promise<void> {
     .limit(PROFILE_FACT_LIMIT)
 
   if (facts.length < 3) return // not enough signal for a paragraph yet
+  const dateOf = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   const episodes = await db
     .select({ summary: memoryEpisodes.summary })
@@ -80,8 +81,8 @@ async function regenerateProfile(userId: string): Promise<void> {
 
   const material = [
     `Name: ${name}`,
-    'Facts:',
-    ...facts.map((f) => `- ${f.text}`),
+    'Facts (dated):',
+    ...facts.map((f) => `- [${dateOf(f.createdAt)}] ${f.text}`),
     ...(episodes.length > 0 ? ['Recent conversations:', ...episodes.map((e) => `- ${e.summary}`)] : []),
   ].join('\n')
 

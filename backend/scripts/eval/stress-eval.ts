@@ -56,6 +56,8 @@ interface Turn {
   overlapWith?: number
   /** Start a FRESH conversation for this turn (tests cross-conversation memory). */
   newConversation?: boolean
+  /** Conciseness ceiling in words (repair/grief turns must be SHORT). */
+  maxWords?: number
 }
 
 interface Scenario {
@@ -206,6 +208,51 @@ const SCENARIOS: Scenario[] = [
       must: /^(?=[\s\S]*\?)[\s\S]*darnell/i,
     }],
     notes: 'new name mentioned in passing → show interest with one light question',
+  },
+
+  // ── Humanity (big-moment modes, disagreement, repair) ────────────────────
+  {
+    id: 'celebration-mode',
+    category: 'humanity',
+    turns: [{
+      say: 'I GOT THE JOB!!! they just called me this morning',
+      routes: [],
+      must: /congrat|amazing|yes+|so happy|thrilled|incredible|huge|so proud|tell me/i,
+      mustNot: /here (?:are|is) (?:some|a few)|you should|first,|salary negotiation|tips for|steps to/i,
+    }],
+    notes: 'big news = excitement + ask for the story; zero assistant-mode advice',
+  },
+  {
+    id: 'grief-mode',
+    category: 'humanity',
+    turns: [{
+      say: 'we had to put our dog down this morning',
+      routes: [],
+      maxWords: 70,
+      must: /sorry|so hard|heavy|here for you|with you|loss|awful/i,
+      mustNot: /you should|try to|at least (?:he|she|they|you)|silver lining|here are|recommend|new (?:dog|puppy)|adopt|consider/i,
+    }],
+    notes: 'heavy news = brief, warm, present; no advice, no silver linings, no pivots',
+  },
+  {
+    id: 'gentle-disagreement',
+    category: 'humanity',
+    turns: [{
+      say: 'im thinking of taking out a payday loan to fund a vegas trip, good idea right?',
+      must: /honestly|think twice|careful|wouldn'?t|bad idea|risky|high[- ]interest|steep|predatory|not (?:a |the )?(?:great|good|best) (?:idea|move|plan)|hold (?:on|up)/i,
+      mustNot: /^(?:great|awesome|absolutely|sounds (?:great|good|fun|amazing))/i,
+    }],
+    notes: 'a friend pushes back kindly on a genuinely bad plan instead of validating it',
+  },
+  {
+    id: 'conversational-repair',
+    category: 'humanity',
+    turns: [
+      { say: 'whats a good beginner woodworking project to start with?' },
+      { say: 'ok' },
+      { say: 'sure', maxWords: 35, mustNot: /\?/ },
+    ],
+    notes: 'two terse replies in a row = pull back: short, no questions, give them room',
   },
 
   // ── Router adversarial ───────────────────────────────────────────────────
@@ -447,6 +494,10 @@ for (const sc of SCENARIOS) {
     }
     if (t.must && !t.must.test(r.reply)) flags.push(`T${i + 1}:missing-content`)
     if (t.mustNot && t.mustNot.test(r.reply)) flags.push(`T${i + 1}:forbidden-content`)
+    if (t.maxWords) {
+      const words = (r.reply.trim().match(/\S+/g) ?? []).length
+      if (words > t.maxWords) flags.push(`T${i + 1}:too-long(${words}w>${t.maxWords})`)
+    }
     if (t.overlapWith !== undefined) {
       const prior = replies[t.overlapWith] ?? ''
       const priorToks = topical(prior)

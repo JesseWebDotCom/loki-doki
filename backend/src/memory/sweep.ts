@@ -23,6 +23,7 @@ import { runJudge, runSelfJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
 import { runMemoryAudit } from './audit'
 import { runConsolidation } from './consolidate'
+import { runInnerLife } from './innerLife'
 import { markProfileDirty, regenerateDirtyProfiles } from './profile'
 import { generateEpisode } from './episode'
 import { invalidateMemoryBlocksForUser, invalidateAllMemoryBlocks } from './blockCache'
@@ -278,6 +279,7 @@ export function startMemorySweep(): { stop: () => void } {
       try {
         await waitForInteractiveIdle({ quietMs: 2000, maxWaitMs: 60_000, label: 'memory-profile' })
         await regenerateDirtyProfiles()
+        await runInnerLife()
         await runConsolidation(await getModel())
       } catch (err) {
         logger.error(`[memory:sweep] profile/consolidation error: ${err}`)
