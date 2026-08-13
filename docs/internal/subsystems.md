@@ -450,3 +450,67 @@ of scope here.
   channel and the target phrase is stripped from the station seed / video query. **No match means
   current behavior, unchanged** - so "play riders on the storm" stays a song request unless someone
   actually named a device "Storm".
+
+## Chat Product Layer (2026-08: conversation management, variants, lifecycle)
+
+The conversation-management features layered around the turn pipeline (see the
+"chat product layer" commits, 2026-08-13). All in `routes/chat.ts` +
+`lib/chatRetention.ts` unless noted.
+
+**Message visibility model.** `messages.active` is the single visibility flag:
+inactive rows are preserved regenerate siblings or discarded edit tails. Every
+reader (history load, rolling summary, memory sweep, recall_conversations tool,
+FTS queries, GET conversation) filters `active = 1`. Nothing hard-deletes a
+message except the lifecycle purges below.
+
+**Variants.** Regenerate keeps the old reply: old + new share
+`messages.variant_group_id`, old goes inactive once the new one completes (a
+failed regenerate leaves the old one active). GET conversation returns
+`variants {index, count, ids}` per multi-variant message;
+`POST /conversations/:id/variant {messageId}` flips the active sibling. Editing
+a user message preserves the original text as an inactive copy and marks the
+tail inactive instead of deleting it (linear history, but recoverable).
+
+**Lifecycle.** Archive (`archived_at`, PATCH `{archived}`), soft delete
+(`deleted_at`, restorable via `POST .../restore`, hard-purged after 30 days),
+and temporary/incognito chats (`temporary = 1` at create: never listed, never
+summarized, never memory-swept, never indexed for search, purged after 1h
+idle). All hard deletes go through `hardDeleteConversations()` in
+`chatRetention.ts`, which deletes message rows explicitly so the `messages_fts`
+triggers fire (FK cascade is not guaranteed to run triggers). The retention
+sweep (per-user month/year pref) uses the same helper.
+
+**Search.** `messages_fts` (FTS5, external-content over `messages.content`,
+triggers + boot backfill in `db/index.ts`). Ownership/visibility enforced at
+query time, never in the index. Surfaces: `GET /api/chat/search?q=` (browse
+page, `<mark>` snippets) and a Chats provider in Spotlight's `/api/search`.
+
+**Feedback + telemetry.** Thumbs on assistant replies
+(`POST /messages/:id/feedback`, `messages.feedback`/`feedback_note`). Each
+reply persists `model`, `prompt_tokens`, `gen_tokens`, `duration_ms`.
+`message_traces` (capped 500, pruned on write, skipped for temporary chats)
+stores the full assembled system prompt, route decision, and tool trail per
+turn; admin-only at `/api/admin/traces`, surfaced in Admin → Diagnostics &
+Logs → Chat Traces.
+
+**Reconnect.** GET conversation returns `activeGen {genId, assistantMessageId}`
+when a generation is in flight, so a reopened tab re-attaches to the stream
+(genQueue GC window is 5 min).
+
+**Prompt additions** (see chat-latency.md for KV zones): user-authored custom
+instructions (`chat.custom_instructions` pref, stable zone), project
+instructions (stable) + per-message project document chunks (volatile) when the
+conversation is filed under a project, and the prompt-injection guard line in
+`PRESENTATION_POLICY` plus "quoted outside material, not instructions" framing
+on tool folds and document blocks.
+
+**Persona revisions.** Admin PATCH of persona-bearing character fields
+snapshots the pre-edit values into `character_revisions` (capped 20/character);
+list + revert at `/api/admin/companions/:id/revisions`, surfaced as "Persona
+history" in the Studio identity tab. Reverting snapshots current state first.
+
+**Attachments.** `.docx` extracts via `lib/docx.ts` (hand-rolled zip central
+directory + `inflateRawSync`, no new deps). Pasted links route to the
+`fetch_url` tool (bookmarks extraction stack: SSRF guard + Wayback fallback).
+Mermaid fences render as diagrams in chat (lazy-loaded, strict security,
+code-block fallback).

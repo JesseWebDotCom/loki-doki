@@ -336,6 +336,12 @@ The system prompt is assembled in this order:
 
 **Rule:** Only prefixes that are identical across turns benefit from KV cache. The date is stable for 24h. Time was removed (it changed every minute). Per-user and per-conversation content (memory, character) can't be centrally cached, but the date prefix alone saves significant prefill work.
 
+**2026-08 additions and their zones** (`buildSystemParts` in companionTurn.ts):
+- Custom instructions (`chat.custom_instructions` pref): STABLE zone (changes rarely, per user).
+- Project instructions (conversation filed under a project): STABLE zone; the /prime endpoint passes projectId so the primed prefix still token-matches the real turn.
+- Project document chunks: retrieved per message (query-dependent), so they go in the LATE VOLATILE zone next to the conversation summary.
+- Injection-guard line: part of `PRESENTATION_POLICY` (front, centrally pre-warmed); the per-fold "quoted outside material" label rides the tool fold, which is per-turn anyway.
+
 **`prompt_eval_duration=0`** in the done chunk means a perfect KV cache hit: zero prefill. This is the ideal state for turns 2+ in a conversation.
 
 ---
