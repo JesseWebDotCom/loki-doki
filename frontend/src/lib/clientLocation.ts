@@ -12,6 +12,16 @@ let failedAt = 0
 const MAX_AGE_MS = 10 * 60 * 1000
 const FAIL_COOLDOWN_MS = 15 * 60 * 1000
 
+// React surfaces (weather widgets) need to re-read when a background fix lands -
+// getClientCoords is deliberately synchronous, so notify subscribers on updates.
+const listeners = new Set<() => void>()
+
+/** Subscribe to coordinate-fix updates. Returns the unsubscribe function. */
+export function subscribeClientCoords(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => { listeners.delete(fn) }
+}
+
 /** Cached device coordinates, refreshing in the background. The first call on a
  *  device without a stored grant triggers the browser's permission prompt (the
  *  send itself proceeds with nulls; later sends carry the fix). Keys match the
@@ -51,6 +61,7 @@ async function refreshCoords(): Promise<void> {
     )
     fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() }
     failedAt = 0
+    for (const fn of listeners) fn()
   } catch {
     // Denied or unavailable — cool down so a denial doesn't retry every message.
     failedAt = Date.now()

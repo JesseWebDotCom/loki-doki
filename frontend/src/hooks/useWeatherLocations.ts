@@ -3,8 +3,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
 import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
 import { geocodeLocation, type UserLocation } from '@/hooks/useUserLocation'
+import { useCurrentPlace } from '@/hooks/useCurrentPlace'
 
 const PREF_KEY = 'weather.locations'
+
+/** A Weather-app list entry: a saved place, or the device's live location. */
+export interface WeatherAppLocation extends UserLocation {
+  /** True for the device's current place while traveling - leads the list,
+   *  cannot be removed, and renders with a location glyph. */
+  isCurrent?: boolean
+}
 
 /** Two saved places count as the same city when their names match or they sit
  *  within ~1km of each other (geocoders disagree on exact centroids). */
@@ -18,23 +26,39 @@ export interface UseWeatherLocationsResult {
   primary: UserLocation | null
   /** Extra cities saved just for the Weather app (`weather.locations`). */
   saved: UserLocation[]
-  /** Primary first, then saved (deduped). */
-  locations: UserLocation[]
+  /** Current device place (traveling) first, then primary, then saved (deduped). */
+  locations: WeatherAppLocation[]
   addLocation: (query: string) => Promise<UserLocation>
   removeLocation: (loc: UserLocation) => Promise<void>
 }
 
-/** The Weather app's location list: the user's primary location plus any
- *  extra cities they follow. Extra cities live in the `weather.locations`
- *  preference and never affect the primary location other apps rely on. */
+/** The Weather app's location list: where the device actually is right now
+ *  (when away from home), the user's primary location, and any extra cities
+ *  they follow. Extra cities live in the `weather.locations` preference and
+ *  never affect the primary location other apps rely on. */
 export function useWeatherLocations(): UseWeatherLocationsResult {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const prefsQuery = useUserPreferences()
+  const { current } = useCurrentPlace()
 
   const primary = (prefsQuery.data?.['user.location'] as UserLocation | undefined) ?? null
   const saved = (prefsQuery.data?.[PREF_KEY] as UserLocation[] | undefined) ?? []
-  const locations = primary ? [primary, ...saved.filter((l) => !sameWeatherLocation(l, primary))] : saved
+  // The device's live place leads the list while traveling, so opening Weather
+  // away from home shows the sky overhead, not the home town's.
+  const currentLoc: WeatherAppLocation | null = current
+    ? {
+        city: current.label, country: '', countryCode: '',
+        lat: current.lat, lng: current.lng,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        displayName: current.label,
+        isCurrent: true,
+      }
+    : null
+  const savedList = primary ? [primary, ...saved.filter((l) => !sameWeatherLocation(l, primary))] : saved
+  const locations: WeatherAppLocation[] = currentLoc
+    ? [currentLoc, ...savedList.filter((l) => !sameWeatherLocation(l, currentLoc))]
+    : savedList
 
   const persist = useCallback(async (next: UserLocation[]) => {
     if (!user?.id) return

@@ -437,6 +437,39 @@ usersRoute.post('/:id/detect-location', requireAuth, async (c) => {
   }
 })
 
+// Where the user's device actually IS right now, resolved against their saved
+// home location (same travel-awareness logic the companion uses - see
+// lib/currentLocation.ts). Returns { current: null } when the device is home,
+// has no coordinates, or only a timezone hint: weather surfaces need real
+// coordinates, and a timezone-inferred city is too coarse to show as "your
+// location" on a forecast. Read-only - never writes user.location.
+usersRoute.get('/:id/current-location', requireAuth, async (c) => {
+  const currentUser = c.get('user')
+  const targetId = c.req.param('id')
+  if (currentUser.role !== 'admin' && currentUser.id !== targetId) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const lat = parseFloat(c.req.query('lat') ?? '')
+  const lng = parseFloat(c.req.query('lng') ?? '')
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return c.json({ current: null })
+
+  const [homeRow] = await db
+    .select({ value: userPreferences.value })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, targetId), eq(userPreferences.key, 'user.location')))
+    .limit(1)
+  let home: import('@/lib/currentLocation').HomeLocation | undefined
+  try { home = homeRow ? JSON.parse(homeRow.value) : undefined } catch { home = undefined }
+
+  const { resolveCurrentLocation } = await import('@/lib/currentLocation')
+  const current = await resolveCurrentLocation({ clientLat: lat, clientLng: lng, clientTz: null, home })
+  if (!current || current.source !== 'coords' || current.lat === null || current.lng === null) {
+    return c.json({ current: null })
+  }
+  return c.json({ current: { label: current.label, lat: current.lat, lng: current.lng } })
+})
+
 // Resolved connectivity status — effective mode + whether admin is forcing it
 usersRoute.get('/:id/connectivity', requireAuth, async (c) => {
   const currentUser = c.get('user')

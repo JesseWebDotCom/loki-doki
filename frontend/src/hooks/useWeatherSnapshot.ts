@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useUserLocation } from './useUserLocation'
+import { useCurrentPlace } from './useCurrentPlace'
 import { fetchWeatherData, fetchWeatherAlerts, resolveWmoInfo, type WeatherData, type WmoInfo, type WeatherAlert } from '@/lib/weather'
 
 export interface WeatherSnapshot {
@@ -27,12 +28,19 @@ export interface UseWeatherSnapshotResult {
  * full Weather page has already loaded.
  */
 export function useWeatherSnapshot(): UseWeatherSnapshotResult {
-  const { location, status: locStatus } = useUserLocation()
+  const { location: home, status: locStatus } = useUserLocation()
+  // Travel awareness: when the device's coordinates put it away from home, the
+  // compact surfaces show conditions where the user actually IS. Falls back to
+  // the saved home location whenever there is no current-place signal.
+  const { current } = useCurrentPlace()
+  const location = current
+    ? { displayName: current.label, lat: current.lat, lng: current.lng }
+    : home
   const [snapshot, setSnapshot] = useState<WeatherSnapshot | null>(null)
   const [status, setStatus] = useState<SnapshotStatus>('loading')
 
   useEffect(() => {
-    if (locStatus === 'loading' || locStatus === 'detecting') {
+    if (!location && (locStatus === 'loading' || locStatus === 'detecting')) {
       setStatus('loading')
       return
     }
@@ -71,7 +79,7 @@ export function useWeatherSnapshot(): UseWeatherSnapshotResult {
 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location?.displayName, locStatus])
+  }, [location?.displayName, locStatus, current?.label])
 
   return { snapshot, status }
 }

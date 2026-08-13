@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Cloud, Locate, MapPin, Plus, RefreshCw, Sunrise, Sunset, Sun, Trash2, Wind, Droplets, Eye, ChevronRight, TriangleAlert, ChevronDown } from 'lucide-react'
+import { Cloud, Locate, MapPin, Navigation, Plus, RefreshCw, Sunrise, Sunset, Sun, Trash2, Wind, Droplets, Eye, ChevronRight, TriangleAlert, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageShell } from '@/components/shared/PageShell'
 import { StickyAppBar } from '@/components/shared/StickyAppBar'
@@ -501,6 +501,7 @@ export function WeatherPage() {
               <Chip
                 key={l.displayName}
                 label={l.displayName}
+                icon={l.isCurrent ? Navigation : undefined}
                 active={location?.displayName === l.displayName}
                 onClick={() => selectLocation(l.displayName)}
               />
