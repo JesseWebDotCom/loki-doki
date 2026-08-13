@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { imgLoad, proxyImg } from '@/lib/img'
+import { useCachedImg } from '@/lib/imageStore'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { Spinner } from '@/components/ui/spinner'
 import { HUB_THUMB_W } from '@/lib/prefetch/cardImageUrls'
@@ -67,6 +68,9 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
   // A landscape item forced into a tall card is letterboxed over a blurred fill of itself,
   // so it reads as a normal video and not a vertical short.
   const letterbox = shape === 'tall' && !item.vertical
+  // Persistent store (IndexedDB): revisited thumbnails paint from disk with no request,
+  // even on the http-LAN phones where the service worker's image cache can't install.
+  const thumb = useCachedImg(item.thumbnailUrl ? proxyImg(item.thumbnailUrl, HUB_THUMB_W) : null)
 
   // Hover-to-preview via each source's official embed. Vimeo's "background" player is muted
   // by design; TikTok's player autoplays (the browser forces muted autoplay without a user
@@ -106,18 +110,20 @@ export function HubVideoCard({ item, showSource = true, shape, interactive = tru
         {item.thumbnailUrl && (
           letterbox ? (
             <>
-              <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} aria-hidden alt="" {...imgLoad(eager)}
+              <img src={thumb.src} aria-hidden alt="" {...imgLoad(eager)}
                 className="absolute inset-0 size-full scale-125 object-cover blur-2xl" />
               <div className="pointer-events-none absolute inset-0 bg-black/20" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="relative aspect-video w-full overflow-hidden">
-                  <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)}
+                  <img src={thumb.src} alt="" {...imgLoad(eager)} onLoad={thumb.onLoad}
+                    onError={() => { thumb.recover() }}
                     className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
                 </div>
               </div>
             </>
           ) : (
-            <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)}
+            <img src={thumb.src} alt="" {...imgLoad(eager)} onLoad={thumb.onLoad}
+              onError={() => { thumb.recover() }}
               className="relative size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]" />
           )
         )}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/cn'
 import { imgLoad, proxyImg } from '@/lib/img'
+import { useCachedImg } from '@/lib/imageStore'
 import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { toast } from '@/lib/toast'
 import type { HubVideoItem } from '@/lib/videos/api'
@@ -24,6 +25,9 @@ export function HubVideoListRow({ item, showSource = true, eager }: { item: HubV
   const mode = useYoutubeModeOptional()
   const offline = useOfflineSet()
   const ghosted = mode === 'offline' && !offline.has(`${item.source}:${item.id}`)
+  // Persistent store (IndexedDB): revisited thumbnails paint from disk with no request,
+  // even on the http-LAN phones where the service worker's image cache can't install.
+  const thumb = useCachedImg(item.thumbnailUrl ? proxyImg(item.thumbnailUrl, HUB_THUMB_W) : null)
 
   return (
     <Link
@@ -40,7 +44,8 @@ export function HubVideoListRow({ item, showSource = true, eager }: { item: HubV
         {/* Same width as the grid card so switching views reuses the warmed bytes instead
             of pulling a second size (this row used to request the ORIGINAL bytes). */}
         {item.thumbnailUrl && (
-          <img src={proxyImg(item.thumbnailUrl, HUB_THUMB_W)} alt="" {...imgLoad(eager)} className="relative size-full object-cover transition group-hover:scale-105" />
+          <img src={thumb.src} alt="" {...imgLoad(eager)} onLoad={thumb.onLoad}
+            onError={() => { thumb.recover() }} className="relative size-full object-cover transition group-hover:scale-105" />
         )}
         {showSource && (
           <span className={cn('absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', badge.badgeClass)}>

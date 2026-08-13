@@ -71,9 +71,13 @@ export function avatarImgUrl(url: string | null | undefined, width: number = AVA
  *
  *  `fetchpriority` is spelled lowercase and cast: React 18 forwards unknown all-lowercase
  *  attributes to the DOM untouched, so this behaves the same before and after React 19
- *  learned the camelCase prop. */
+ *  learned the camelCase prop.
+ *
+ *  `decoding: 'async'` on both paths keeps a big bitmap's decode off the main thread and,
+ *  per the flash-free navigation contract, keeps the previous bitmap painted while a
+ *  swapped src decodes. */
 export function imgLoad(eager?: boolean): ImgHTMLAttributes<HTMLImageElement> {
   return (eager
-    ? { loading: 'eager', fetchpriority: 'high' }
-    : { loading: 'lazy' }) as ImgHTMLAttributes<HTMLImageElement>
+    ? { loading: 'eager', fetchpriority: 'high', decoding: 'async' }
+    : { loading: 'lazy', decoding: 'async' }) as ImgHTMLAttributes<HTMLImageElement>
 }

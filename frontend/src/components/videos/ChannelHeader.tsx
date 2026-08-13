@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AVATAR_W_LARGE, proxyImgAuto } from '@/lib/img'
+import { useCachedImg } from '@/lib/imageStore'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
 import { BlendedHeroBackdrop } from '@/components/shared/BlendedHeroBackdrop'
 import { SOURCE_META } from '@/lib/videos/sources'
@@ -35,6 +36,9 @@ export function ChannelHeader({
   // A freshly-resolved banner gets a clean chance to load (the page stays mounted across
   // channel navigations, so a prior broken banner shouldn't suppress the next one's).
   useEffect(() => { setBannerOk(true) }, [bannerUrl])
+  // Persistent store (IndexedDB): a revisited channel's banner paints from disk with no
+  // request, even on the http-LAN phones where the service worker's cache can't install.
+  const banner = useCachedImg(bannerUrl ? proxyImgAuto(bannerUrl) : null)
 
   const heroMeta = source ? SOURCE_META[source] : SOURCE_META.link
   return (
@@ -45,8 +49,9 @@ export function ChannelHeader({
       <div className="relative mb-4 overflow-hidden rounded-sheet shadow-xl">
         <div className="relative aspect-[21/9] w-full sm:aspect-[5/1]">
           {bannerUrl && bannerOk ? (
-            <img src={proxyImgAuto(bannerUrl)} alt="" referrerPolicy="no-referrer" decoding="async"
-              className="absolute inset-0 size-full object-cover" onError={() => setBannerOk(false)} />
+            <img src={banner.src} alt="" referrerPolicy="no-referrer" decoding="async"
+              className="absolute inset-0 size-full object-cover" onLoad={banner.onLoad}
+              onError={() => { if (!banner.recover()) setBannerOk(false) }} />
           ) : (
             <BlendedHeroBackdrop art={avatarUrl ? proxyImgAuto(avatarUrl) : null}
               color={heroMeta.heroColor} colorDark={heroMeta.heroColorDark} />

@@ -15,7 +15,7 @@
 
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { preloadImages, cancelImagePreloads } from './preloadImages'
+import { preloadImages, cancelImagePreloads, shouldWarmImages } from './preloadImages'
 import { onIdle } from './onIdle'
 
 /** Ceiling per sweep. Already-warmed URLs are deduped, so this bounds new work only. */
@@ -34,7 +34,9 @@ function collectDeferred(): string[] {
     // leaves only the ones still waiting on a scroll.
     if (img.complete) continue
     const src = img.currentSrc || img.src
-    if (src) urls.push(src)
+    // blob:/data: srcs (e.g. the IndexedDB image store's object URLs) load from memory;
+    // there is nothing to warm.
+    if (src && !src.startsWith('blob:') && !src.startsWith('data:')) urls.push(src)
   }
   return urls
 }
@@ -43,8 +45,7 @@ export function useLazyImageWarmer(): void {
   const { pathname } = useLocation()
 
   useEffect(() => {
-    const saveData = (navigator as unknown as { connection?: { saveData?: boolean } }).connection?.saveData === true
-    if (saveData || navigator.onLine === false) return
+    if (!shouldWarmImages()) return
 
     let timer: ReturnType<typeof setTimeout> | null = null
     let cancelIdle: (() => void) | null = null

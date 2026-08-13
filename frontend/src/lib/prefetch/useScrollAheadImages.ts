@@ -15,7 +15,7 @@
 // warms nothing. Build them with the same helper the card uses (proxyImg/avatarImgUrl).
 
 import { useEffect, useRef } from 'react'
-import { preloadImages, cancelImagePreloads } from './preloadImages'
+import { preloadImages, cancelImagePreloads, shouldWarmImages } from './preloadImages'
 import { onIdle } from './onIdle'
 
 /** Ceiling per list. Deep infinite-scroll sessions shouldn't warm a thousand images. */
@@ -40,9 +40,9 @@ export function useScrollAheadImages(
 
   useEffect(() => {
     if (!enabled || !len) return
-    // Respect data-saver, and don't queue fetches that can only fail while offline.
-    const saveData = (navigator as unknown as { connection?: { saveData?: boolean } }).connection?.saveData === true
-    if (saveData || navigator.onLine === false) return
+    // Respect data-saver / 2g-class links, and don't queue fetches that can only fail
+    // while offline.
+    if (!shouldWarmImages()) return
 
     const g = group.current
     const cancelIdle = onIdle(() => preloadImages(urls, max, g))

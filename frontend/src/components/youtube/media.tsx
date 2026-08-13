@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/cn'
 import { imgLoad } from '@/lib/img'
+import { useCachedImg } from '@/lib/imageStore'
 import { thumbUrl } from '@/lib/youtube/format'
 import { ytImageProxy } from '@/lib/youtube/api'
 import { VideoPlaceholderArt } from '@/components/videos/VideoPlaceholderArt'
@@ -20,14 +21,22 @@ export function VideoThumb({ videoId, title, quality = 'mq', className, override
   const [ok, setOk] = useState(true)
   const [overrideFailed, setOverrideFailed] = useState(false)
   const useOverride = !!overrideSrc && !overrideFailed
+  // Persistent store (IndexedDB): revisited thumbnails paint from disk with no request,
+  // even on the http-LAN phones where the service worker's image cache can't install.
+  const cached = useCachedImg(ytImageProxy(thumbUrl(videoId, quality)))
   return ok ? (
     <img
-      src={useOverride ? overrideSrc! : ytImageProxy(thumbUrl(videoId, quality))}
+      src={useOverride ? overrideSrc! : cached.src}
       alt={title}
       referrerPolicy="no-referrer"
       className={cn('object-cover', className)}
       {...imgLoad(eager)}
-      onError={() => useOverride ? setOverrideFailed(true) : setOk(false)}
+      onLoad={useOverride ? undefined : cached.onLoad}
+      onError={() => {
+        if (useOverride) { setOverrideFailed(true); return }
+        if (cached.recover()) return
+        setOk(false)
+      }}
     />
   ) : (
     // Identity gradient instead of a flat bg-muted hole when the thumbnail 404s.

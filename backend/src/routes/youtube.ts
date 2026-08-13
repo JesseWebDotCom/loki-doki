@@ -287,9 +287,15 @@ youtubeRoute.get('/img', async (c) => {
   // Video thumbnails (i.ytimg.com/vi/<id>/…) are immutable per id, so they get the long
   // immutable lifetime plus a strong ETag derived from the request (URL + width) — which
   // lets a revalidating client 304 without us touching disk at all. Channel avatars and
-  // banners DO change, so they keep the 1-day lifetime.
+  // banners CAN change at a stable URL, so they get a shorter lifetime, but a week, not
+  // a day: Google rotates the URL on most art changes anyway, the maintenance pass keeps
+  // the server copy fresh, and daily full re-downloads on phones (whose HTTP cache is the
+  // only cache over http, no service worker) were a real slow-network cost. Their
+  // stale-while-revalidate window keeps paint instant while the refresh happens behind it.
   const isVideoThumb = /(^|\.)ytimg\.com$/i.test(url.hostname) && url.pathname.startsWith('/vi/')
-  const cacheControl = isVideoThumb ? 'public, max-age=2592000, immutable' : 'public, max-age=86400'
+  const cacheControl = isVideoThumb
+    ? 'public, max-age=2592000, immutable'
+    : 'public, max-age=604800, stale-while-revalidate=2592000'
   if (isVideoThumb) {
     const etag = `"${createHash('sha256').update(`${url}|w=${w ?? ''}`).digest('hex').slice(0, 32)}"`
     if (c.req.header('if-none-match') === etag) {
@@ -309,13 +315,21 @@ youtubeRoute.get('/img', async (c) => {
   const sized = sizedChannelArtUrl(url.toString(), w)
   const img = await getOrFetchImageResized(sized ?? url.toString(), sized ? undefined : w)
   if (!img) return c.json({ error: 'upstream' }, 502)
+  // Strong ETag over the BYTES (channel art is mutable at a stable URL, so a URL-derived
+  // tag would 304 stale copies forever): an unchanged avatar/banner revalidates for free,
+  // a changed one still comes through in full.
+  const etag = `"${createHash('sha256').update(img.data).digest('hex').slice(0, 32)}"`
+  if (c.req.header('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers: { etag, 'cache-control': cacheControl } })
+  }
   // Buffer is a valid body at runtime; the cast sidesteps a TS Buffer-generic mismatch.
   return new Response(img.data as unknown as BodyInit, {
     headers: {
       'content-type': img.contentType,
-      // Server holds the canonical copy and revalidates/evicts it; let the browser
-      // hold its own copy for a day too so repeat views don't even hit us.
+      // Server holds the canonical copy and revalidates/evicts it; the browser holds its
+      // own for a week (see cacheControl above) so repeat views don't even hit us.
       'cache-control': cacheControl,
+      etag,
     },
   })
 })
