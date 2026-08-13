@@ -505,10 +505,18 @@ if (firstBoot) {
   // LLM hygiene watchdog: reap orphaned llama-server runners (children of a crashed/killed
   // `ollama serve` keep squatting VRAM forever and force new loads onto the CPU - observed
   // as a 90-second chat reply). Dead-parent-only matching makes this safe to run blind.
+  // The same tick also health-checks `ollama serve` ITSELF and respawns it when dead:
+  // boot-reconcile used to be the only spawn point, so an engine that died after boot
+  // stayed dead until the next backend restart (observed 2026-08-12: hours of broken chat).
+  // Rate-limited + maintenance-aware inside ensureMainEngineAlive.
   const orphanSweep = guardedSweep('llama-orphans', () =>
     import('@/lib/ollamaHygiene').then((m) => m.sweepOrphanLlamaRunners('watchdog')))
+  const engineGuard = guardedSweep('ollama-liveness', () =>
+    import('@/lib/download').then((m) => m.ensureMainEngineAlive()))
   setTimeout(() => void orphanSweep(), 45_000)
   setInterval(() => void orphanSweep(), 60_000).unref()
+  setTimeout(() => void engineGuard(), 75_000)
+  setInterval(() => void engineGuard(), 60_000).unref()
 
   // GPU health watch: getGpuHealth() is otherwise only driven by the admin UI's 20s
   // poll, so with no admin tab open a wedged driver / dropped card would neither

@@ -885,24 +885,78 @@ async function hasHomebrewOllama(): Promise<boolean> {
  *  same resolution order as downloadAndStartOllama, just without the install fallback.
  *  Exported for the admin "Restart engine" action (Admin → System → AI engine). */
 export async function restartOllamaServe(): Promise<void> {
-  // Kill by LISTENING PORT, not command line: the dedicated coding engine (codingEngine.ts)
-  // runs an identical `ollama serve` command line on its own port - a command-line match
-  // would take it down as collateral.
-  const mainPort = parseInt(new URL(ollamaBase()).port || '11434', 10)
-  await killByListeningPort(mainPort)
-  await new Promise<void>((r) => setTimeout(r, 800))
-  // Killing the parent orphans its llama-server children, which keep squatting VRAM until
-  // reaped - the new server can't adopt or evict them (observed live: enough orphans piled
-  // up to force every model load onto the CPU). Sweep before the fresh spawn.
-  await sweepOrphanLlamaRunners('restartOllamaServe')
-  const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
-  if (!existsSync(bin)) return
-  spawnDetachedHidden(bin, ['serve'], { env: ollamaServeEnv() }).unref()
-  const deadline = Date.now() + 20_000
-  while (Date.now() < deadline) {
-    await new Promise<void>((r) => setTimeout(r, 1_000))
-    try { const r = await fetch(`${ollamaBase()}/api/tags`, { signal: AbortSignal.timeout(1_500) }); if (r.ok) return } catch { /* keep waiting */ }
+  engineMaintenanceActive = true
+  try {
+    // Kill by LISTENING PORT, not command line: the dedicated coding engine (codingEngine.ts)
+    // runs an identical `ollama serve` command line on its own port - a command-line match
+    // would take it down as collateral.
+    const mainPort = parseInt(new URL(ollamaBase()).port || '11434', 10)
+    await killByListeningPort(mainPort)
+    await new Promise<void>((r) => setTimeout(r, 800))
+    // Killing the parent orphans its llama-server children, which keep squatting VRAM until
+    // reaped - the new server can't adopt or evict them (observed live: enough orphans piled
+    // up to force every model load onto the CPU). Sweep before the fresh spawn.
+    await sweepOrphanLlamaRunners('restartOllamaServe')
+    const bin = findSystemOllama() ?? join(dataDir, OLLAMA_BIN_DEST)
+    if (!existsSync(bin)) return
+    spawnDetachedHidden(bin, ['serve'], { env: ollamaServeEnv() }).unref()
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline) {
+      await new Promise<void>((r) => setTimeout(r, 1_000))
+      try { const r = await fetch(`${ollamaBase()}/api/tags`, { signal: AbortSignal.timeout(1_500) }); if (r.ok) return } catch { /* keep waiting */ }
+    }
+  } finally {
+    engineMaintenanceActive = false
   }
+}
+
+// ── Main-engine liveness guard ───────────────────────────────────────────────
+// The 60s hygiene watchdog sweeps orphaned RUNNERS, but until 2026-08 nothing
+// ever health-checked `ollama serve` itself: boot-reconcile was the only spawn
+// point, so an engine that died AFTER boot (killed with a parent process, driver
+// fault, plain crash) stayed dead until the next backend restart - observed live
+// as hours of "reply was interrupted" chat failures. This guard rides the same
+// watchdog tick: ping the engine, and if it is genuinely down, bring it back
+// through the exact restart path the admin button uses.
+//
+// Deliberately conservative:
+//   - Local engine only. An operator-pointed remote OLLAMA_URL is not ours to heal.
+//   - Never fires while an intentional restart/upgrade is mid-flight
+//     (engineMaintenanceActive) - those windows look identical to a dead engine.
+//   - Rate-limited to one respawn per RESPAWN_MIN_INTERVAL_MS, so a crash-looping
+//     engine (bad guard env, corrupt binary) degrades to a periodic retry with a
+//     log trail instead of a tight spawn loop.
+
+let engineMaintenanceActive = false
+let lastGuardRespawnAt = 0
+const RESPAWN_MIN_INTERVAL_MS = 3 * 60_000
+
+export async function ensureMainEngineAlive(): Promise<'alive' | 'respawned' | 'respawn-failed' | 'skipped'> {
+  const base = ollamaBase()
+  const host = new URL(base).hostname
+  if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') return 'skipped'
+  if (engineMaintenanceActive) return 'skipped'
+
+  try {
+    const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3_000) })
+    if (r.ok) return 'alive'
+  } catch { /* unreachable - fall through to respawn */ }
+
+  if (Date.now() - lastGuardRespawnAt < RESPAWN_MIN_INTERVAL_MS) return 'skipped'
+  lastGuardRespawnAt = Date.now()
+
+  logger.warn('[ollama-guard] main engine unreachable - respawning via restartOllamaServe()')
+  await restartOllamaServe()
+
+  try {
+    const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3_000) })
+    if (r.ok) {
+      logger.warn('[ollama-guard] main engine respawned and reachable')
+      return 'respawned'
+    }
+  } catch { /* still down */ }
+  logger.error('[ollama-guard] respawn did not bring the engine back; will retry next interval')
+  return 'respawn-failed'
 }
 
 /**
@@ -918,6 +972,9 @@ export async function restartOllamaServe(): Promise<void> {
  */
 export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<OllamaUpgradeOutcome> {
   const status = (msg: string) => { logger.info(`[ollama-update] ${msg}`); onStatus?.(msg) }
+  // The download/replace window kills the engine on purpose - hold the liveness
+  // guard off so it doesn't respawn the old binary mid-extract.
+  engineMaintenanceActive = true
   try {
     if (await hasHomebrewOllama()) {
       status('Upgrading Ollama via Homebrew…')
@@ -972,6 +1029,8 @@ export async function upgradeOllama(onStatus?: (msg: string) => void): Promise<O
   } catch (err) {
     logger.warn(`[ollama-update] upgrade failed: ${err instanceof Error ? err.message : String(err)}`)
     return 'error'
+  } finally {
+    engineMaintenanceActive = false
   }
 }
 
