@@ -89,6 +89,12 @@ function setCached(key: string, items: NewsItem[]): void {
   cache.set(key, { items, expiresAt: Date.now() + TTL_MS })
 }
 
+// Local-category responses cache per current place: a traveling phone and the
+// at-home TV must never swap each other's towns through the shared cache.
+function itemsCacheKey(catId: string, limit: number, place?: string): string {
+  return place ? `cat-${catId}-${limit}@${place}` : `cat-${catId}-${limit}`
+}
+
 // Items for a feed-backed category (the curated News store), deduped by title.
 async function itemsFromFolder(folderId: string, limit: number): Promise<NewsItem[]> {
   const folderFeeds = await db.select({ id: feeds.id, title: feeds.title })
@@ -143,8 +149,24 @@ async function itemsFromFolder(folderId: string, limit: number): Promise<NewsIte
 // persisted into a hidden history feed (lib/news/localStore.ts) so the Local tab covers
 // weeks, not just each source's current front page. Served as live items merged with the
 // stored history, deduped, newest first.
-async function localItems(limit: number): Promise<NewsItem[]> {
+//
+// placeOverride: the client device's CURRENT place while traveling (same signal the
+// weather surfaces use). Serves a live blend for that town instead of home - no history
+// merge and no persist, since the stored history belongs to the home town.
+async function localItems(limit: number, placeOverride?: string): Promise<NewsItem[]> {
   const s = await getBriefingSettings()
+  const away = placeOverride && placeOverride !== s.defaultLocation
+  if (away) {
+    const town = placeOverride
+    const slug = await resolvePatchSlug(town).catch(() => null)
+    const { news } = await blendedLocalNews({ patchSlug: slug, townLabel: town, limit: Math.max(limit, 30) })
+    return news
+      .map((r) => ({
+        title: r.title, url: r.url, source: r.detail, detail: r.detail,
+        summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt,
+      }))
+      .slice(0, limit)
+  }
   const slug = s.patchSlug ?? (await resolvePatchSlug(s.defaultLocation))
   const townLabel = s.defaultLocation
   // Over-ask the blend so the history store accumulates faster than any one page size;
@@ -179,9 +201,10 @@ async function localItems(limit: number): Promise<NewsItem[]> {
 
 // Resolve items for any category. Built-in 'local' → Patch; built-in 'global' falls back to a
 // live fetch when the store is still empty (fresh boot). Everything else → its folder's items.
-async function categoryItems(cat: { id: string; slug: string | null }, limit: number): Promise<NewsItem[]> {
+// `place` = the requesting device's current town while traveling (local category only).
+async function categoryItems(cat: { id: string; slug: string | null }, limit: number, place?: string): Promise<NewsItem[]> {
   if (cat.slug === 'local') {
-    let items = await localItems(limit)
+    let items = await localItems(limit, place)
     if (!items.length) {
       // No local sources configured, or they timed out: world headlines beat
       // an empty page.
@@ -193,7 +216,7 @@ async function categoryItems(cat: { id: string; slug: string | null }, limit: nu
     // meant the first response — the one both the server cache and the client's 5-min
     // staleTime latch onto — always shipped with placeholders that never got a chance to heal.
     await enrichOgImages(items).catch(() => {})
-    setCached(`cat-${cat.id}-${limit}`, items)
+    setCached(itemsCacheKey(cat.id, limit, place), items)
     return items
   }
   let items = await itemsFromFolder(cat.id, limit)
@@ -234,6 +257,9 @@ news.get('/categories/:id/items', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
+  // The requesting device's current town while traveling (from useCurrentPlace) -
+  // only the built-in local category acts on it.
+  const placeRaw = c.req.query('place')?.trim().slice(0, 80)
 
   const cat = await db.select().from(feedFolders)
     .where(and(eq(feedFolders.id, id), or(isNull(feedFolders.userId), eq(feedFolders.userId, user.id)))).then((r) => r[0])
@@ -241,14 +267,15 @@ news.get('/categories/:id/items', requireAuth, async (c) => {
 
   if (await isOffline(user.id)) return c.json({ items: [], offline: true })
 
-  const cacheKey = `cat-${id}-${limit}`
+  const place = cat.slug === 'local' && placeRaw ? placeRaw : undefined
+  const cacheKey = itemsCacheKey(id, limit, place)
   const entry = getCacheEntry(cacheKey)
   if (entry) {
-    if (!entry.fresh) categoryItems(cat, limit).catch(() => {})
+    if (!entry.fresh) categoryItems(cat, limit, place).catch(() => {})
     return c.json({ items: entry.items })
   }
   try {
-    return c.json({ items: await categoryItems(cat, limit) })
+    return c.json({ items: await categoryItems(cat, limit, place) })
   } catch (err) {
     const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timed out'))
     return c.json({ items: [], error: isTimeout ? 'offline' : 'unavailable' }, 200)
@@ -375,6 +402,8 @@ news.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   const type = c.req.query('type') === 'local' ? 'local' : 'world'
   const limit = Math.min(Number(c.req.query('limit') ?? 10), 60)
+  // Current town of the requesting device while traveling (local type only).
+  const place = type === 'local' ? c.req.query('place')?.trim().slice(0, 80) || undefined : undefined
 
   if (await isOffline(user.id)) return c.json({ items: [], type, offline: true })
 
@@ -383,18 +412,18 @@ news.get('/', requireAuth, async (c) => {
     const folder = await db.select().from(feedFolders).where(eq(feedFolders.slug, slug)).then((r) => r[0])
     if (folder) {
       // Route through the cached category path (stale-while-revalidate) for parity.
-      const cacheKey = `cat-${folder.id}-${limit}`
+      const cacheKey = itemsCacheKey(folder.id, limit, place)
       const entry = getCacheEntry(cacheKey)
       if (entry && entry.items.length) {
-        if (!entry.fresh) categoryItems(folder, limit).catch(() => {})
+        if (!entry.fresh) categoryItems(folder, limit, place).catch(() => {})
         return c.json({ items: entry.items, type })
       }
-      const items = await categoryItems(folder, limit)
+      const items = await categoryItems(folder, limit, place)
       if (items.length) return c.json({ items, type })
       // Fall through to the live path below rather than answering empty.
     }
     // Pre-seed fallback (folder not created yet): live world headlines / Patch.
-    let items = type === 'local' ? await localItems(limit) : []
+    let items = type === 'local' ? await localItems(limit, place) : []
     if (!items.length) {
       const raw = await worldHeadlines(limit, 12000)
       items = raw.map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))

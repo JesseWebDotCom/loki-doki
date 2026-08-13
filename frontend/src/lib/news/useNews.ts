@@ -24,18 +24,21 @@ export function newsCategoriesQueryOptions(): UseQueryOptions<NewsCategory[]> {
   return { queryKey: ['news-categories'], queryFn: fetchCategories, staleTime: 5 * 60_000 }
 }
 
-export async function fetchCategoryItems(categoryId: string): Promise<NewsItem[]> {
-  const r = await fetch(`/api/news/categories/${categoryId}/items?limit=20`, { credentials: 'include' })
+export async function fetchCategoryItems(categoryId: string, place?: string | null): Promise<NewsItem[]> {
+  const placeParam = place ? `&place=${encodeURIComponent(place)}` : ''
+  const r = await fetch(`/api/news/categories/${categoryId}/items?limit=20${placeParam}`, { credentials: 'include' })
   if (!r.ok) return []
   return ((await r.json()) as { items?: NewsItem[] }).items ?? []
 }
 
 // News is enriched server-side (stale-while-revalidate, 15-min TTL), so a 5-minute
 // client staleTime keeps it instant on revisit without going stale within a session.
-export function newsQueryOptions(categoryId: string): UseQueryOptions<NewsItem[]> {
+// `place` = the device's current town while traveling (useCurrentPlace) - the server
+// only acts on it for the built-in Local category, so it's safe to pass for every tab.
+export function newsQueryOptions(categoryId: string, place?: string | null): UseQueryOptions<NewsItem[]> {
   return {
-    queryKey: ['news', categoryId],
-    queryFn: () => fetchCategoryItems(categoryId),
+    queryKey: ['news', categoryId, place ?? null],
+    queryFn: () => fetchCategoryItems(categoryId, place),
     staleTime: 5 * 60_000,
     enabled: !!categoryId,
   }

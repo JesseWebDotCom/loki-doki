@@ -26,6 +26,7 @@ import { listFeeds, addFeed, deleteFeed, refreshFeedApi, importOpml, type Feed }
 import { FeedListView, type FeedScope } from '@/components/news/FeedListView'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import { useCurrentPlace } from '@/hooks/useCurrentPlace'
 
 const SCOPES: { key: FeedScope; label: string; icon: typeof Rss }[] = [
   { key: 'all', label: 'All', icon: Rss },
@@ -61,8 +62,11 @@ export function NewsPage() {
 
   usePublishUIContext({ label: 'News', description: scope ? `User is browsing their ${scope} feeds.` : `User is reading ${active?.name ?? ''} news.` })
 
+  // While traveling, the Local tab covers the town the device is actually in
+  // (same current-place signal the weather surfaces use). Home behavior otherwise.
+  const { current } = useCurrentPlace()
   const { data: items = [], isLoading, isError, refetch } = useQuery({
-    ...newsQueryOptions(active?.id ?? ''),
+    ...newsQueryOptions(active?.id ?? '', active?.slug === 'local' ? current?.label : undefined),
     enabled: !!active && !scope,
   })
   const status = !active ? 'empty' : isLoading ? 'loading' : isError || items.length === 0 ? 'error' : 'ready'
