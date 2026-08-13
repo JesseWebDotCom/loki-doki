@@ -931,6 +931,17 @@ export async function runCompanionTurn(
     ]
   }
 
+  // "Do you know who X is" — asking what YOU know about a person. Check memory
+  // first, then genuine general knowledge, and otherwise answer like a person:
+  // an honest "no — who's that?". Never a stitched-together guess (see the
+  // know-question router path for the live failure this prevents).
+  if (!tool && routeResult.path === 'know-question') {
+    ollamaMessages = [
+      ...history,
+      { role: 'user', content: `${p.message}\n\n[memory]: They are asking whether YOU know who someone is. If the name appears in your remembered facts or this conversation, answer warmly from that. If not, but it is a famous figure you genuinely know from general knowledge, say who they are in a sentence. Otherwise answer like a person would: a plain honest "no" plus asking who they are — never guess, never stitch together a connection to their life, and never treat this as a research request.` },
+    ]
+  }
+
   // The best route was a tool this user is denied — say so instead of silently
   // answering a live question (e.g. weather) from stale model memory.
   if (!tool && routeResult.deniedToolId) {

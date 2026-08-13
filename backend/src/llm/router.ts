@@ -535,6 +535,18 @@ export async function routePrompt(
     return { tool: null, args: {}, path: 'recall-question' }
   }
 
+  // Fast path: "do you know who X is" — a question about the COMPANION's own
+  // knowledge of a person, never a web query. Search here confabulates: celebrity
+  // results get stitched onto the user's life (caught live 2026-08-13: "do you
+  // know who carina is" pulled One Piece / Pirates of the Caribbean hits and the
+  // reply claimed "I know Carina well... likely your daughter" about the user's
+  // WIFE). Memory answers if the person is stored, general knowledge if famous,
+  // and otherwise the honest human answer is simply "no — who's that?".
+  if (/^(?:hey\s+\w+[\s,]+)?(?:do|did) you know who\s+\S.{0,60}?\s+(?:is|was|are|were)\b/i.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=know-question msg="${excerpt}"`)
+    return { tool: null, args: {}, path: 'know-question' }
+  }
+
   // Fast path: possessive recall about the user's own life ("what's my son's name?",
   // "when is my anniversary?"). Answer from the injected memory block — never STORE the
   // question (remember tool) or WEB-SEARCH a personal fact (search confabulates one). If

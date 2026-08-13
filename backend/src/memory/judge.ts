@@ -87,6 +87,8 @@ TIME RULE — the conversation date is given at the top. Resolve relative time i
 
 SPECIFICITY RULE — keep names and who/what EXACTLY as stated. Never blur a named person into "someone": "my daughter Lily is allergic to peanuts" → entity Lily (person, aliases ["lily","daughter"]) + fact "daughter Lily is allergic to peanuts" with entityName "Lily" — NOT "user is a parent of someone with a peanut allergy". A fact that loses its subject's name is worth less than the sentence it came from.
 
+ONE FACT PER RELATIONSHIP — when one message names several people, emit ONE fact per person, never a combined blob. Resolve every "my"/"her"/"his" from the speaker's point of view (the speaker is the user): "my wife" means the fact is "X is the user's wife" — the user IS the husband, never invent a separate "her husband". Worked example — "no, carina is my wife. Her dad is Carlos, step mom glenda. my kids are Ryan, Bianca, and Isabella" → SIX entities (Carina, Carlos, Glenda, Ryan, Bianca, Isabella) and SIX facts: "Carina is the user's wife", "Carlos is Carina's dad (the user's father-in-law)", "Glenda is Carina's step mom", "Ryan is one of the user's kids", "Bianca is one of the user's kids", "Isabella is one of the user's kids" — each category:relationship, tier:durable, importance 9, with its own entityName. Dropping any named person, or merging them into one fact, loses exactly the memories a spouse or parent would never forget.
+
 CRITICAL — DISCARD these, do NOT extract:
 - Questions the user asked or information they looked up (one-off curiosity)
 - One-moment moods and feelings ("I'm tired", "I'm excited today", "I'm hungry")
