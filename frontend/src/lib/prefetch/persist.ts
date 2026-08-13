@@ -2,10 +2,12 @@
 // sleep-wake reload so pinned-app content paints instantly, then revalidates in the
 // background. Wired in main.tsx via PersistQueryClientProvider.
 //
-// SCOPE: only PUBLIC / shared content is persisted — never user-specific data
-// (subscriptions, history, watchlist, preferences). This keeps the store tiny AND means a
-// profile switch can never surface another user's private data from disk. We also wipe the
-// store on logout (clearPersistedCache, called from AuthContext).
+// SCOPE: public/shared content, plus the per-user YouTube home queries. Persisting
+// per-user data is safe because the store can never carry across profiles: it is wiped on
+// logout (clearPersistedCache, called from AuthContext) AND whenever the authenticated
+// user id changes without a logout (AuthContext's cache-owner guard covers the
+// session-expired-then-different-profile-signs-in path). Do not add a per-user query root
+// here without confirming both wipes still hold.
 
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import type { PersistQueryClientOptions } from '@tanstack/react-query-persist-client'
@@ -21,11 +23,20 @@ const PERSIST_KEY_ROOTS = new Set<string>([
   'yt-popular',
   'yt-trending',
   'where-to-watch',
+  // Per-user YouTube home data: without these, a reopened phone app rendered Popular and
+  // Trending instantly (persisted above) while the subscriptions rail and Latest grid sat
+  // on skeletons waiting for the network - the top of the page loading LAST. Guarded by
+  // the owner-change wipe (see SCOPE above).
+  'yt-feed',
+  'yt-subs',
+  'yt-downloads',
+  'yt-history',
+  'yt-recommended',
 ])
 
 // Bump CACHE_VERSION whenever a persisted query's response SHAPE changes, so old payloads
 // are discarded on next load instead of rehydrated into a renderer that expects the new shape.
-const CACHE_VERSION = 'v7' // v7: og:image enrichment falls back to the page's largest <img> when no og:image/twitter:image meta exists at all
+const CACHE_VERSION = 'v8' // v8: per-user YouTube home queries added (feed/subs/downloads/history/recommended)
 
 const persister = createAsyncStoragePersister({
   key: IDB_KEY,

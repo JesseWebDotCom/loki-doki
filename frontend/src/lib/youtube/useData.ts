@@ -1,6 +1,6 @@
 // React-query hooks for the YouTube app's shared data, plus duration backfill.
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getFeed, getSubscriptions, getDownloads, backfillDurations, type FeedVideo, type SavedRow } from './api'
 import { channelKey, feedToItem, type VideoItem } from './types'
@@ -31,8 +31,19 @@ export function useSavedState(videoId: string): 'saved' | 'saving' | null {
 /** Feed videos with lazily-backfilled durations (RSS omits them) merged in. */
 export function useYtFeed(limit = 120): { videos: FeedVideo[]; items: VideoItem[]; loading: boolean } {
   const qc = useQueryClient()
-  const { data: videos = [], isLoading } = useQuery({ queryKey: ['yt-feed', limit], queryFn: () => getFeed(limit) })
+  const { data: rawVideos = [], isLoading } = useQuery({ queryKey: ['yt-feed', limit], queryFn: () => getFeed(limit) })
   const { data: durations = {} } = useQuery<Record<string, number>>({ queryKey: ['yt-durations'], queryFn: () => ({}), staleTime: Infinity, enabled: false })
+
+  // One-frame gate for persisted data. The feed is restored from disk (prefetch/persist.ts)
+  // so on a reopen it is already populated during the consumer's MOUNT render - and a
+  // 100-item feed rendered whole in the mount pass reliably trips a Suspense fallback that
+  // never retries (the route hangs on a spinner; reproduced and bisected 2026-08-13, count-
+  // dependent: ~30 cards fine, ~60+ hang). Rendering the same tree one frame later, as an
+  // UPDATE, is the path the app has always taken when the feed arrived over the network,
+  // and never hangs. So consumers see loading for exactly one extra frame after mount.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  const videos = mounted ? rawVideos : []
 
   useEffect(() => {
     const missing = videos.filter(v => v.durationSec == null && durations[v.videoId] == null).map(v => v.videoId).slice(0, 40)
@@ -44,7 +55,7 @@ export function useYtFeed(limit = 120): { videos: FeedVideo[]; items: VideoItem[
   }, [videos, durations, qc])
 
   const items = videos.map(v => feedToItem(v, durations[v.videoId]))
-  return { videos, items, loading: isLoading }
+  return { videos, items, loading: isLoading || !mounted }
 }
 
 /** Channel entries derived from subscriptions + feed authors. */

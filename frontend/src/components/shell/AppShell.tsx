@@ -35,6 +35,7 @@ import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 import { useLazyImageWarmer } from "@/lib/prefetch/useLazyImageWarmer";
+import { primeImageStore } from "@/lib/imageStore";
 import { useBrowserSession } from "@/hooks/useBrowserSession";
 import { useDropReceiver } from "@/hooks/useDropReceiver";
 
@@ -62,6 +63,9 @@ function PageLoading() {
 }
 
 export function AppShell() {
+  // Pre-materialize the persistent image store's most recent art so revisited surfaces
+  // resolve their thumbnails/logos synchronously on first render (http-LAN devices).
+  primeImageStore();
   // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
   useAppWarmer();
   // Warm every deferred <img> on whatever page is open, so card art is already cached by

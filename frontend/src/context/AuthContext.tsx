@@ -37,6 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [welcomeComplete, setWelcomeComplete] = useState<boolean | null>(null)
   const [loading, setLoading]                 = useState(true)
 
+  const queryClient = useQueryClient()
+
   const refetch = useCallback(async () => {
     // Retry up to 10 times with 500ms delay — backend may not be bound yet when
     // the browser opens (Vite and the API server race on cold start).
@@ -54,7 +56,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setWelcomeComplete(wc ?? false)
 
         if (meRes.ok) {
-          setUser(await meRes.json() as AuthUser)
+          const u = await meRes.json() as AuthUser
+          // Persisted per-user queries (see prefetch/persist.ts) are only safe if the
+          // store can never carry across profiles. logout() wipes it, but a session that
+          // expires and a DIFFERENT profile signing in never passes through logout - so
+          // the store is tied to its owner here and wiped on mismatch. Route guards hold
+          // the tree until `loading` clears, so no query observer has read the cache yet.
+          try {
+            const OWNER_KEY = 'lokidoki-cache-owner'
+            const prevOwner = localStorage.getItem(OWNER_KEY)
+            if (prevOwner && prevOwner !== u.id) {
+              queryClient.clear()
+              void clearPersistedCache()
+              clearCachedUserPreferences()
+              clearCachedHomeLayouts()
+            }
+            localStorage.setItem(OWNER_KEY, u.id)
+          } catch { /* storage unavailable - nothing persisted there either */ }
+          setUser(u)
         } else {
           setUser(null)
         }
@@ -70,9 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // attempt; the ServerHealthBanner surfaces "server offline" while the spinner
     // blocks route guards from redirecting to /setup.
     setTimeout(() => { void refetch() }, 3_000)
-  }, [])
+  }, [queryClient])
 
-  const queryClient = useQueryClient()
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     setUser(null)

@@ -9,7 +9,8 @@ import { SOURCE_META } from '@/lib/videos/sources'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { SkeletonCards } from '@/components/shared/SkeletonBlocks'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
-import { AVATAR_W_LARGE } from '@/lib/img'
+import { AVATAR_W_LARGE, avatarImgUrl } from '@/lib/img'
+import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 import { getHistory, getRecommended, search as ytSearch, ytPopularQueryOptions, ytTrendingQueryOptions } from '@/lib/youtube/api'
 import { useYtFeed, useYtSubs, useYtDownloads, buildChannels } from '@/lib/youtube/useData'
 import { isShort, savedToItem, historyToItem, itToItem, searchToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
@@ -225,12 +226,15 @@ function ShortsGrid({ items, view }: { items: VideoItem[]; view: CardListView })
 }
 
 function ChannelGrid({ channels }: { channels: ChannelEntry[] }) {
+  // Same warm the ChannelRail does (identical w=288 URLs) - covers deep grids the rail's
+  // ceiling didn't reach, and direct lands on this tab.
+  useScrollAheadImages(channels.map(c => (c.thumbnailUrl ? avatarImgUrl(c.thumbnailUrl, AVATAR_W_LARGE) : null)))
   if (!channels.length) return <p className="py-20 text-center text-sm text-muted-foreground">No channels yet.</p>
   return (
     <div className="grid grid-cols-3 gap-6 sm:grid-cols-4 xl:grid-cols-6">
-      {channels.map(c => (
+      {channels.map((c, idx) => (
         <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`} className="group flex flex-col items-center gap-2 text-center">
-          <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} className="size-24 text-3xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+          <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} eager={idx < 9} className="size-24 text-3xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
           <p className="line-clamp-2 text-sm font-semibold">{c.title}</p>
         </Link>
       ))}

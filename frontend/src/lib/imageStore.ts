@@ -164,6 +164,39 @@ async function lookup(key: string): Promise<string | null> {
   }
 }
 
+/** Bulk-load the most recently used stored images into the session memo at boot. Without
+ *  this, every image on the first screen pays its own async IndexedDB round trip before
+ *  `useCachedImg` can hand back a src - cards briefly rendered art-less and popped in one
+ *  by one. Primed entries resolve SYNCHRONOUSLY on the first render instead. Call once,
+ *  early (AppShell mount); no-ops when a service worker owns image caching. */
+const PRIME_LIMIT = 200
+let primed = false
+export function primeImageStore(): void {
+  if (primed || !storeAvailable()) return
+  primed = true
+  void (async () => {
+    try {
+      const db = await openDb()
+      await new Promise<void>((resolve) => {
+        let loaded = 0
+        // lastUsed index walked newest-first: the art most likely to be on screen again.
+        const cursorReq = db.transaction(STORE).objectStore(STORE).index('lastUsed').openCursor(null, 'prev')
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result
+          if (!cursor || loaded >= PRIME_LIMIT) { resolve(); return }
+          const entry = cursor.value as StoredImage
+          if (!objectUrls.has(entry.url) && Date.now() - entry.storedAt <= ttlFor(entry.url)) {
+            memoize(entry.url, URL.createObjectURL(entry.blob))
+            loaded++
+          }
+          cursor.continue()
+        }
+        cursorReq.onerror = () => resolve()
+      })
+    } catch { /* store unavailable - lookups fall back to per-image reads */ }
+  })()
+}
+
 /** Object URL for a stored copy of this proxied image, or null (miss/expired/inactive). */
 export function getStoredImageUrl(url: string): Promise<string | null> {
   const key = normalizeKey(url)

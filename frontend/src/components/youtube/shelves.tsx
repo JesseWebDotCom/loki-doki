@@ -10,7 +10,7 @@ import { ytImageProxy } from '@/lib/youtube/api'
 import type { VideoItem } from '@/lib/youtube/types'
 import { VideoCard, VideoListRow } from '@/components/youtube/VideoCard'
 import { CreatorAvatar } from '@/components/videos/CreatorAvatar'
-import { AVATAR_W_LARGE } from '@/lib/img'
+import { AVATAR_W_LARGE, avatarImgUrl } from '@/lib/img'
 import { EAGER_RAIL_CARDS, ytItemImageUrls } from '@/lib/prefetch/cardImageUrls'
 import { useScrollAheadImages } from '@/lib/prefetch/useScrollAheadImages'
 import { PlaylistCard as GenericPlaylistCard, PlaylistListRow as GenericPlaylistListRow, type PlaylistCardData } from '@/components/videos/PlaylistCard'
@@ -123,16 +123,22 @@ export interface ChannelEntry {
 
 /** "Top channels" circular-avatar scroller. */
 export function ChannelRail({ title = 'Top channels', to, channels }: { title?: string; to?: string; channels: ChannelEntry[] }) {
+  // Warm every channel's large avatar ahead of the scroll. The Channels filter grid
+  // renders the SAME w=288 URLs, so this also pre-caches that whole view while the user
+  // is still on the All tab - tapping Channels then paints from cache.
+  useScrollAheadImages(channels.map(c => (c.thumbnailUrl ? avatarImgUrl(c.thumbnailUrl, AVATAR_W_LARGE) : null)))
   if (!channels.length) return null
   return (
     <section>
       <SectionHeader title={title} to={to} className="mb-4" />
       <HScroll>
-        {channels.map(c => (
+        {channels.map((c, idx) => (
           <Link key={c.id} to={`/videos/youtube/channel/${encodeURIComponent(c.id)}`}
             state={{ title: c.title, thumbnailUrl: c.thumbnailUrl }}
             className="group flex w-28 shrink-0 flex-col items-center gap-2 text-center">
-            <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
+            {/* eager: the rail's visible avatars were lazy/low-priority, so this always-
+                visible row finished loading AFTER the card grids below it. */}
+            <CreatorAvatar title={c.title} src={c.thumbnailUrl} width={AVATAR_W_LARGE} eager={idx < 6} className="size-20 text-2xl ring-1 ring-border/40 transition group-hover:ring-2 group-hover:ring-[var(--yt-accent)]" />
             <p className="line-clamp-1 w-full text-sm font-semibold">{c.title}</p>
             {c.subtitle && <p className="line-clamp-1 w-full text-xs text-muted-foreground">{c.subtitle}</p>}
           </Link>
