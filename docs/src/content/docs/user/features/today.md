@@ -11,7 +11,7 @@ The Home page is where you land. It is your "Today" dashboard: a friendly glance
 
 The header is the part that is always there:
 
-- **Weather**: the current temperature and conditions for your location, with a small moon at night.
+- **Weather**: the current temperature and conditions for your location, with a small moon at night. When you are away from home, it quietly switches to the weather where you actually are, and back again when you return.
 - **A joke**: one fresh joke a day, tucked under the greeting.
 - **A sports ticker**: a slim scrolling bar of today's games and scores.
 

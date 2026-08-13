@@ -13,7 +13,7 @@ News is your private news reader. It pulls together global headlines, local stor
 
 The tabs across the top are **categories**:
 
-- **Global** and **Local** are built in: a broad world feed and stories near you.
+- **Global** and **Local** are built in: a broad world feed and stories near you. Local follows you, too: away from home with your phone, the tab covers the town you are actually in, and it switches back the moment you are home.
 - Your admin can add **shared categories** that show up for everyone in the home.
 - You can add your **own personal categories** from any RSS feed.
 

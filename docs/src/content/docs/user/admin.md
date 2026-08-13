@@ -37,3 +37,9 @@ The Features group shows the install status of every AI model and component. If 
 ## Diagnostics
 
 Under Storage you will find disk usage and a set of diagnostic tools, including chat and router benchmarks that measure the full pipeline and tool-routing accuracy, plus live logs for troubleshooting.
+
+**Chat Traces** (Diagnostics & Logs) shows exactly what happened behind recent replies: which tools ran, how many tokens were used, how fast the answer came, and the full prompt the model saw. It reads whatever thumbs-up or thumbs-down the family left on a reply, so a "that answer was bad" is one click away from its full story. Traces stay on your server, are capped to the most recent turns, and are never kept for temporary chats.
+
+The AI engine also watches itself now: if the model server ever dies (a crash, a driver hiccup), the app notices within a minute and restarts it on its own, so chat does not stay broken until someone reboots.
+
+**Persona history**: every edit to a companion's personality keeps a snapshot of the previous version, with one-click revert from the character editor. If a wording change quietly makes a companion worse, roll it back.

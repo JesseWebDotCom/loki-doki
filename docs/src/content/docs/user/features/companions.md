@@ -36,6 +36,17 @@ Open the **Companion Store** at **/companions** to see everyone, App-Store style
 - If voice is enabled, you can turn on **read-aloud** and **hands-free** listening, and say your companion's wake word to talk to it directly. See [Voice](/user/features/voice/) for setup.
 - The bar comes in three sizes, Mini, Docked, and Max, so you can keep it tiny or give it room. After a few minutes of quiet, your companion gently dozes off until you come back.
 
+## It Acts Like Someone Who Knows You
+
+Companions do more than answer. Over time yours behaves like a friend who has actually been paying attention:
+
+- **First meetings feel like first meetings.** A brand-new companion introduces itself and gets to know you over the first few chats instead of pretending you are old friends.
+- **It gets curious.** Mention something it does not know about your life and it may ask one warm follow-up question, then actually remember the answer.
+- **It calls things back.** Inside jokes, big news, and open threads come up again when they are relevant, not at random.
+- **It reads the room.** Share big news and it celebrates with you; share something heavy and it just stays present, no unsolicited advice. If your replies get short, it gives you room.
+- **It has its own tastes.** Each companion holds stable likes and dislikes, so its opinions stay consistent instead of agreeing with everyone about everything.
+- **It knows where you are.** Traveling with your phone, it talks about the weather and news where you actually are, and it is discreet about personal matters when you are talking through a shared speaker.
+
 ## Expressions and Animations
 
 Companions react to the conversation:

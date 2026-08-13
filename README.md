@@ -56,7 +56,7 @@ The setup wizard opens at `http://localhost:3000`, creates your admin account, a
 <tr>
 <td width="50%" valign="top">
   <a href="https://jessewebdotcom.github.io/loki-doki/user/features/chat/"><img src="docs/src/assets/screenshots/chat-desktop.png" width="100%" alt="Private AI chat with your companion" /></a>
-  <p><b>💬 Chat</b> — an AI that remembers your family and never phones home.</p>
+  <p><b>💬 Chat</b> — an AI that remembers your family and never phones home. Search every conversation, keep every version of an answer, and go incognito with temporary chats.</p>
 </td>
 <td width="50%" valign="top">
   <a href="https://jessewebdotcom.github.io/loki-doki/user/features/image-generation/"><img src="docs/src/assets/screenshots/image-gen-desktop.png" width="100%" alt="Local AI image generation" /></a>
@@ -124,7 +124,7 @@ Most AI companion apps are designed to hook you. Loki Doki's companions are **yo
 
 - **Offline Maps** — maps and turn-by-turn directions with no data plan, your region stored locally.
 - **Shows & Movies** — where to stream, trailers, showtimes, and a watchlist, with Plex integration.
-- **News** — global, local, and personal feeds in categories you control. No algorithm.
+- **News** — global, local, and personal feeds in categories you control. No algorithm. Local stories and weather follow where you actually are, not just your home town.
 - **Bookmarks** — save links and archive full pages for clean, offline reading.
 - **Shopping** — price tracking and drop alerts across Amazon, Walmart, and Target.
 - **Recognition** — show it any photo and a local vision model tells you what's in it.
