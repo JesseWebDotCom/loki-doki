@@ -12,9 +12,9 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, isGenerating = false, className }: MessageListProps) {
-  const { conversationId, regenerateMessage, editMessage } = useChatContext();
+  const { conversationId, regenerateMessage, editMessage, rateMessage, switchVariant } = useChatContext();
   // Stable references passed to every ChatMessage - see the O(n²) memoization contract
-  // in agents.md. Both are useCallbacks in ChatContext, so these wrappers' identities
+  // in agents.md. All are useCallbacks in ChatContext, so these wrappers' identities
   // only change when those do, not on every render/token.
   const handleRegenerate = React.useCallback(
     (messageId: string) => regenerateMessage(messageId),
@@ -23,6 +23,14 @@ export function MessageList({ messages, isGenerating = false, className }: Messa
   const handleEdit = React.useCallback(
     (messageId: string, newText: string) => editMessage(messageId, newText),
     [editMessage],
+  );
+  const handleRate = React.useCallback(
+    (messageId: string, rating: 'up' | 'down' | null) => { void rateMessage(messageId, rating) },
+    [rateMessage],
+  );
+  const handleSwitchVariant = React.useCallback(
+    (variantId: string) => { void switchVariant(variantId) },
+    [switchVariant],
   );
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -116,6 +124,8 @@ export function MessageList({ messages, isGenerating = false, className }: Messa
                   isGenerating={isGenerating}
                   onRegenerate={handleRegenerate}
                   onEdit={handleEdit}
+                  onRate={handleRate}
+                  onSwitchVariant={handleSwitchVariant}
                 />
               ))}
               {isGenerating && messages.at(-1)?.role === "user" && <TypingIndicator />}

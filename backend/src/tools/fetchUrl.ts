@@ -3,7 +3,7 @@
 // without this tool a pasted URL either routed to web search (which searched for
 // the URL string) or was answered from stale weights. Reuses the bookmarks
 // extraction stack: assertPublicUrl SSRF guard, direct fetch → Wayback fallback,
-// readability extraction. Page text is folded as quoted outside material — the
+// readability extraction. Page text is folded as quoted outside material - the
 // injection framing in the presentation policy applies to it.
 
 import type { Tool, ToolResult } from './index'
@@ -51,7 +51,7 @@ export const fetchUrlTool: Tool = {
 
   async execute(args: unknown, config?: Record<string, unknown>): Promise<ToolResult> {
     const { url: argUrl } = args as { url?: string }
-    // Fall back to the raw message — small models sometimes mangle long URLs
+    // Fall back to the raw message - small models sometimes mangle long URLs
     // during arg extraction, and the message is the ground truth anyway.
     const raw = (config?.['_rawMessage'] as string | undefined) ?? ''
     const url = (argUrl && URL_RE.test(argUrl) ? argUrl.match(URL_RE)![0] : null) ?? raw.match(URL_RE)?.[0] ?? null
@@ -72,7 +72,7 @@ export const fetchUrlTool: Tool = {
           siteName: article.siteName,
           byline: article.byline,
           answer_payload: {
-            gist: `Content of "${title}"${article.siteName ? ` (${article.siteName})` : ''}${clipped ? ', longer than shown — say so if asked about parts beyond this excerpt' : ''}:`,
+            gist: `Content of "${title}"${article.siteName ? ` (${article.siteName})` : ''}${clipped ? ', longer than shown - say so if asked about parts beyond this excerpt' : ''}:`,
             page_text: text.slice(0, PAGE_TEXT_BUDGET),
             sources: [{ n: 1, title, url }],
           },

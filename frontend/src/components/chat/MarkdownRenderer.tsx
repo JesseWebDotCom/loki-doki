@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -73,6 +73,59 @@ function CodeBlock({ language, children }: { language: string; children: string 
   )
 }
 
+// ── Mermaid diagrams ──────────────────────────────────────────────────────────
+// ```mermaid fences render as live diagrams. The library is lazy-loaded on first
+// use (it is heavy and most chats never draw one), the render is debounced so a
+// still-streaming fence isn't parsed per token, and any parse failure falls back
+// to the plain code block - a wrong diagram must never eat the reply.
+
+let mermaidModPromise: Promise<typeof import('mermaid')> | null = null
+function loadMermaid() {
+  if (!mermaidModPromise) {
+    mermaidModPromise = import('mermaid')
+  }
+  return mermaidModPromise
+}
+
+function isDarkTheme(): boolean {
+  const root = document.documentElement
+  if (root.getAttribute('data-theme') === 'dark' || root.classList.contains('dark')) return true
+  if (root.getAttribute('data-theme') === 'light') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+let mermaidSeq = 0
+
+function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setFailed(false)
+    const t = setTimeout(() => {
+      loadMermaid()
+        .then(async (m) => {
+          // strict security level: labels are sanitized, click/script directives inert.
+          m.default.initialize({ startOnLoad: false, securityLevel: 'strict', theme: isDarkTheme() ? 'dark' : 'default' })
+          await m.default.parse(code)
+          const { svg: rendered } = await m.default.render(`chat-mmd-${++mermaidSeq}`, code)
+          if (!cancelled) setSvg(rendered)
+        })
+        .catch(() => { if (!cancelled) { setSvg(null); setFailed(true) } })
+    }, 300)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [code])
+
+  if (failed || !svg) return <CodeBlock language="mermaid">{code}</CodeBlock>
+  return (
+    <div
+      className="my-3 overflow-x-auto rounded-card border border-border/20 bg-card p-3 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
+}
+
 // ── Paragraph-level memoization ───────────────────────────────────────────────
 // Completed blocks are frozen - only the trailing incomplete block re-renders
 // on each streaming token, keeping rendering O(1) not O(n²).
@@ -144,9 +197,11 @@ export function MarkdownRenderer({ content, isStreaming, sources = [], className
       // Fenced code block (has a language class)
       const langMatch = /language-(\w+)/.exec(cls || '')
       if (langMatch) {
+        const body = String(children).replace(/\n$/, '')
+        if (langMatch[1] === 'mermaid') return <MermaidBlock code={body} />
         return (
           <CodeBlock language={langMatch[1]}>
-            {String(children).replace(/\n$/, '')}
+            {body}
           </CodeBlock>
         )
       }

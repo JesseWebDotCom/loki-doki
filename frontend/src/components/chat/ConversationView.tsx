@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { Wand2 } from 'lucide-react'
+import { Ghost, Wand2, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useImageGenStatus } from '@/hooks/useImageGenStatus'
 import { MessageList } from '@/components/chat/MessageList'
 import { useChatContext } from '@/context/ChatContext'
@@ -12,7 +13,7 @@ import { useLoadConversation } from './useLoadConversation'
 /** The active conversation pane - message stream for /chat and /chat/:id. */
 export function ConversationView() {
   const { id } = useParams<{ id: string }>()
-  const { messages, isGenerating, conversationId, conversations, currentProject, pendingAutoPrompt, clearPendingAutoPrompt, submit } = useChatContext()
+  const { messages, isGenerating, conversationId, conversations, currentProject, pendingAutoPrompt, clearPendingAutoPrompt, submit, temporaryMode, setTemporaryMode } = useChatContext()
 
   // Consume a prompt queued by an external page (e.g. I'm Bored) - runs with fresh
   // context values so there's no stale-closure issue with conversationId.
@@ -42,6 +43,20 @@ export function ConversationView() {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
+      {/* Incognito banner: visible for the whole life of a temporary chat. */}
+      {temporaryMode && (
+        <div className="shrink-0 flex items-center gap-1.5 border-b border-border/40 bg-foreground/[0.04] px-4 py-1.5 text-xs text-muted-foreground">
+          <Ghost className="size-3 shrink-0" />
+          <span>Temporary chat - not saved to your history and not remembered.</span>
+          {!conversationId && (
+            <Button variant="ghost" size="icon-sm" onClick={() => setTemporaryMode(false)}
+              title="Turn off temporary chat" aria-label="Turn off temporary chat"
+              className="ml-auto size-5 text-muted-foreground hover:text-foreground">
+              <X className="size-3" />
+            </Button>
+          )}
+        </div>
+      )}
       {imageGenState === 'warming' && (
         <div className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-warning/10 border-b border-warning/20 text-xs text-warning">
           {/* design-ok(adhoc-pulse): typing-indicator-style activity affordance, not a loading skeleton */}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { DicebearAvatarPicker } from '@/components/shared/DicebearAvatarPicker'
@@ -334,6 +335,72 @@ export function SettingsProfileTab() {
       {/* ── Interaction style ── */}
       <InteractionStyleSection userId={user.id} />
 
+      <Separator />
+
+      {/* ── Custom instructions ── */}
+      <CustomInstructionsSection userId={user.id} />
+
+    </div>
+  )
+}
+
+// User-authored standing instructions, injected into every chat turn's system
+// prompt ("always use metric", "call me Cap", "keep advice practical"). The
+// complement of the auto-derived memory profile: this one the user writes.
+function CustomInstructionsSection({ userId }: { userId: string }) {
+  const [text, setText] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/users/${userId}/preferences`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((prefs: Record<string, unknown> | null) => {
+        if (typeof prefs?.['chat.custom_instructions'] === 'string') {
+          setText(prefs['chat.custom_instructions'])
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [userId])
+
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch(`/api/users/${userId}/preferences`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 'chat.custom_instructions': text.trim().slice(0, 1500) }),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1500)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">Custom instructions</p>
+        {saving && <Spinner size="sm" />}
+        {saved && <Check className="h-3 w-3 text-success" />}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Anything your companion should always keep in mind: how to address you, standing
+        preferences, things to always or never do. Applies to every chat.
+      </p>
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => { if (loaded) void save() }}
+        placeholder={'Examples:\nAlways use metric units.\nKeep recipes vegetarian.\nWhen I ask for code, give the code first and explain after.'}
+        rows={4}
+        maxLength={1500}
+        className="resize-y"
+      />
     </div>
   )
 }

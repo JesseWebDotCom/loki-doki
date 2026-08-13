@@ -59,6 +59,7 @@
     "katex": "^0.17.0",
     "lucide-react": "^1.17.0",
     "maplibre-gl": "5.23.0",
+    "mermaid": "^11.16.1",
     "motion": "^12.40.0",
     "onnxruntime-web": "^1.26.0",
     "openmoji": "^17.0.0",

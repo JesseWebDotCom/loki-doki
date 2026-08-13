@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
@@ -7,16 +8,18 @@ import { formatRelativeTime } from '@/lib/relativeTime'
 /** A full-width conversation row used by the project landing page and the Chats browse page. */
 export function ChatListRow({
   title, projectName, updatedAt, onSelect, onDelete,
-  selectMode = false, selected = false, onToggleSelect,
+  selectMode = false, selected = false, onToggleSelect, actions,
 }: {
   title: string
   projectName?: string | null
   updatedAt: Date
   onSelect: () => void
-  onDelete: () => void
+  onDelete?: () => void
   selectMode?: boolean
   selected?: boolean
   onToggleSelect?: () => void
+  /** Extra hover actions rendered to the left of delete (archive, export, restore…). */
+  actions?: ReactNode
 }) {
   const [hovered, setHovered] = useState(false)
 
@@ -57,17 +60,22 @@ export function ChatListRow({
         </span>
       </button>
 
-      {hovered && !selectMode && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onDelete}
-          title="Delete conversation"
-          aria-label="Delete conversation"
-          className="absolute right-1 shrink-0 rounded-control text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
+      {hovered && !selectMode && (actions || onDelete) && (
+        <div className="absolute right-1 flex shrink-0 items-center gap-0.5 rounded-control bg-background/80 backdrop-blur-sm">
+          {actions}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onDelete}
+              title="Delete conversation"
+              aria-label="Delete conversation"
+              className="shrink-0 rounded-control text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
+        </div>
       )}
     </div>
   )

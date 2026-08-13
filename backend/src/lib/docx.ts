@@ -1,7 +1,7 @@
 // Minimal .docx text extraction with zero new dependencies. A .docx is a zip
 // containing word/document.xml; we parse the zip central directory by hand,
 // inflate that one entry via node:zlib, and strip the WordprocessingML down to
-// plain text with paragraph breaks. Deliberately not a general zip library —
+// plain text with paragraph breaks. Deliberately not a general zip library -
 // just enough to read a well-formed Office file; anything malformed returns ''.
 
 import { inflateRawSync } from 'node:zlib'

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  ChevronRight, FolderIcon, MessageSquare, MoreHorizontal,
+  ChevronRight, FolderIcon, Ghost, MessageSquare, MoreHorizontal,
   PanelLeftOpen, Pencil, Plus, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -31,6 +31,7 @@ export function ChatLayout() {
     conversationId, conversations,
     newConversation, deleteConversation,
     projects, setCurrentProject, deleteProject,
+    temporaryMode, setTemporaryMode,
   } = useChatContext()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
@@ -54,6 +55,17 @@ export function ChatLayout() {
   function handleNewChat() {
     setCurrentProject(null)
     newConversation()
+    setTemporaryMode(false)
+    navigate('/chat')
+    setSheetOpen(false)
+  }
+
+  // Incognito: the next conversation is created temporary server-side - never
+  // listed, never summarized, never remembered, purged after an hour idle.
+  function handleNewTemporaryChat() {
+    setCurrentProject(null)
+    newConversation()
+    setTemporaryMode(true)
     navigate('/chat')
     setSheetOpen(false)
   }
@@ -94,6 +106,18 @@ export function ChatLayout() {
         >
           <Plus className="size-4 shrink-0" />
           New chat
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={handleNewTemporaryChat}
+          title="Not saved to history, not remembered, gone after the session"
+          className={cn(
+            'w-full justify-start gap-2.5 rounded-control px-3 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+            temporaryMode && 'text-brand',
+          )}
+        >
+          <Ghost className="size-4 shrink-0" />
+          Temporary chat
         </Button>
       </div>
 

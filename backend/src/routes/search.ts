@@ -444,7 +444,7 @@ const musicProvider: Provider = async (userId, q) => {
 }
 
 // Chat history: FTS5 over the user's own messages. Visibility enforced at query
-// time (active rows, no deleted/temporary conversations) — the index mirrors all.
+// time (active rows, no deleted/temporary conversations) - the index mirrors all.
 const chatProvider: Provider = async (userId, q) => {
   const match = buildMatch(q)
   if (!match) return []

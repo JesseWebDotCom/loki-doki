@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import { Copy, Check, Pencil, RotateCcw, X } from 'lucide-react'
+import { Copy, Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from './MarkdownRenderer'
@@ -18,6 +18,14 @@ export interface Message {
   sources?: Source[]
   /** Transient status shown while a tool runs before tokens arrive (e.g. "Reading your document…"). */
   routingLabel?: string | null
+  /** Which model produced this reply - shown as a hover badge in the actions row. */
+  model?: string | null
+  /** Reply was cut off (user stop or num_predict cap). */
+  truncated?: boolean
+  /** The user's thumbs rating on this reply. */
+  feedback?: 'up' | 'down' | null
+  /** Sibling regenerate variants of this reply (ids oldest → newest). */
+  variants?: { groupId: string; index: number; count: number; ids: string[] }
 }
 
 interface ChatMessageProps {
@@ -29,9 +37,13 @@ interface ChatMessageProps {
   onRegenerate?: (messageId: string) => void
   /** Edit-and-resubmit a user message. Stable across renders (see MessageList). */
   onEdit?: (messageId: string, newText: string) => void
+  /** Thumbs up/down on an assistant reply. Stable across renders (see MessageList). */
+  onRate?: (messageId: string, rating: 'up' | 'down' | null) => void
+  /** Flip to a sibling regenerate variant. Stable across renders (see MessageList). */
+  onSwitchVariant?: (variantId: string) => void
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenerating, onRegenerate, onEdit }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenerating, onRegenerate, onEdit, onRate, onSwitchVariant }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
   // Strip <action> tags before display (they drive avatar animation instead).
@@ -75,8 +87,18 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
         <SourcesCard sources={message.sources} />
       )}
 
+      {/* Reply was cut off (stop button or the generation cap). */}
+      {!isActive && message.truncated && cleanContent.length > 0 && (
+        <span className="text-[11px] text-muted-foreground">Reply was cut off before it finished.</span>
+      )}
+
       {!isActive && cleanContent.length > 0 && (
-        <MessageActions content={message.content} onRegenerate={onRegenerate && !isGenerating ? () => onRegenerate(message.id) : undefined} />
+        <MessageActions
+          message={message}
+          onRegenerate={onRegenerate && !isGenerating ? () => onRegenerate(message.id) : undefined}
+          onRate={onRate && !isGenerating ? onRate : undefined}
+          onSwitchVariant={onSwitchVariant && !isGenerating ? onSwitchVariant : undefined}
+        />
       )}
     </div>
   )
@@ -143,14 +165,20 @@ function UserMessage({ message, onEdit }: { message: Message; onEdit?: (messageI
   )
 }
 
-function MessageActions({ content, onRegenerate }: { content: string; onRegenerate?: () => void }) {
+function MessageActions({ message, onRegenerate, onRate, onSwitchVariant }: {
+  message: Message
+  onRegenerate?: () => void
+  onRate?: (messageId: string, rating: 'up' | 'down' | null) => void
+  onSwitchVariant?: (variantId: string) => void
+}) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    navigator.clipboard.writeText(content).then(() => {
+    navigator.clipboard.writeText(message.content).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
   }
+  const v = message.variants
   return (
     <div className="-mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
       <Button type="button" variant="ghost" size="icon-sm" onClick={copy} aria-label="Copy message" title="Copy"
@@ -163,8 +191,51 @@ function MessageActions({ content, onRegenerate }: { content: string; onRegenera
           <RotateCcw className="size-3.5" />
         </Button>
       )}
+      {onRate && (
+        <>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Good response" title="Good response"
+            onClick={() => onRate(message.id, message.feedback === 'up' ? null : 'up')}
+            className={cn('hover:text-foreground', message.feedback === 'up' ? 'text-brand' : 'text-muted-foreground')}>
+            <ThumbsUp className="size-3.5" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Bad response" title="Bad response"
+            onClick={() => onRate(message.id, message.feedback === 'down' ? null : 'down')}
+            className={cn('hover:text-foreground', message.feedback === 'down' ? 'text-brand' : 'text-muted-foreground')}>
+            <ThumbsDown className="size-3.5" />
+          </Button>
+        </>
+      )}
+      {/* Sibling regenerate variants: < 2/3 > flips between kept attempts. */}
+      {onSwitchVariant && v && v.count > 1 && (
+        <span className="ml-1 inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Previous version" title="Previous version"
+            disabled={v.index <= 0}
+            onClick={() => { const prev = v.ids[v.index - 1]; if (prev) onSwitchVariant(prev) }}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30">
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <span className="tabular-nums">{v.index + 1}/{v.count}</span>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Next version" title="Next version"
+            disabled={v.index >= v.count - 1}
+            onClick={() => { const next = v.ids[v.index + 1]; if (next) onSwitchVariant(next) }}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30">
+            <ChevronRight className="size-3.5" />
+          </Button>
+        </span>
+      )}
+      {message.model && (
+        <span className="ml-1 text-[11px] text-muted-foreground/70" title={`Answered by ${message.model}`}>
+          {shortModelName(message.model)}
+        </span>
+      )}
     </div>
   )
+}
+
+/** "qwen3:8b-instruct-q4_K_M" → "qwen3:8b" - the badge is a hint, the title has it all. */
+function shortModelName(model: string): string {
+  const base = model.split('-')[0] ?? model
+  return base.length > 24 ? `${base.slice(0, 24)}…` : base
 }
 
 function RoutingStatus({ label }: { label: string }) {

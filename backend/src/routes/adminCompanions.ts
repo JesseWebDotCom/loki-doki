@@ -146,7 +146,7 @@ async function snapshotPersonaIfChanging(
   const [current] = await db.select().from(characters).where(eq(characters.id, id)).limit(1)
   if (!current) return
   const snapshot = personaSnapshotOf(current)
-  // Only snapshot when a persona field actually changes value — a PATCH that
+  // Only snapshot when a persona field actually changes value - a PATCH that
   // resends identical text must not pile up no-op revisions.
   const changed = PERSONA_FIELDS.some((f) => f in update && (update[f] ?? null) !== snapshot[f])
   if (!changed) return
@@ -178,7 +178,7 @@ adminCompanions.get('/:id/revisions', requireAdmin, async (c) => {
     .orderBy(desc(characterRevisions.createdAt))
   return c.json(rows.map((r) => {
     let snapshot: PersonaSnapshot | null = null
-    try { snapshot = JSON.parse(r.snapshot) } catch { /* corrupt row — surfaced as null */ }
+    try { snapshot = JSON.parse(r.snapshot) } catch { /* corrupt row - surfaced as null */ }
     return { id: r.id, createdAt: r.createdAt, editedBy: r.editedBy, snapshot }
   }))
 })
@@ -196,7 +196,7 @@ adminCompanions.post('/:id/revisions/:revId/revert', requireAdmin, async (c) => 
   let snapshot: PersonaSnapshot
   try { snapshot = JSON.parse(rev.snapshot) } catch { return c.json({ error: 'Revision is corrupt' }, 422) }
 
-  // Reverting is itself an edit — snapshot the current state first so it's undoable.
+  // Reverting is itself an edit - snapshot the current state first so it's undoable.
   const revertUpdate: Record<string, unknown> = { ...snapshot, updatedAt: new Date() }
   await snapshotPersonaIfChanging(id, revertUpdate, user.id)
   await db.update(characters).set(revertUpdate).where(eq(characters.id, id))

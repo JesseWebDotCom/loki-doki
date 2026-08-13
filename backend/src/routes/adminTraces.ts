@@ -1,6 +1,6 @@
 // Turn-trace inspector (devtools): the exact assembled system prompt, routing
 // decision, tool trail, and token/latency numbers behind recent assistant replies.
-// Admin-only — traces contain the full prompt, including memory and briefing
+// Admin-only - traces contain the full prompt, including memory and briefing
 // content. The store is capped at the newest 500 rows (pruned on write, chat.ts).
 
 import { Hono } from 'hono'
@@ -12,7 +12,7 @@ import type { AppEnv } from '@/types'
 
 const adminTraces = new Hono<AppEnv>()
 
-// Recent traces, newest first — list view (no prompt body; it can be ~8KB each).
+// Recent traces, newest first - list view (no prompt body; it can be ~8KB each).
 adminTraces.get('/', requireAdmin, async (c) => {
   const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50), 200)
   const rows = await db

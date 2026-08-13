@@ -155,6 +155,71 @@ function StudioControls({ ctl }: { ctl: PreviewControls }) {
   )
 }
 
+// ── Persona history (character_revisions: snapshot-on-write, revert) ────────────
+// Prompts are code - every persona edit keeps the pre-edit values, so an edit
+// that quietly tanks reply quality can be diffed and rolled back.
+function PersonaHistory({ companionId, onReverted }: { companionId: string; onReverted: (saved: AdminCompanion) => void }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<Array<{
+    id: string
+    createdAt: number
+    snapshot: { personalityPrompt: string | null; backstory: string | null; replyStyle: string | null } | null
+  }>>([])
+  const [reverting, setReverting] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    fetch(`/api/admin/companions/${companionId}/revisions`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setRows)
+      .catch(() => setRows([]))
+  }, [open, companionId])
+
+  async function revert(revId: string) {
+    setReverting(revId)
+    try {
+      const res = await fetch(`/api/admin/companions/${companionId}/revisions/${revId}/revert`, { method: 'POST', credentials: 'include' })
+      if (res.ok) {
+        toast.success('Persona reverted (the replaced version was kept in history)')
+        onReverted(await res.json() as AdminCompanion)
+        setOpen(false)
+      }
+    } finally {
+      setReverting(null)
+    }
+  }
+
+  return (
+    <div className="rounded-card border border-border/50 bg-card/50">
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <span>Persona history</span>
+        <span>{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        rows.length === 0 ? (
+          <p className="px-3 pb-3 text-[11px] text-muted-foreground">No prior versions yet. A snapshot is kept every time a persona field changes.</p>
+        ) : (
+          <div className="max-h-64 overflow-y-auto border-t border-border/40">
+            {rows.map((r) => (
+              <div key={r.id} className="flex items-start gap-2 border-b border-border/30 px-3 py-2 text-[11px] last:border-0">
+                <div className="min-w-0 flex-1">
+                  <p className="text-muted-foreground">{new Date(r.createdAt * 1000).toLocaleString()}</p>
+                  <p className="mt-0.5 line-clamp-2 text-foreground/80">{r.snapshot?.personalityPrompt || '(empty persona)'}</p>
+                </div>
+                <Button variant="secondary" size="sm" disabled={reverting !== null}
+                  onClick={() => void revert(r.id)} className="shrink-0 text-[11px]">
+                  {reverting === r.id ? 'Reverting…' : 'Revert'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
 // ── Live tester (streams a reply from the unsaved draft persona) ─────────────────
 function StudioTester({ draft, onSpeaking }: { draft: Draft; onSpeaking: (v: { speaking: boolean; thinking: boolean }) => void }) {
   const [log, setLog] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
@@ -648,6 +713,12 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                       </select>
                     </Field>
                   </div>
+                  {draft.id && (
+                    <PersonaHistory
+                      companionId={draft.id}
+                      onReverted={(saved) => { void loadList(); refreshCompanions(); selectDraft(saved) }}
+                    />
+                  )}
                 </div>
               )}
 

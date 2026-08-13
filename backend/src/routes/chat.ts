@@ -232,7 +232,7 @@ chat.get('/conversations/:id', requireAuth, async (c) => {
 
 // Soft delete: the conversation moves to "Recently deleted" (restorable) and is
 // hard-purged by the maintenance sweep after 30 days. The memory judge still runs
-// on the unprocessed span NOW — deleting used to be the moment facts were lost —
+// on the unprocessed span NOW - deleting used to be the moment facts were lost -
 // and memoryProcessedThrough advances so the background sweep never double-judges
 // the same span while the row sits in the bin.
 chat.delete('/conversations/:id', requireAuth, async (c) => {
@@ -246,7 +246,7 @@ chat.delete('/conversations/:id', requireAuth, async (c) => {
     .limit(1)
   if (!conv) return c.json({ ok: true })
 
-  // Temporary chats were never meant to persist — hard delete, no memory judge.
+  // Temporary chats were never meant to persist - hard delete, no memory judge.
   if (conv.temporary) {
     await hardDeleteConversations([id])
     return c.json({ ok: true })
@@ -311,7 +311,7 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
 })
 
 // ── Export ────────────────────────────────────────────────────────────────────
-// Download one conversation as markdown or JSON. Active messages only — the export
+// Download one conversation as markdown or JSON. Active messages only - the export
 // should read like the chat did, not include discarded variants.
 chat.get('/conversations/:id/export', requireAuth, async (c) => {
   const user = c.get('user')
@@ -386,7 +386,7 @@ chat.post('/messages/:id/feedback', requireAuth, async (c) => {
 
 // ── Variant switching ─────────────────────────────────────────────────────────
 // Regenerate keeps the previous reply as an inactive sibling (same variantGroupId).
-// This endpoint flips which sibling is active — the UI's < 2/3 > navigation.
+// This endpoint flips which sibling is active - the UI's < 2/3 > navigation.
 chat.post('/conversations/:id/variant', requireAuth, async (c) => {
   const user = c.get('user')
   const convId = c.req.param('id')
@@ -440,7 +440,7 @@ chat.post('/stream', requireAuth, async (c) => {
     attachments?: { filename: string; text: string }[]
     /** Start this conversation as a temporary (incognito) chat: never listed,
      *  never summarized, never swept into memory, purged on boot/daily. Only
-     *  honored at creation time — an existing conversation keeps its mode. */
+     *  honored at creation time - an existing conversation keeps its mode. */
     temporary?: boolean
     /** Base64 photos for a vision turn (the iPhone app's camera/library
      *  attachments — "translate the street sign"). Routed to the vision
@@ -608,7 +608,7 @@ chat.post('/stream', requireAuth, async (c) => {
     focusedArtifact: focusedArtifact ?? null,
     // Refresh the rolling summary after this turn when the conversation is long
     // enough for the window to be (or soon be) incomplete. Never for temporary
-    // chats — nothing derived from them should persist beyond the session.
+    // chats - nothing derived from them should persist beyond the session.
     maybeSummarize: dbRows.length >= 16 && !convTemporary,
     temporary: convTemporary,
     // Window already dropping messages → tighten the refresh cadence so no band of
@@ -750,7 +750,7 @@ chat.post('/prime', requireAuth, async (c) => {
       prefs: ctx.prefs,
       firstMetAt: characterId ? (existingRelation?.createdAt ?? null) : undefined,
       conversationSummary: historyIncomplete ? convSummary : null,
-      // The project-instructions block sits in the STABLE prefix — the prime must
+      // The project-instructions block sits in the STABLE prefix - the prime must
       // include it or the primed prefill never matches the real turn's prompt.
       projectId: convProjectId,
       cookieHeader,
@@ -771,8 +771,8 @@ chat.post('/prime', requireAuth, async (c) => {
 // Re-runs the turn that produced `assistantMessageId`: streams a fresh reply for the
 // SAME user turn rather than resubmitting it as a new one (which would duplicate the
 // question in history). The old reply is KEPT as an inactive sibling variant (shared
-// variantGroupId) once the new one completes — see makeChatRun's replaceMessageId
-// handling — so the UI can flip between attempts with < 2/3 > navigation.
+// variantGroupId) once the new one completes - see makeChatRun's replaceMessageId
+// handling - so the UI can flip between attempts with < 2/3 > navigation.
 
 chat.post('/regenerate', requireAuth, async (c) => {
   const user = c.get('user')
@@ -938,7 +938,7 @@ chat.post('/edit', requireAuth, async (c) => {
     ])
 
   // Commit the edit: preserve the ORIGINAL text as an inactive copy (same
-  // timestamp — display and history only ever read active rows, so ordering
+  // timestamp - display and history only ever read active rows, so ordering
   // ambiguity can't surface), rewrite the user message in place, then mark
   // everything after it inactive. The discarded tail answered a question that
   // no longer exists, but it stays recoverable instead of being destroyed.
@@ -1073,7 +1073,7 @@ interface ChatRunParams {
   firstMetAt?: Date | null
   /** Rolling summary of content older than the trimmed window (null = don't inject). */
   conversationSummary?: string | null
-  /** Project this conversation is filed under — injects instructions + doc RAG. */
+  /** Project this conversation is filed under - injects instructions + doc RAG. */
   projectId?: string | null
   /** Refresh the rolling summary (detached) after this turn completes. */
   maybeSummarize?: boolean
@@ -1091,18 +1091,18 @@ interface ChatRunParams {
   focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } | null
   /** false for /regenerate — the user turn already exists in the DB, don't re-insert it. */
   insertUserMessage?: boolean
-  /** /regenerate only — the old assistant reply to DEACTIVATE (kept as a sibling
+  /** /regenerate only - the old assistant reply to DEACTIVATE (kept as a sibling
    *  variant) once the new one lands. Left alone on failure/cancellation, so a
    *  failed regenerate doesn't lose the prior answer. */
   replaceMessageId?: string
-  /** /regenerate only — the variant group shared by the old and new replies. */
+  /** /regenerate only - the variant group shared by the old and new replies. */
   variantGroupId?: string
-  /** Temporary (incognito) conversation — skip the turn trace and title generation. */
+  /** Temporary (incognito) conversation - skip the turn trace and title generation. */
   temporary?: boolean
 }
 
 /** Newest-N cap for message_traces (devtools trace inspector). Pruned after each
- *  write so the table never grows unbounded — each row can carry an ~8KB prompt. */
+ *  write so the table never grows unbounded - each row can carry an ~8KB prompt. */
 const TRACE_KEEP = 500
 
 function makeChatRun(p: ChatRunParams) {
@@ -1203,7 +1203,7 @@ function makeChatRun(p: ChatRunParams) {
       }
 
       // Regenerate: the old reply becomes an inactive sibling in the variant group
-      // (previously it was deleted — non-destructive regenerate keeps every attempt).
+      // (previously it was deleted - non-destructive regenerate keeps every attempt).
       if (p.replaceMessageId) {
         await db.update(messages)
           .set({ active: false, variantGroupId: p.variantGroupId ?? null })

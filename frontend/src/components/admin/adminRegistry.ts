@@ -356,6 +356,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'logs', label: 'Logs', kind: 'view',
         keywords: ['logs', 'app logs', 'comfy', 'debug', 'stream'],
         description: 'Live application and ComfyUI logs' },
+      { id: 'traces', label: 'Chat Traces', kind: 'view',
+        keywords: ['traces', 'trace', 'prompt', 'tokens', 'latency', 'router', 'tools', 'inspector', 'chat', 'turn'],
+        description: 'Per-turn chat traces: assembled prompt, route, tools, tokens, latency' },
     ],
   },
   {

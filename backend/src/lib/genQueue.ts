@@ -75,7 +75,7 @@ interface SSEStream {
 const MAX_BUFFER = 8_000
 
 /** How long a finished job (and its replay buffer) stays re-attachable. Raised from
- *  60s (which matched image.ts) — a closed tab reopened a few minutes later should
+ *  60s (which matched image.ts) - a closed tab reopened a few minutes later should
  *  still find the stream via GET /conversations/:id activeGen → stream/:genId replay
  *  instead of falling back to the persisted message. Buffers are small (text events,
  *  capped at MAX_BUFFER), so a few extra minutes of retention is cheap. */

@@ -67,6 +67,14 @@ interface ChatContextValue {
   /** Rewrite a past user message and re-run the turn — everything after it is replaced. */
   editMessage: (userMessageId: string, newText: string) => void
   stop: () => void
+  /** Thumbs up/down on an assistant reply (null clears). Optimistic; persisted server-side. */
+  rateMessage: (messageId: string, rating: 'up' | 'down' | null) => Promise<void>
+  /** Flip an assistant reply to a sibling regenerate variant (server switches active). */
+  switchVariant: (variantId: string) => Promise<void>
+  /** Next new conversation starts as a temporary (incognito) chat: not listed, not
+   *  remembered, purged server-side. Resets when a chat is loaded or started. */
+  temporaryMode: boolean
+  setTemporaryMode: (v: boolean) => void
 
   /** Documents attached to the next message (extracted text, sent + persisted on submit). */
   attachedDocs: { filename: string; text: string; chars: number }[]
@@ -134,6 +142,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects]             = useState<Project[]>([])
   const [currentProject, setCurrentProjectState] = useState<Project | null>(null)
   const [pendingAutoPrompt, setPendingAutoPrompt] = useState<string | null>(null)
+  const [temporaryMode, setTemporaryMode] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const currentProjectRef = useRef<Project | null>(null)
   const pendingGenRef = useRef<{ genId: string; convId: string; assistantMsgId: string; lastSeq: number } | null>(null)
@@ -331,7 +340,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch(`/api/chat/conversations/${id}`, { credentials: 'include' })
       if (!res.ok) return
-      const data = await res.json() as { messages: Array<{ id: string; role: string; content: string; sources?: string | null }> }
+      const data = await res.json() as {
+        messages: Array<{
+          id: string; role: string; content: string; sources?: string | null
+          model?: string | null; truncated?: boolean
+          feedback?: 'up' | 'down' | null
+          variants?: { groupId: string; index: number; count: number; ids: string[] }
+        }>
+        activeGen?: { genId: string; assistantMessageId: string | null } | null
+      }
       const loadedMsgs = data.messages
         .filter((m) => m.role !== 'system')
         .map((m) => {
@@ -339,14 +356,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           // chips + the sources card survive a reload.
           let sources: Source[] | undefined
           if (m.sources) { try { const parsed = JSON.parse(m.sources); if (Array.isArray(parsed) && parsed.length) sources = parsed as Source[] } catch { /* ignore malformed */ } }
-          return { id: m.id, role: m.role as 'user' | 'assistant', content: m.content, ...(sources ? { sources } : {}) }
+          return {
+            id: m.id, role: m.role as 'user' | 'assistant', content: m.content,
+            ...(sources ? { sources } : {}),
+            ...(m.model ? { model: m.model } : {}),
+            ...(m.truncated ? { truncated: true } : {}),
+            ...(m.feedback ? { feedback: m.feedback } : {}),
+            ...(m.variants ? { variants: m.variants } : {}),
+          }
         })
 
       setConversationId(id)
       setMessages(loadedMsgs)
+      // Loading a persisted conversation always exits incognito mode.
+      setTemporaryMode(false)
 
-      // Check if there's an in-flight generation we should reconnect to
-      const pending = loadPendingGen(id)
+      // Check if there's an in-flight generation we should reconnect to. The
+      // server's activeGen is authoritative (survives tab close, unlike the
+      // sessionStorage cursor); sessionStorage still supplies the seq cursor
+      // for same-tab navigation so replay doesn't restart from 0.
+      const stored = loadPendingGen(id)
+      const pending = stored
+        ?? (data.activeGen?.assistantMessageId
+          ? { genId: data.activeGen.genId, assistantMessageId: data.activeGen.assistantMessageId, lastSeq: 0 }
+          : null)
       if (!pending) return
 
       // See if the assistant message in the DB looks complete (has non-empty content)
@@ -512,6 +545,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setAttachedDocs((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
+  // ── Feedback + variants ─────────────────────────────────────────────────────
+
+  const rateMessage = useCallback(async (messageId: string, rating: 'up' | 'down' | null) => {
+    setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, feedback: rating } : m))
+    await fetch(`/api/chat/messages/${messageId}/feedback`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating }),
+    }).catch(() => { /* optimistic state stands; persisted next time */ })
+  }, [])
+
+  const switchVariant = useCallback(async (variantId: string) => {
+    const convId = conversationId
+    if (!convId) return
+    try {
+      const res = await fetch(`/api/chat/conversations/${convId}/variant`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: variantId }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { messageId: string; content: string }
+      // Swap the visible sibling in place: new id + content, variants index follows,
+      // blocks/sources cleared (they belonged to the previous sibling's stream).
+      setMessages((prev) => prev.map((m) => {
+        if (!m.variants || !m.variants.ids.includes(data.messageId) || m.role !== 'assistant') return m
+        return {
+          ...m,
+          id: data.messageId,
+          content: data.content,
+          blocks: undefined,
+          sources: undefined,
+          truncated: false,
+          feedback: null,
+          variants: { ...m.variants, index: m.variants.ids.indexOf(data.messageId) },
+        }
+      }))
+    } catch { /* leave current variant showing */ }
+  }, [conversationId])
+
   // ── Submit / Stream ─────────────────────────────────────────────────────────
 
   const submit = useCallback((characterId?: string, textOverride?: string) => {
@@ -541,9 +616,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const currentConvId = conversationId
     const currentProjectId = currentProjectRef.current?.id ?? undefined
+    // Incognito: only meaningful when this turn CREATES the conversation.
+    const isTempChat = !currentConvId && temporaryMode
 
     streamChat(
-      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), ...getClientCoords(), attachments: sendAttachments.length ? sendAttachments : undefined, focusedArtifact: focusedArtifactForTurn() },
+      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, clientTz: getClientTz(), ...getClientCoords(), attachments: sendAttachments.length ? sendAttachments : undefined, focusedArtifact: focusedArtifactForTurn(), temporary: isTempChat || undefined },
       controller.signal,
       {
         onGen: ({ genId, conversationId: serverConvId, assistantMessageId }) => {
@@ -555,9 +632,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const convId = serverConvId ?? currentConvId ?? ''
           pendingGenRef.current = { genId, convId, assistantMsgId: assistantMessageId, lastSeq: 0 }
           savePendingGen(convId, { genId, assistantMessageId, lastSeq: 0 })
-          // Add the conversation to the sidebar immediately so it appears before done fires
+          // Add the conversation to the sidebar immediately so it appears before done
+          // fires. Temporary chats never appear in the list - that's the whole point.
           if (serverConvId && serverConvId !== currentConvId) {
             setConversationId(serverConvId)
+            if (isTempChat) return
             setConversations((prev) => {
               if (prev.some((c) => c.id === serverConvId)) return prev
               return [{
@@ -628,7 +707,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (confirmDirectiveToBlock(directive, pendingGenRef.current?.assistantMsgId ?? placeholderId)) return
           applyDirectiveRef.current(directive)
         },
-        onDone: ({ conversationId: newConvId, title }) => {
+        onDone: ({ conversationId: newConvId, title, model, truncated }) => {
           // Flush any RAF-buffered tokens before clearing generating state so there's
           // no blank frame where isGenerating=false but content is still empty.
           if (tokenRafRef.current !== null) {
@@ -642,13 +721,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               prev.map((m) => m.id === doneBuf.msgId ? { ...m, content: m.content + doneBuf.text } : m),
             )
           }
+          // Stamp the reply with what produced it (model badge / cut-off note).
+          const doneMsgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          if (model || truncated) {
+            setMessages((prev) => prev.map((m) => m.id === doneMsgId
+              ? { ...m, ...(model ? { model } : {}), ...(truncated ? { truncated: true } : {}) }
+              : m))
+          }
           setIsGenerating(false)
           setQueuePosition(null)
           abortRef.current = null
           // Clear the persisted gen — generation is complete
           if (pendingGenRef.current) clearPendingGen(pendingGenRef.current.convId)
           pendingGenRef.current = null
-          if (newConvId) {
+          if (newConvId && !isTempChat) {
             setConversations((prev) =>
               prev.map((c) => c.id === newConvId
                 ? { ...c, title: title ?? c.title, preview: text, updatedAt: new Date() }
@@ -672,7 +758,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         },
       },
     )
-  }, [input, isGenerating, conversationId, getContextBlock, attachedDocs])
+  }, [input, isGenerating, conversationId, getContextBlock, attachedDocs, temporaryMode])
 
   // Re-run the turn that produced `assistantMessageId` in place — same streaming/token
   // buffering pattern as submit() (see its comments), but no new user bubble and no
@@ -680,8 +766,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // new one completes, so a failed regenerate leaves the prior answer intact on reload.
   const regenerateMessage = useCallback((assistantMessageId: string) => {
     if (isGenerating || !conversationId) return
-    setMessages((prev) => prev.map((m) =>
-      m.id === assistantMessageId ? { id: m.id, role: 'assistant', content: '' } : m))
+    // Capture the outgoing reply's variant set so the < 2/3 > nav can be patched
+    // locally when the new sibling lands (the server keeps the old reply inactive).
+    let prevVariants: Message['variants'] | undefined
+    setMessages((prev) => prev.map((m) => {
+      if (m.id !== assistantMessageId) return m
+      prevVariants = m.variants
+      return { id: m.id, role: 'assistant', content: '' }
+    }))
     setIsGenerating(true)
     setQueuePosition(null)
 
@@ -742,7 +834,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (confirmDirectiveToBlock(directive, pendingGenRef.current?.assistantMsgId ?? assistantMessageId)) return
           applyDirectiveRef.current(directive)
         },
-        onDone: () => {
+        onDone: ({ model, truncated }) => {
           if (tokenRafRef.current !== null) {
             cancelAnimationFrame(tokenRafRef.current)
             tokenRafRef.current = null
@@ -751,6 +843,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (doneBuf) {
             tokenBufRef.current = null
             setMessages((prev) => prev.map((m) => m.id === doneBuf.msgId ? { ...m, content: m.content + doneBuf.text } : m))
+          }
+          // The old reply is now an inactive sibling: extend the variant set locally
+          // so < 2/3 > appears without a reload. Server state is authoritative on load.
+          const newId = pendingGenRef.current?.assistantMsgId
+          if (newId) {
+            const ids = [...(prevVariants?.ids ?? [assistantMessageId]), newId]
+            setMessages((prev) => prev.map((m) => m.id === newId
+              ? {
+                  ...m,
+                  ...(model ? { model } : {}),
+                  ...(truncated ? { truncated: true } : {}),
+                  variants: { groupId: prevVariants?.groupId ?? `local-${assistantMessageId}`, index: ids.length - 1, count: ids.length, ids },
+                }
+              : m))
           }
           setIsGenerating(false)
           setQueuePosition(null)
@@ -911,6 +1017,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // literal exactly, so this recomputes precisely when something in it does.
   const value = useMemo(() => ({
     messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, editMessage, stop,
+    rateMessage, switchVariant, temporaryMode, setTemporaryMode,
     attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
     queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
     conversationId, conversations,
@@ -919,6 +1026,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     createProject, updateProject, deleteProject, refreshProjects,
   }), [
     messages, isGenerating, queuePosition, input, setInput, submit, regenerateMessage, editMessage, stop,
+    rateMessage, switchVariant, temporaryMode, setTemporaryMode,
     attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
     queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
     conversationId, conversations,
@@ -976,10 +1084,11 @@ function prettyToolName(toolId: string): string {
 }
 
 function routingLabelFor(toolId: string): string | null {
-  // Status suffixes from the offline / tool_error SSE events (previously dead
-  // protocol surface — emitted by the backend but never rendered).
+  // Status suffixes from the offline / tool_error / status SSE events (previously
+  // dead protocol surface - emitted by the backend but never rendered).
   if (toolId.endsWith(':offline')) return `⚠️ ${prettyToolName(toolId.slice(0, -8))} is offline`
   if (toolId.endsWith(':error')) return `⚠️ ${prettyToolName(toolId.slice(0, -6))} hit a snag`
+  if (toolId.endsWith(':retry')) return `🔁 ${prettyToolName(toolId.slice(0, -6))} came up empty - trying another way`
   return ROUTING_LABELS[toolId] ?? `⚙️ Using ${prettyToolName(toolId)}`
 }
 
@@ -992,7 +1101,7 @@ interface StreamCallbacks {
   onBlock: (block: Block) => void
   onSources: (sources: Source[]) => void
   onDirective: (directive: Directive) => void
-  onDone: (meta: { conversationId?: string; title?: string }) => void
+  onDone: (meta: { conversationId?: string; title?: string; model?: string; truncated?: boolean }) => void
   onError: (err: string) => void
 }
 
@@ -1064,7 +1173,7 @@ function getClientTz(): string | null {
 
 /** Start a new chat generation (POST). */
 async function streamChat(
-  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; clientLat?: number | null; clientLng?: number | null; attachments?: { filename: string; text: string }[]; focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string } },
+  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; clientTz?: string | null; clientLat?: number | null; clientLng?: number | null; attachments?: { filename: string; text: string }[]; focusedArtifact?: { id: string; type: 'code' | 'document' | 'html'; title: string }; temporary?: boolean },
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
@@ -1107,9 +1216,13 @@ async function streamChat(
       try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
     } else if (eventName === 'tool_error') {
       try { const t = JSON.parse(data) as { tool: string }; if (t.tool) onRouting(`${t.tool}:error`) } catch { /* malformed */ }
+    } else if (eventName === 'status') {
+      // Backend work-phase updates. `routing` already labels the normal tool run;
+      // the one users must see is the dead-end re-plan ("came up empty, retrying").
+      try { const s = JSON.parse(data) as { phase?: string; toolId?: string }; if (s.phase === 'retrying') onRouting(`${s.toolId ?? 'search'}:retry`) } catch { /* malformed */ }
     } else if (eventName === 'done') {
       terminal = true
-      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
+      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string; model?: string; truncated?: boolean }) } catch { onDone({}) }
       return true
     } else if (eventName === 'error') {
       terminal = true
@@ -1204,9 +1317,13 @@ async function streamTurnRerun(
       try { const o = JSON.parse(data) as { tool: string }; if (o.tool) onRouting(`${o.tool}:offline`) } catch { /* malformed */ }
     } else if (eventName === 'tool_error') {
       try { const t = JSON.parse(data) as { tool: string }; if (t.tool) onRouting(`${t.tool}:error`) } catch { /* malformed */ }
+    } else if (eventName === 'status') {
+      // Backend work-phase updates. `routing` already labels the normal tool run;
+      // the one users must see is the dead-end re-plan ("came up empty, retrying").
+      try { const s = JSON.parse(data) as { phase?: string; toolId?: string }; if (s.phase === 'retrying') onRouting(`${s.toolId ?? 'search'}:retry`) } catch { /* malformed */ }
     } else if (eventName === 'done') {
       terminal = true
-      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
+      try { onDone(JSON.parse(data) as { conversationId?: string; title?: string; model?: string; truncated?: boolean }) } catch { onDone({}) }
       return true
     } else if (eventName === 'error') {
       terminal = true

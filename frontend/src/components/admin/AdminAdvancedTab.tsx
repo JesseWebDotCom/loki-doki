@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { cn } from '@/lib/cn'
 import { AdminTroubleshootingTab } from '@/components/admin/AdminTroubleshootingTab'
 import { LogViewer } from '@/components/devtools/LogViewer'
+import { TraceInspector } from '@/components/devtools/TraceInspector'
 
-export type AdvancedView = 'diagnostics' | 'logs'
+export type AdvancedView = 'diagnostics' | 'logs' | 'traces'
 type LogSource = 'app' | 'comfy'
 
 export function AdminAdvancedTab({ view = 'diagnostics' }: { view?: AdvancedView } = {}) {
@@ -14,14 +15,19 @@ export function AdminAdvancedTab({ view = 'diagnostics' }: { view?: AdvancedView
     <div className="space-y-5 p-6">
       {/* Header */}
       <div>
-        <h2 className="text-title">{tab === 'logs' ? 'Logs' : 'Diagnostics'}</h2>
+        <h2 className="text-title">{tab === 'logs' ? 'Logs' : tab === 'traces' ? 'Chat Traces' : 'Diagnostics'}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {tab === 'logs' ? 'Live application and ComfyUI logs.' : 'System health and queue diagnostics for troubleshooting.'}
+          {tab === 'logs' ? 'Live application and ComfyUI logs.'
+            : tab === 'traces' ? 'Per-turn chat traces: the assembled prompt, route decision, tool trail, tokens, and latency behind recent replies.'
+            : 'System health and queue diagnostics for troubleshooting.'}
         </p>
       </div>
 
       {/* Diagnostics */}
       {tab === 'diagnostics' && <AdminTroubleshootingTab />}
+
+      {/* Chat traces */}
+      {tab === 'traces' && <TraceInspector />}
 
       {/* Logs */}
       {tab === 'logs' && (

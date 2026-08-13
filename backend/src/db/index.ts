@@ -2865,7 +2865,7 @@ export function runMigrations() {
     END;
   `)
 
-  // Backfill messages_fts from existing rows — triggers only fire on FUTURE writes.
+  // Backfill messages_fts from existing rows - triggers only fire on FUTURE writes.
   try {
     const ftsCount = (sqlite.query(`SELECT count(*) AS c FROM messages_fts`).get() as { c: number }).c
     const rowCount = (sqlite.query(`SELECT count(*) AS c FROM messages`).get() as { c: number }).c
