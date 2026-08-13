@@ -44,14 +44,27 @@ Borrow the backend's playwright; browsers are pre-installed in the repo's
 managed dir (this is what `lib/playwrightEnv.ts` pins for the server):
 
 ```js
-process.env.PLAYWRIGHT_BROWSERS_PATH = '<repo>/data/bin/playwright'  // or export before bun
-const { chromium } = await import('<repo>/backend/node_modules/playwright/index.mjs')
+process.env.PLAYWRIGHT_BROWSERS_PATH = '<repo>/data/bin/playwright'
+const { chromium } = await import('file:///D:/loki-doki/backend/node_modules/playwright/index.mjs')
+const browser = await chromium.launch({ channel: 'msedge', headless: true, timeout: 30_000 })
 await ctx.addCookies([{ name: 'session', value: TOKEN, domain: 'localhost', path: '/' }])
 ```
 
-Run scripts with `bun script.mjs` (no node on this machine). Use
-`waitUntil: 'load'` plus a fixed wait, never `networkidle` (the app polls
+Run scripts with `node script.mjs` (node v24 IS installed, 2026-08). Under
+`bun` every launch hangs on the debugging-pipe handshake and times out, for
+the managed headless shell AND `channel: 'msedge'` alike, so bun is a dead
+end here even though the backend itself drives playwright fine. The import
+must be a `file:///` URL for node on Windows. `channel: 'msedge'` is the
+reliable browser (`chrome` is not installed; the managed headless shell also
+times out under node occasionally, Edge has not).
+
+Use `waitUntil: 'load'` plus a fixed wait, never `networkidle` (the app polls
 forever).
+
+To test phone conditions (insecure context, no service worker, like real
+LAN devices): point the browser at `http://<LAN-IP>:<port>` instead of
+localhost, and inject the session cookie for that IP domain. `localhost` is
+always a secure context, so SW-vs-no-SW code paths differ there.
 
 Gotcha: on first visit the main app shows the "Where are you?" location
 onboarding; click the "Skip for now" text before looking for page content.
