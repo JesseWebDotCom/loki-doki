@@ -8,7 +8,7 @@ import type { AppEnv } from '@/types'
 import { worldHeadlines } from '@/lib/briefing/sources/rss'
 import { blendedLocalNews } from '@/lib/briefing/localNews'
 import { getBriefingSettings } from '@/lib/briefing/settings'
-import { resolvePatchSlug } from '@/lib/briefing/resolveSlug'
+import { peekPatchSlug, resolvePatchSlug } from '@/lib/briefing/resolveSlug'
 import { enrichOgImages } from '@/lib/ogImage'
 import { OBITUARY_RE } from '@/lib/content/extract'
 import { cachedExtractArticle } from '@/lib/content/extractCache'
@@ -158,7 +158,19 @@ async function localItems(limit: number, placeOverride?: string): Promise<NewsIt
   const away = placeOverride && placeOverride !== s.defaultLocation
   if (away) {
     const town = placeOverride
-    const slug = await resolvePatchSlug(town).catch(() => null)
+    // The slug lookup is CACHE-ONLY here, deliberately.
+    //
+    // A real resolution derives a slug, validates it against patch.com, and on a miss asks
+    // the local model for candidates and validates each of those too. That is fine as
+    // background work and far too slow to sit in front of a request: for a town with no
+    // Patch community it ran past the proxy's 60s ceiling and the Local tab 504'd rather
+    // than showing the Bing and Daily Voice stories it already had in hand (Jesse,
+    // 2026-08-13). The phone gives up at 12s, so it never stood a chance.
+    //
+    // First ask for a town therefore serves the non-Patch sources immediately and resolves
+    // in the background; by the next request the answer is cached either way.
+    const { known, slug } = await peekPatchSlug(town).catch(() => ({ known: true, slug: null }))
+    if (!known) void resolvePatchSlug(town).catch(() => null)
     const { news } = await blendedLocalNews({ patchSlug: slug, townLabel: town, limit: Math.max(limit, 30) })
     return news
       .map((r) => ({
