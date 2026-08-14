@@ -1,5 +1,12 @@
 node_modules/
 dist/
+# The self-update's staged frontend build (lib/serverUpdate.ts buildFrontendStaged):
+# it builds into dist-staging, parks the live bundle in dist-old, then swaps. Only
+# dist/ was ignored, so those two showed up as untracked files and made the NEXT
+# update's "is the checkout clean?" guard refuse to run: the update pipeline was
+# dirtying the tree against itself (Jesse, 2026-08-14).
+dist-staging/
+dist-old/
 .DS_Store
 *.local
 

@@ -390,11 +390,19 @@ async function runUpdatePipeline(): Promise<void> {
     const git = await ensureGit()
 
     step('inspect', 'Checking the working tree', 'run')
-    const dirty = await capture(['status', '--porcelain'])
+    // TRACKED changes only. The guard exists because a merge could overwrite edits made
+    // on the server, and `merge --ff-only` cannot lose an untracked file: if an incoming
+    // path would clobber one, git refuses the merge itself. Counting untracked files
+    // meant the pipeline dirtied the tree against itself, because it builds into
+    // frontend/dist-staging and parks the live bundle in frontend/dist-old, and only
+    // dist/ was gitignored. One update's leftovers blocked the next one (Jesse,
+    // 2026-08-14). Both directories are ignored now, but the guard should not depend on
+    // .gitignore keeping pace with every scratch path we invent.
+    const dirty = await capture(['status', '--porcelain', '--untracked-files=no'])
     if (dirty) {
       step('inspect', 'Checking the working tree', 'fail')
       throw new Error(
-        'The server checkout has local changes, so updating could lose work. Resolve them on the server (commit, stash, or revert), then try again.',
+        'The server checkout has local changes to tracked files, so updating could lose work. Resolve them on the server (commit, stash, or revert), then try again.',
       )
     }
     step('inspect', 'Checking the working tree', 'ok')
