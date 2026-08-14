@@ -227,7 +227,23 @@ async function categoryItems(cat: { id: string; slug: string | null }, limit: nu
     // carries NO image at all, so nearly every item needs this. Firing it in the background
     // meant the first response — the one both the server cache and the client's 5-min
     // staleTime latch onto — always shipped with placeholders that never got a chance to heal.
-    await enrichOgImages(items).catch(() => {})
+    //
+    // The HTTP tier only, and on a leash. enrichOgImages' second tier renders the page in
+    // Chromium, and renderPage launches a FRESH browser per call whose launch nothing
+    // bounds: its kill timer only starts once the browser is already up. On a box that is
+    // also running Ollama that launch measured a flat ~180s, for ONE item's thumbnail
+    // (browserMax is 1), which is how a cold Local tab came to take three minutes and 504
+    // at the proxy: Hartford with limit=1 never needed the browser tier and answered in
+    // 2.1s, Stamford and Providence with limit=5 did and took 182s and 181s (Jesse,
+    // 2026-08-13). A missing thumbnail is cosmetic. Three minutes of dead air is not.
+    //
+    // The outer race is belt-and-braces for the HTTP tier: it is bounded at 4s per fetch
+    // across 8 workers, but nothing here is worth holding the page for. Items are mutated
+    // in place, so whatever lands before the bell still reaches the response and the cache.
+    await Promise.race([
+      enrichOgImages(items, { browserMax: 0 }),
+      new Promise((resolve) => setTimeout(resolve, 8000)),
+    ]).catch(() => {})
     setCached(itemsCacheKey(cat.id, limit, place), items)
     return items
   }
