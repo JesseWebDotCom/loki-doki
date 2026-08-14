@@ -1881,7 +1881,25 @@ export async function resolveTurnContext(
   const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
   // Candor is delivery: from the character for a character chat, else the user's style.
   const activeInteractionStyle = charContent ? { ...interactionStyle, candor: charContent.candor } : interactionStyle
-  const maskProfanityActive = activeDials.profanity === 'off'
+  // The asterisk filter follows the ACCOUNT, not the character.
+  //
+  // It used to key off activeDials, which is the character's own authored level clamped
+  // to the ceiling. Every family-safe companion ships with `dials: {}`, and an empty
+  // config normalizes to MIN_DIALS, so Loki Doki and friends ran with profanity 'off'
+  // and had their replies asterisked for everyone, including an adult on the No
+  // Restrictions profile (Jesse, 2026-08-14).
+  //
+  // That is the wrong instrument for the job twice over. The character's level is a
+  // VOICE setting and is already enforced where it belongs, in the prompt ("Keep your
+  // language clean"), so a companion told to stay clean stays clean. And the post-hoc
+  // masker is not a stylist, it is a guarantee for accounts that require one: obscenity's
+  // matcher has real false positives (it renders "shiitake" as "*****ake"), so running it
+  // over a clean-by-instruction reply mostly just mangles innocent words.
+  //
+  // So: mask when the account's own ceiling demands clean output, or when the viewer has
+  // explicitly asked for it. A restricted or child profile is unaffected, since its
+  // ceiling is what put profanity at 'off' in the first place.
+  const maskProfanityActive = userCeiling.profanity === 'off' || protections.blockProfanity
 
   let model = (prefs['chat_model'] as string | undefined) ?? await getModel()
   // If the user has uncensored LLM blocked, fall back to the default model when
