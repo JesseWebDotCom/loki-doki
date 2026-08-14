@@ -20,7 +20,7 @@
 
 import { join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { rename, rm, writeFile } from 'node:fs/promises'
+import { cp, rename, rm, writeFile } from 'node:fs/promises'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { ensureGit, gitBin } from '@/lib/git'
@@ -337,14 +337,27 @@ function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<void> {
 
 // Windows can transiently refuse to rename a directory whose files hold open
 // handles (the backend is serving dist while we swap it) — retry briefly.
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let i = 0; ; i++) {
+// Retry a rename that lost a race with something holding the path open.
+//
+// `budgetMs` exists because 3 seconds (the old fixed 10 x 300ms) is fine for a quick
+// contended rename and nowhere near enough for the frontend bundle swap on Windows: a
+// tree that was just written, thousands of files including ~4.5k openmoji SVGs, gets
+// picked up by Defender and the search indexer, and their handles outlive any 3 second
+// budget. That is what made every self-update fail at the swap with EPERM (Jesse,
+// 2026-08-13). Backs off rather than hammering, since the holder needs time, not nagging.
+const RETRYABLE_RENAME = ['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY']
+
+async function renameWithRetry(from: string, to: string, budgetMs = 3_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  let wait = 100
+  for (;;) {
     try {
       return await rename(from, to)
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? ''
-      if (i >= 10 || !['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY'].includes(code)) throw err
-      await new Promise((r) => setTimeout(r, 300))
+      if (!RETRYABLE_RENAME.includes(code) || Date.now() >= deadline) throw err
+      await new Promise((r) => setTimeout(r, wait))
+      wait = Math.min(wait * 2, 2_000)
     }
   }
 }
@@ -504,13 +517,25 @@ async function buildFrontendStaged(onLine: (line: string) => void): Promise<void
   }
 
   await rm(old, { recursive: true, force: true })
-  if (existsSync(dist)) await renameWithRetry(dist, old)
+  if (existsSync(dist)) await renameWithRetry(dist, old, 30_000)
   try {
-    await renameWithRetry(staging, dist)
-  } catch (err) {
-    // Put the old bundle back so the app keeps serving something.
-    await renameWithRetry(old, dist).catch(() => {})
-    throw err
+    await renameWithRetry(staging, dist, 60_000)
+  } catch {
+    // Rename needs exclusive access; a scanner's handle denies it. Those handles allow
+    // READS though, so copy what we could not move. Slower (it is a real file copy of
+    // the whole bundle) and only ever reached after a minute of the swap being blocked,
+    // which beats the alternative: the update failing here means the code is merged but
+    // the server never restarts, so it keeps running the OLD process while reporting the
+    // NEW hash. That silent half-update is far worse than a slow copy.
+    try {
+      await cp(staging, dist, { recursive: true, force: true })
+      void rm(staging, { recursive: true, force: true }).catch(() => {})
+    } catch (copyErr) {
+      // Neither worked: put the old bundle back so the app keeps serving something.
+      await rm(dist, { recursive: true, force: true }).catch(() => {})
+      await renameWithRetry(old, dist, 30_000).catch(() => {})
+      throw copyErr
+    }
   }
   // Stamp AFTER the swap so it's newer than every pulled source file.
   await touchStamp(join(dist, '.loki-build-stamp'))
