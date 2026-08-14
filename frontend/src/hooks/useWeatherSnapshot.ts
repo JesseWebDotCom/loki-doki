@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useUserLocation } from './useUserLocation'
 import { useCurrentPlace } from './useCurrentPlace'
+import { useAutoRefresh } from './useAutoRefresh'
 import { fetchWeatherData, fetchWeatherAlerts, resolveWmoInfo, type WeatherData, type WmoInfo, type WeatherAlert } from '@/lib/weather'
 
 export interface WeatherSnapshot {
@@ -36,6 +37,10 @@ export function useWeatherSnapshot(): UseWeatherSnapshotResult {
   const location = current
     ? { displayName: current.label, lat: current.lat, lng: current.lng }
     : home
+  // Bumps on tab re-show / focus / reconnect / day-change so a long-idle tab
+  // re-fetches conditions instead of showing the snapshot from first mount. The
+  // 5-min weather cache means a bump only hits the network once it's stale.
+  const refreshEpoch = useAutoRefresh()
   const [snapshot, setSnapshot] = useState<WeatherSnapshot | null>(null)
   const [status, setStatus] = useState<SnapshotStatus>('loading')
 
@@ -79,7 +84,7 @@ export function useWeatherSnapshot(): UseWeatherSnapshotResult {
 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location?.displayName, locStatus, current?.label])
+  }, [location?.displayName, locStatus, current?.label, refreshEpoch])
 
   return { snapshot, status }
 }

@@ -37,6 +37,7 @@ import { useNewsReaderMode } from "@/hooks/useNewsReaderMode";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useHomeLayout, resolveTickerConfig, type HomeRow, type HomeWidget, type TickerConfig, type TickerSource } from "@/hooks/useHomeLayout";
 import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTextClass, SNOW_TEXT, type HeroGradient } from "@/lib/weather";
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
@@ -159,6 +160,7 @@ function WeatherWidget({ light, variant = "corner" }: { light?: boolean; variant
 // ── Joke text (inline below greeting) ────────────────────────────────────────
 
 function JokeText({ light }: { light?: boolean }) {
+  const refreshEpoch = useAutoRefresh();
   const [joke, setJoke] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,7 +168,7 @@ function JokeText({ light }: { light?: boolean }) {
       .then(r => r.ok ? r.json() : null)
       .then((d: { joke?: string | null } | null) => { setJoke(d?.joke ?? null); })
       .catch(() => {});
-  }, []);
+  }, [refreshEpoch]);
 
   if (!joke) return null;
   return (
@@ -324,6 +326,7 @@ function HomeTicker({ config }: { config: TickerConfig }) {
   const podcastPb = usePodcastPlayback()
   const navigate = useNavigate()
   const [readerMode] = useNewsReaderMode()
+  const refreshEpoch = useAutoRefresh()
   const [items, setItems] = useState<TickerItem[]>([])
   const [ready, setReady] = useState(false)
 
@@ -402,7 +405,7 @@ function HomeTicker({ config }: { config: TickerConfig }) {
       setReady(true)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourcesKey])
+  }, [sourcesKey, refreshEpoch])
 
   useLayoutEffect(() => {
     if (!items.length) return
@@ -566,6 +569,7 @@ function WidgetWeather() {
 
 function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
   const limit = displayMode === 'row' ? 6 : 3;
+  const refreshEpoch = useAutoRefresh();
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -575,7 +579,7 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
       .then((d: { items?: NewsItem[] } | null) => { setItems(d?.items ?? []); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [limit]);
+  }, [limit, refreshEpoch]);
 
   if (displayMode === 'row') {
     return (
@@ -639,6 +643,7 @@ function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column'
 }
 
 function WidgetJokes() {
+  const refreshEpoch = useAutoRefresh();
   const [joke, setJoke] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -648,7 +653,7 @@ function WidgetJokes() {
       .then((d: { joke?: string | null } | null) => { setJoke(d?.joke ?? null); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshEpoch]);
 
   return (
     <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
@@ -668,6 +673,7 @@ function WidgetJokes() {
 }
 
 function WidgetSports() {
+  const refreshEpoch = useAutoRefresh();
   const [games, setGames] = useState<GameItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -677,7 +683,7 @@ function WidgetSports() {
       .then((d: { games?: GameItem[] } | null) => { setGames(d?.games ?? []); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshEpoch]);
 
   return (
     <div className={cn(cardVariants(), "p-4 h-full flex flex-col gap-2")}>
@@ -717,6 +723,7 @@ function WidgetSports() {
 }
 
 function WidgetOnThisDay() {
+  const refreshEpoch = useAutoRefresh();
   const [items, setItems] = useState<OtdItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -726,7 +733,7 @@ function WidgetOnThisDay() {
       .then((d: { events?: OtdItem[] } | null) => { setItems(d?.events?.slice(0, 1) ?? []); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshEpoch]);
 
   const item = items[0];
   const parsed = item ? parseOtdYear(item.title) : null;
@@ -807,6 +814,7 @@ function BriefingWeatherArt() {
 }
 
 function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const refreshEpoch = useAutoRefresh();
   const [payload, setPayload] = useState<BriefingPayload | null>(null);
   const [warming, setWarming] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -820,7 +828,7 @@ function WidgetBriefing({ displayMode = 'column' }: { displayMode?: 'row' | 'col
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshEpoch]);
 
   // Prefer a story that actually carries a photo for the hero/top tile: hyperlocal items
   // often have no image, while the world feeds always do. Keeps local-first order within
@@ -2662,7 +2670,11 @@ function HomeBillboard() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function HomePage() {
-  const now = new Date();
+  // Recompute the clock-derived hero (date line + greeting) whenever the shared
+  // refresh epoch bumps — tab re-show, focus, or the day rolling over — so a tab
+  // left open overnight doesn't keep yesterday's date and "Good morning".
+  const refreshEpoch = useAutoRefresh();
+  const now = useMemo(() => new Date(), [refreshEpoch]);
   const dateStr = `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
 
   const { user } = useAuth();
