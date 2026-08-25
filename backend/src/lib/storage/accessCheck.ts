@@ -79,8 +79,8 @@ export async function freeBytesAt(path: string): Promise<number | null> {
 export async function checkDirectoryAccess(candidatePath: string): Promise<AccessCheckResult> {
   const checks = { read: false, write: false, rename: false, delete: false }
   let errorMsg: string | null = null
-  const tmpFile = join(candidatePath, `.loki-access-check-${Date.now()}`)
-  const tmpRenamed = join(candidatePath, `.loki-access-renamed-${Date.now()}`)
+  const tmpFile = join(candidatePath, `.maipai-access-check-${Date.now()}`)
+  const tmpRenamed = join(candidatePath, `.maipai-access-renamed-${Date.now()}`)
 
   try {
     await mkdir(candidatePath, { recursive: true })

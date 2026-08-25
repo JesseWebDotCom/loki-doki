@@ -193,7 +193,7 @@ export async function runBookDownloadJob(
 
   const tmpPath = join(await contentTmpDir(), `book-${bookId}-${Date.now()}.${format}`)
   try {
-    const fetchHeaders = { 'User-Agent': 'LokiDoki/3.0 books', Accept: '*/*', 'Accept-Encoding': 'identity', ...authHeaders }
+    const fetchHeaders = { 'User-Agent': 'MaiPaiHome/3.0 books', Accept: '*/*', 'Accept-Encoding': 'identity', ...authHeaders }
     // A self-hosted indexer is admin-configured and typically on the LAN — bypass
     // the SSRF guard the same way lib/homeAssistant/client.ts does for the same
     // reason (Gutenberg/Archive.org are arbitrary public URLs and stay guarded).

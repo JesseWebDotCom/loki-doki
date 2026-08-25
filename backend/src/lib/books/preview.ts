@@ -51,7 +51,7 @@ function sampleFrom(paragraphs: string[], sourceUrl: string): BookSample {
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const res = await safeFetch(url, { headers: { 'User-Agent': 'LokiDoki/3.0 books' } }, { timeoutMs: 12_000, maxRedirects: 5 })
+    const res = await safeFetch(url, { headers: { 'User-Agent': 'MaiPaiHome/3.0 books' } }, { timeoutMs: 12_000, maxRedirects: 5 })
     if (!res.ok) return null
     return await res.text()
   } catch {

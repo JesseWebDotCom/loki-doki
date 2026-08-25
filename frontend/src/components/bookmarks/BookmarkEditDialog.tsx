@@ -10,7 +10,7 @@ import { updateItem, listCollections, createCollection, type BookmarkItem } from
 import { useAuth } from '@/context/AuthContext'
 
 // Edit an existing bookmark: title, tags, collection, and (for live links) whether it
-// opens inside Loki or in a new tab. The URL is identity and can't be changed here - re-save
+// opens inside MaiPai or in a new tab. The URL is identity and can't be changed here - re-save
 // to capture a different page.
 export function BookmarkEditDialog({ item, open, onClose }: { item: BookmarkItem | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient()
@@ -99,7 +99,7 @@ export function BookmarkEditDialog({ item, open, onClose }: { item: BookmarkItem
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input type="checkbox" checked={useEmbed} onChange={e => setUseEmbed(e.target.checked)}
                 className="size-4 rounded border-border" />
-              Open inside Loki instead of a new tab
+              Open inside MaiPai instead of a new tab
             </label>
           )}
           <label className="flex items-start gap-2 text-sm text-muted-foreground">

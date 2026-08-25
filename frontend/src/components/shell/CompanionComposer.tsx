@@ -46,7 +46,7 @@ export interface CompanionComposerHandle {
 // the message goes (chat.submit on /chat, navigate+submit elsewhere). Visual style
 // matches the retired GlobalChatInput InputBar.
 export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(function CompanionComposer(
-  { onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message Loki Doki…', autoFocus = false, onTyping, focusKey, visionAvailable = true, micOn, onMicToggle }: Props,
+  { onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message MaiPai Home…', autoFocus = false, onTyping, focusKey, visionAvailable = true, micOn, onMicToggle }: Props,
   ref,
 ) {
   const [value, setValue] = useState('')
@@ -92,10 +92,10 @@ export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(func
   // Desktop shell only: stage a screenshot of the current screen as an image
   // attachment (same vision path as Photos, preview chip for free).
   async function attachScreen() {
-    const res = await window.lokiDesktop?.captureScreen?.({ maxDim: 1344 })
+    const res = await window.maipaiDesktop?.captureScreen?.({ maxDim: 1344 })
     if (!res) return
     if (!res.ok) {
-      if (res.reason === 'permission') window.lokiDesktop?.openScreenRecordingSettings?.()
+      if (res.reason === 'permission') window.maipaiDesktop?.openScreenRecordingSettings?.()
       return
     }
     const bytes = Uint8Array.from(atob(res.imageBase64), (c) => c.charCodeAt(0))
@@ -182,7 +182,7 @@ export const CompanionComposer = forwardRef<CompanionComposerHandle, Props>(func
             >
               Files
             </DropdownMenuItem>
-            {!!window.lokiDesktop?.captureScreen && (
+            {!!window.maipaiDesktop?.captureScreen && (
               <DropdownMenuItem
                 disabled={!visionAvailable}
                 onSelect={() => { void attachScreen() }}

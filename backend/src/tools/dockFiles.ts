@@ -1,5 +1,5 @@
 // Companion chat tool: read-only file operations on the user's computer via
-// their Doki Dock desktop app. The server round-trips the request over the
+// their MaiPai Desktop desktop app. The server round-trips the request over the
 // dock's browser-session SSE (sendDockRequest); ALL enforcement — the on/off
 // permission, user-picked allowed folders, traversal/symlink checks, secret-path
 // denylist, size caps — happens in the dock's Electron main process
@@ -11,12 +11,12 @@ import { isDockOnline, sendDockRequest } from '@/lib/pod/browserSession'
 const MAX_CONTENT_CHARS = 12_000
 
 const ERROR_TEXT: Record<string, string> = {
-  dock_offline: "Doki Dock isn't running on your computer right now, so I can't look at local files. Open the Doki Dock app first.",
-  dock_timeout: "Your Doki Dock didn't answer in time. Make sure the app is running and connected, then try again.",
-  shell_outdated: 'Your Doki Dock app is too old for file access — update it to the latest version.',
-  permission_off: 'Local file access is turned off. In the Doki Dock island, open Settings (gear icon) and turn on "Local file access", then add the folders I may read.',
-  no_roots: 'Local file access is on, but no folders are allowed yet. In the Doki Dock island Settings, use "Add folder…" to pick which folders I may read.',
-  outside_roots: "That path isn't inside a folder you've allowed. Add its folder in the Doki Dock island Settings if you want me to read it.",
+  dock_offline: "MaiPai Desktop isn't running on your computer right now, so I can't look at local files. Open the MaiPai Desktop app first.",
+  dock_timeout: "Your MaiPai Desktop didn't answer in time. Make sure the app is running and connected, then try again.",
+  shell_outdated: 'Your MaiPai Desktop app is too old for file access — update it to the latest version.',
+  permission_off: 'Local file access is turned off. In the MaiPai Desktop island, open Settings (gear icon) and turn on "Local file access", then add the folders I may read.',
+  no_roots: 'Local file access is on, but no folders are allowed yet. In the MaiPai Desktop island Settings, use "Add folder…" to pick which folders I may read.',
+  outside_roots: "That path isn't inside a folder you've allowed. Add its folder in the MaiPai Desktop island Settings if you want me to read it.",
   denied_path: "I can't read that — it looks like a credentials or secrets location, which is always off-limits.",
   not_found: "I couldn't find that path on your computer.",
   bad_path: 'I need a full path, like /Users/you/Documents.',
@@ -46,7 +46,7 @@ function fmtSize(bytes: number): string {
 export const dockFilesTool: Tool = {
   id: 'dockFiles',
   name: 'Local files (read-only)',
-  description: 'List folders and read text files on the user\'s computer through their Doki Dock desktop app — strictly read-only, and only inside folders the user explicitly allowed in the dock settings.',
+  description: 'List folders and read text files on the user\'s computer through their MaiPai Desktop desktop app — strictly read-only, and only inside folders the user explicitly allowed in the dock settings.',
   offline: true,
   dataSources: [],
   examples: [
@@ -61,7 +61,7 @@ export const dockFilesTool: Tool = {
     type: 'function',
     function: {
       name: 'dockFiles',
-      description: 'Read-only file access on the user\'s computer via the Doki Dock desktop app. action "list" returns a folder\'s entries; action "read" returns a text file\'s contents. Paths must be absolute (e.g. /Users/name/Downloads). Only works inside folders the user allowed, and only while Doki Dock is running.',
+      description: 'Read-only file access on the user\'s computer via the MaiPai Desktop desktop app. action "list" returns a folder\'s entries; action "read" returns a text file\'s contents. Paths must be absolute (e.g. /Users/name/Downloads). Only works inside folders the user allowed, and only while MaiPai Desktop is running.',
       parameters: {
         type: 'object',
         properties: {

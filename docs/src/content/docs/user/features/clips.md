@@ -9,7 +9,7 @@ Clips is for the one-off video someone sends you: paste a link from TikTok, Inst
 
 ## Watch or Save
 
-Paste a video URL and Loki Doki pulls it in. From there you can:
+Paste a video URL and MaiPai Home pulls it in. From there you can:
 
 - **Watch it now**, right in the built-in player.
 - **Save it offline**, so it lives on your server and plays even with no connection.

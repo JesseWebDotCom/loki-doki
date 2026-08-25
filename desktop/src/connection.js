@@ -46,7 +46,7 @@ async function probe(url, expectedInstanceId) {
     const body = await res.json()
     if (!body?.instanceId) return null
     if (expectedInstanceId && body.instanceId !== expectedInstanceId) return null
-    return { url, instanceId: body.instanceId, name: body.name ?? 'Loki Doki' }
+    return { url, instanceId: body.instanceId, name: body.name ?? 'MaiPai Home' }
   } catch {
     return null
   }

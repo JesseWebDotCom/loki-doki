@@ -91,7 +91,7 @@ function wire(cfg: FrigateConfig): MqttClient {
     password: cfg.mqttPassword ?? undefined,
     reconnectPeriod: 5000,
     connectTimeout: 10_000,
-    clientId: `loki-doki-${crypto.randomUUID().slice(0, 8)}`,
+    clientId: `maipai-home-${crypto.randomUUID().slice(0, 8)}`,
   })
 
   c.on('connect', () => {

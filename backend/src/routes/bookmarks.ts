@@ -470,9 +470,9 @@ bookmarksRouter.get('/export/html', requireAuth, async (c) => {
     `        <DT><A HREF="${esc(b.url)}" ADD_DATE="${Math.floor((b.createdAt?.getTime() ?? Date.now()) / 1000)}">${esc(b.title || b.url)}</A>`,
   )
   const html =
-    `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n    <DT><H3>Loki Reader</H3>\n    <DL><p>\n${lines.join('\n')}\n    </DL><p>\n</DL><p>\n`
+    `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n    <DT><H3>MaiPai Reader</H3>\n    <DL><p>\n${lines.join('\n')}\n    </DL><p>\n</DL><p>\n`
   c.header('Content-Type', 'text/html; charset=utf-8')
-  c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.html"')
+  c.header('Content-Disposition', 'attachment; filename="maipai-bookmarks.html"')
   return c.body(html)
 })
 
@@ -491,7 +491,7 @@ bookmarksRouter.get('/export/json', requireAuth, async (c) => {
     createdAt: b.createdAt?.toISOString() ?? null,
   }))
   c.header('Content-Type', 'application/json; charset=utf-8')
-  c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.json"')
+  c.header('Content-Disposition', 'attachment; filename="maipai-bookmarks.json"')
   return c.body(JSON.stringify({ bookmarks: out }, null, 2))
 })
 
@@ -511,7 +511,7 @@ bookmarksRouter.get('/export/csv', requireAuth, async (c) => {
     ].join(','))
   }
   c.header('Content-Type', 'text/csv; charset=utf-8')
-  c.header('Content-Disposition', 'attachment; filename="loki-bookmarks.csv"')
+  c.header('Content-Disposition', 'attachment; filename="maipai-bookmarks.csv"')
   return c.body(lines.join('\n'))
 })
 

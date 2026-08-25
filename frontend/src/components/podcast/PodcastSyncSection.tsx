@@ -119,7 +119,7 @@ export function PodcastSyncSection() {
           <Smartphone className="size-4 text-brand" /> Sync with AntennaPod
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Loki Doki speaks the gpodder.net sync protocol, so AntennaPod (and other gpodder-compatible apps) can keep
+          MaiPai Home speaks the gpodder.net sync protocol, so AntennaPod (and other gpodder-compatible apps) can keep
           your subscriptions and playback positions in step with the app.
         </p>
 

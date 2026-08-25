@@ -59,7 +59,7 @@ Then it caches the resolved `sound_pack.events` map.
 Widget sizes: `small` 1×1, `medium` 1×2 (horizontal) or 2×1 (vertical), `large` 2×2.
 Each widget renders **different internal detail per size** (clock: time → +date → +day/seconds;
 weather: icon+temp → +condition → animated bg+hi/lo). Audio URLs are server-relative —
-resolve against the configured `lokidoki_host`. `null` = silent for that event.
+resolve against the configured `maipai-home_host`. `null` = silent for that event.
 
 ### `sound` — play a UI earcon
 ```jsonc

@@ -179,7 +179,7 @@ export async function runPodcastDownloadJob(
   const tmpPath = join(await contentTmpDir(), `podcast-${episodeId}-${Date.now()}.${format}`)
   try {
     const res = await safeFetch(episode.enclosureUrl, {
-      headers: { 'User-Agent': 'LokiDoki/3.0 podcast', Accept: '*/*', 'Accept-Encoding': 'identity' },
+      headers: { 'User-Agent': 'MaiPaiHome/3.0 podcast', Accept: '*/*', 'Accept-Encoding': 'identity' },
     }, { timeoutMs: 30_000, maxRedirects: 8 })
     if (!res.ok || !res.body) {
       res.body?.cancel().catch(() => {})

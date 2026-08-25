@@ -31,7 +31,7 @@ Below is the original proposal, kept for reference.
 
 This reviews the AI feature set of current Apple platforms (iOS 26.5 / macOS 26 Tahoe stable,
 plus everything announced at WWDC 2026 for iOS 27 / macOS 27 "Golden Gate", public beta since
-July 13, 2026), compares it against Loki Doki, and proposes changes for feature and UI/UX
+July 13, 2026), compares it against MaiPai Home, and proposes changes for feature and UI/UX
 parity. All proposals stay inside our constraints: fully local models, no cloud LLMs, existing
 stack (Ollama, Kokoro, Whisper, ComfyUI, shadcn/Tailwind).
 
@@ -75,7 +75,7 @@ cloud-gated. Our overlap areas (assistant + memory, camera AI, family profiles, 
 privacy) are places we are ahead today. The gaps are polish surfaces: writing tools
 everywhere, a consistent AI labeling grammar, photo clean-up, and live translation.
 
-## 2. Scorecard: Apple feature vs Loki Doki
+## 2. Scorecard: Apple feature vs MaiPai Home
 
 | Apple feature | Our status | Verdict |
 |---|---|---|
@@ -209,7 +209,7 @@ Small, cross-cutting, mostly copy and component work; proposes additions to `age
 Visual Language:
 
 - **One AI-content label**: a shared `AiGeneratedBadge` (sparkle glyph + short label, e.g.
-  "Summarized by Loki", "Made with Imaging") applied consistently to podcast insights,
+  "Summarized by MaiPai", "Made with Imaging") applied consistently to podcast insights,
   briefing digests, notification summaries (P2), camera digests (P4), and AI-authored
   books/podcasts. Today labeling is inconsistent across these surfaces.
 - **Edit / Undo / Retry adjacent to output**: we have Regenerate in chat; add Retry beside

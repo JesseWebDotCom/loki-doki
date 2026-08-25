@@ -152,7 +152,7 @@ export function MobileDock() {
           onStop={engine.onStop}
           isGenerating={engine.busy}
           isThinking={thinking}
-          placeholder={character ? `Ask ${character.name}…` : "Message Loki Doki…"}
+          placeholder={character ? `Ask ${character.name}…` : "Message MaiPai Home…"}
           micOn={handsFreeOn}
           onMicToggle={() => setHandsFree(!handsFreeOn)}
         />

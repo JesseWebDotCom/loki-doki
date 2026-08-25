@@ -12,7 +12,7 @@ const browserSessionRoute = new Hono<AppEnv>()
 
 browserSessionRoute.get('/', requireAuth, (c) => {
   const user = c.get('user')
-  // Session metadata for voice arbitration: the Doki Dock desktop app registers with
+  // Session metadata for voice arbitration: the MaiPai Desktop desktop app registers with
   // dock=1 (surface=hud for the island window). Older clients/pods send neither —
   // they default to a plain web tab, which is the pre-existing behavior.
   const isDock = c.req.query('dock') === '1'

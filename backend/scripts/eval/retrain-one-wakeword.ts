@@ -3,7 +3,7 @@
 // old vs new before switching. Assign manually (or via Admin → Wakewords) after
 // verification.
 //
-// Usage: bun run scripts/eval/retrain-one-wakeword.ts "hey loki"
+// Usage: bun run scripts/eval/retrain-one-wakeword.ts "hey maipai"
 // Must be the first import: @/lib/download and @/lib/logger form a circular
 // pair (download.ts imports logger.ts; logger.ts imports `dataDir` back from
 // download.ts and reads it synchronously at its own module top level via

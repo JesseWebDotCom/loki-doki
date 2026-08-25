@@ -660,7 +660,7 @@ export function LeftSidebar() {
           )}
           {isWide && (
             <div className="relative min-w-0">
-              <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">Loki Doki</p>
+              <p className="text-sm font-semibold tracking-tight leading-none truncate text-foreground">MaiPai Home</p>
               <p className="mt-1 text-[11px] leading-none text-muted-foreground truncate">Your private AI home hub</p>
             </div>
           )}
@@ -734,7 +734,7 @@ export function LeftSidebar() {
                 </div>
                 {digest && (
                   <div className="mx-2 mb-1 rounded-control bg-brand/5 px-2 py-1.5">
-                    <AiGeneratedBadge label="Summarized by Loki" tone="brand" className="mb-1" />
+                    <AiGeneratedBadge label="Summarized by MaiPai" tone="brand" className="mb-1" />
                     <p className="text-xs leading-snug text-foreground">{digest}</p>
                   </div>
                 )}
@@ -794,7 +794,7 @@ export function LeftSidebar() {
                   <FlaskConical className="size-4" />
                   Tester
                 </DropdownMenuItem>
-                {/* Doki Dock: an installer in the browser; inside the shell it
+                {/* MaiPai Desktop: an installer in the browser; inside the shell it
                     shows installed / update-available status instead. */}
                 <DropdownMenuItem
                   onClick={() => setDesktopAppOpen(true)}

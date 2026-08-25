@@ -229,7 +229,7 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-muted-foreground">
-        Type the phrase you'll say aloud — e.g. <span className="font-mono text-foreground/70">hey loki</span>. The AI will suggest phonetic spellings so the TTS trains on the right sounds.
+        Type the phrase you'll say aloud — e.g. <span className="font-mono text-foreground/70">hey maipai</span>. The AI will suggest phonetic spellings so the TTS trains on the right sounds.
       </p>
 
       {trainInstalled === false && (
@@ -246,7 +246,7 @@ export function CustomWakewordTrainer({ onAdded, characterId }: { onAdded?: (mod
               value={inputPhrase}
               onChange={(e) => setInputPhrase(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void checkPhonetics() }}
-              placeholder="e.g.  hey loki  or  computer"
+              placeholder="e.g.  hey maipai  or  computer"
               className="ld-input flex-1"
               disabled={phase.tag === 'checking' || trainInstalled === false}
             />
@@ -489,9 +489,9 @@ export function WakewordBrowser() {
 
 // ── Wake phrase field (Whisper phrase wake) ──────────────────────────────────
 // Phrase-based wake needs no training: Whisper transcribes the mic and matches
-// the configured phrase as words, so "hey loki" is never confused with "hey
+// the configured phrase as words, so "hey maipai" is never confused with "hey
 // alexa". The "right" phrase is whatever Whisper actually TRANSCRIBES when you
-// say it (Whisper may hear "low key", "loki", "loaky"…), so the record-and-hear
+// say it (Whisper may hear "my pie", "my pai", "maypai"…), so the record-and-hear
 // helper below is this path's equivalent of the trained model's phonetic check:
 // say it, see what Whisper heard, and use that exact text as the phrase.
 export function WakePhraseField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -544,7 +544,7 @@ export function WakePhraseField({ value, onChange }: { value: string; onChange: 
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="e.g.  hey loki"
+          placeholder="e.g.  hey maipai"
           className="ld-input flex-1"
         />
         <button

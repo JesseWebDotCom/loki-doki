@@ -4398,7 +4398,7 @@ export function runMigrations() {
     );
   `)
 
-  // ── Doki TV: linear channels (plans/doki-tv.md) ─────────────────────────────
+  // ── MaiPai TV: linear channels (plans/maipai-tv.md) ─────────────────────────────
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS tv_channels (
       id TEXT NOT NULL PRIMARY KEY,

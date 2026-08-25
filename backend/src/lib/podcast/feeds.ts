@@ -13,7 +13,7 @@ import { logSubscriptionChange } from '@/lib/podcast/gpodderStore'
 import { safeFetch } from '@/lib/ssrfGuard'
 import { logger } from '@/lib/logger'
 
-const UA = 'LokiDoki/3.0 podcast'
+const UA = 'MaiPaiHome/3.0 podcast'
 const FETCH_TIMEOUT_MS = 15_000
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000  // podcasts are low-churn; conditional GET makes most refreshes a 304
 const MIN_HOST_GAP_MS = 1500

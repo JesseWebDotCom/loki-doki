@@ -300,7 +300,7 @@ function formatTurn(t: ScriptTurn, hostInfos: HostInfo[]): string {
 }
 
 /**
- * Companion characters' personality prompts are written for 1:1 chat ("You are Loki, the
+ * Companion characters' personality prompts are written for 1:1 chat ("You are MaiPai, the
  * user's upbeat companion…"). When no on-air cast voice exists yet, strip the framing so
  * the script model gets traits, not a second-person companion briefing.
  */

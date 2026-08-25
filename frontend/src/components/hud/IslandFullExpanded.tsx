@@ -178,10 +178,10 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
       <div className="flex items-center gap-2.5">
         <button
           type="button"
-          aria-label="Open Loki Doki"
-          title="Open Loki Doki (right-click for companion menu)"
+          aria-label="Open MaiPai Home"
+          title="Open MaiPai Home (right-click for companion menu)"
           className="shrink-0"
-          onClick={() => window.lokiDesktop?.openMainWindow()}
+          onClick={() => window.maipaiDesktop?.openMainWindow()}
           onContextMenu={(e) => { e.preventDefault(); onOpenMenu() }}
         >
           {avatar}
@@ -197,7 +197,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
           </span>
         ) : (
           <span className="min-w-0 flex-1 truncate text-sm text-white/60">
-            {engine.character ? engine.character.name : 'Loki Doki'}
+            {engine.character ? engine.character.name : 'MaiPai Home'}
           </span>
         )}
         {/* No Stop button here: the composer's send control below already
@@ -223,7 +223,7 @@ export function IslandFullExpanded({ nowPlaying, tab, setTab, onOpenMenu, topIns
         isThinking={engine.thinking}
         focusKey={engine.focusKey}
         visionAvailable={visionStatus?.available ?? true}
-        placeholder={engine.character ? `Ask ${engine.character.name}…` : 'Message Loki Doki…'}
+        placeholder={engine.character ? `Ask ${engine.character.name}…` : 'Message MaiPai Home…'}
       />
     </div>
   )

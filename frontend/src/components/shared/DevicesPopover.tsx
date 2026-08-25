@@ -214,7 +214,7 @@ export function DevicesPopover({ triggerClassName }: { triggerClassName?: string
             )}
             {!isLoading && others.length === 0 && (
               <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-                No other devices are open right now. Open Loki Doki on another screen to control it from here.
+                No other devices are open right now. Open MaiPai Home on another screen to control it from here.
               </p>
             )}
             {others.map((d) => (

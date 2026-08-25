@@ -1885,7 +1885,7 @@ export async function resolveTurnContext(
   //
   // It used to key off activeDials, which is the character's own authored level clamped
   // to the ceiling. Every family-safe companion ships with `dials: {}`, and an empty
-  // config normalizes to MIN_DIALS, so Loki Doki and friends ran with profanity 'off'
+  // config normalizes to MIN_DIALS, so MaiPai Home and friends ran with profanity 'off'
   // and had their replies asterisked for everyone, including an adult on the No
   // Restrictions profile (Jesse, 2026-08-14).
   //

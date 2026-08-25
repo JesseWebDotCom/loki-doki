@@ -1,6 +1,6 @@
 import type { PlaceResult } from "./types";
 
-const STORAGE_KEY = "lokidoki.maps.last-view.v1";
+const STORAGE_KEY = "maipai.maps.last-view.v1";
 
 export interface StoredMapView {
   center: { lat: number; lon: number };

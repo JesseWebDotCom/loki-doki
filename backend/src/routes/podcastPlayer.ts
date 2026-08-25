@@ -446,7 +446,7 @@ podcastPlayerRoute.get('/opml.export', async (c) => {
     .map(r => `    <outline type="rss" text="${xmlEscape(r.name)}" title="${xmlEscape(r.name)}" xmlUrl="${xmlEscape(r.feedUrl!)}"${r.link ? ` htmlUrl="${xmlEscape(r.link)}"` : ''}/>`)
     .join('\n')
 
-  const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head>\n    <title>Loki Doki podcast subscriptions</title>\n    <dateCreated>${new Date().toUTCString()}</dateCreated>\n  </head>\n  <body>\n${outlines}\n  </body>\n</opml>\n`
+  const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head>\n    <title>MaiPai Home podcast subscriptions</title>\n    <dateCreated>${new Date().toUTCString()}</dateCreated>\n  </head>\n  <body>\n${outlines}\n  </body>\n</opml>\n`
 
   return new Response(opml, {
     headers: {

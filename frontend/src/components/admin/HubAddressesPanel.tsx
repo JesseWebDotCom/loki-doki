@@ -320,7 +320,7 @@ export function HubAddressesPanel() {
           <Input value={newName} onChange={(e) => setNewName(e.target.value)}
             placeholder="Name (Local DNS)" className="sm:w-48" autoFocus />
           <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
-            placeholder="loki.home.arpa:3000" className="flex-1"
+            placeholder="maipai.home.arpa:3000" className="flex-1"
             onKeyDown={(e) => { if (e.key === 'Enter') void add() }} />
           <div className="flex shrink-0 gap-2">
             <Button onClick={() => void add()} disabled={busy || !newName.trim() || !newUrl.trim()}>

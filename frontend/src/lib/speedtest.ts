@@ -4,7 +4,7 @@
 //
 // Three modes:
 //   internet         — true ISP speed against Cloudflare's edge (client-driven)
-//   server           — private throughput to your own Loki Doki server (client-driven)
+//   server           — private throughput to your own MaiPai Home server (client-driven)
 //   server-internet  — server's own internet speed against Cloudflare (server-driven SSE)
 
 // ── Modes & providers ───────────────────────────────────────────────────────

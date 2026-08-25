@@ -6,7 +6,7 @@ import { safeFetch } from '@/lib/ssrfGuard'
 
 export interface FeedCandidate { url: string; title: string | null; kind: 'rss' | 'atom' }
 
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 
 export async function discoverFeeds(input: string, timeoutMs = 6000): Promise<FeedCandidate[]> {
   let res: Response

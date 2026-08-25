@@ -45,7 +45,7 @@ interface CivitAIModelMeta {
 async function fetchCivitAIMetadata(civitaiModelId: number): Promise<CivitAIModelMeta | null> {
   try {
     const apiKey = process.env.CIVITAI_API_KEY
-    const headers: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
+    const headers: Record<string, string> = { 'User-Agent': 'maipai-home/1.0' }
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
 
     const res = await fetch(`https://civitai.com/api/v1/models/${civitaiModelId}`, {
@@ -624,7 +624,7 @@ async function fetchCivarchive(query: string, nsfw: boolean, cursor: string, lim
   })
   if (query) params.set('q', query)
   const res = await fetch(`https://civarchive.com/api/search?${params}`, {
-    headers: { 'User-Agent': 'loki-doki/1.0' },
+    headers: { 'User-Agent': 'maipai-home/1.0' },
     signal: AbortSignal.timeout(4_000),
   })
   if (!res.ok) throw new Error(`civarchive_${res.status}`)
@@ -910,7 +910,7 @@ adminImageLoras.post('/civitai-import', requireAdmin, async (c) => {
   }
 
   const apiKey = process.env.CIVITAI_API_KEY || (await getAppSetting('civitai_api_key') as string | null) || ''
-  const baseHeaders: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
+  const baseHeaders: Record<string, string> = { 'User-Agent': 'maipai-home/1.0' }
   // Only attach the Civitai API key when downloading from Civitai, so a mistyped
   // or hostile downloadUrl can't exfiltrate the key to a third-party host.
   if (apiKey && isCivitai) baseHeaders['Authorization'] = `Bearer ${apiKey}`

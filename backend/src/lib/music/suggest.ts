@@ -18,7 +18,7 @@ export interface MusicSuggestion {
 async function dz<T = any>(path: string, timeout: number): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`, {
-      headers: { 'User-Agent': 'LokiDoki/1.0' },
+      headers: { 'User-Agent': 'MaiPaiHome/1.0' },
       signal: AbortSignal.timeout(timeout),
     })
     if (!res.ok) return null

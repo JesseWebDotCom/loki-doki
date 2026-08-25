@@ -4,7 +4,7 @@ import { kiwixContentBase } from '@/lib/kiwix'
 import { stripHtml } from '@/lib/htmlText'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 
-// Companion tool: encyclopedic knowledge lookup. Ported from v2 lokidoki/plugins/knowledge.
+// Companion tool: encyclopedic knowledge lookup. Ported from the v2 app's plugins/knowledge.
 // Prefers the offline ZIM archives (Wikipedia and friends); falls back to the live
 // MediaWiki API when those aren't installed. Returns a clean extract plus related titles.
 

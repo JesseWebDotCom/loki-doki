@@ -23,7 +23,7 @@ Canvas isn't read-only. Keep typing changes directly into it yourself, or just t
 
 ## Revisiting your canvases
 
-Open `/canvas` any time to see everything your companion has written for you, pin the ones you want to keep handy, and reopen any past canvas to keep editing it.
+Tap **Canvas** in the sidebar any time to see everything your companion has written for you, pin the ones you want to keep handy, and reopen any past canvas to keep editing it.
 
 ## Exporting
 

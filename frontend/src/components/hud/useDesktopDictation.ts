@@ -10,7 +10,7 @@ export function useDesktopDictation(): void {
   const sessionRef = useRef<DictationSession | null>(null)
 
   useEffect(() => {
-    const shell = typeof window !== 'undefined' ? window.lokiDesktop : undefined
+    const shell = typeof window !== 'undefined' ? window.maipaiDesktop : undefined
     if (!shell?.onDictationToggle || !shell.insertDictation) return
 
     const insert = shell.insertDictation.bind(shell)

@@ -1,6 +1,6 @@
 // Ordered category metadata for the ExplorePanel chip grid.
 // Phase maps-discovery chunk-03. Must stay in sync with
-// lokidoki/maps/geocode/_categories.py SEARCHABLE_CATEGORIES.
+// the v2 app's maps/geocode/_categories.py SEARCHABLE_CATEGORIES.
 
 export interface ExploreCategory {
   slug: string;

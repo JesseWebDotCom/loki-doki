@@ -223,7 +223,7 @@ export function AdminPage() {
               <HubAddressesPanel />
             </AdminAccordion>
             <AdminAccordion id="remote-access" title="Remote Access"
-              description="Reach Loki Doki away from home through your private tailnet."
+              description="Reach MaiPai Home away from home through your private tailnet."
               openSignal={openSignal} defaultOpen={false} contentClassName="p-0">
               <RemoteAccessPanel />
             </AdminAccordion>

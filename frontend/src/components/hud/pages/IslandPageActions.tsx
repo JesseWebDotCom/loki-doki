@@ -44,7 +44,7 @@ export function IslandPageActions() {
     }
     for (const a of apps) {
       if (!q || a.label.toLowerCase().includes(q)) {
-        list.push({ id: `app:${a.id}`, label: a.label, hint: 'Open', Icon: a.icon, run: () => window.lokiDesktop?.openMainWindow(a.to) })
+        list.push({ id: `app:${a.id}`, label: a.label, hint: 'Open', Icon: a.icon, run: () => window.maipaiDesktop?.openMainWindow(a.to) })
       }
     }
     return list

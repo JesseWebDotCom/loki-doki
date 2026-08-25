@@ -25,7 +25,7 @@ const CACHE_NS = 'podcast-dir'
 const SEARCH_TTL = 60 * 60 * 1000        // 1h
 const CHART_TTL = 12 * 60 * 60 * 1000    // 12h
 const LOOKUP_TTL = 24 * 60 * 60 * 1000   // 24h
-const UA = 'LokiDoki/3.0 podcast-directory'
+const UA = 'MaiPaiHome/3.0 podcast-directory'
 
 // Apple podcast genre ids (stable public taxonomy).
 export const PODCAST_GENRES: { id: number; name: string }[] = [

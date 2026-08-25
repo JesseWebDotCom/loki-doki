@@ -16,12 +16,12 @@
 // Windows (see CODING-SANDBOX-DESIGN-2026-07-16.md for the full rationale + the
 // research behind it — OpenAI Codex and Anthropic's sandbox-runtime both converged on
 // the same dedicated-local-user primitive): the app on Windows lives OUTSIDE any user
-// profile (e.g. `D:\loki-doki`), so the home-directory wall Unix gets for free has to
+// profile (e.g. `D:\maipai-home`), so the home-directory wall Unix gets for free has to
 // be built explicitly with deny ACEs for the sandbox user on the app + data dirs, plus
 // a this-folder-only deny on each fixed drive root (fresh NTFS volume roots are
 // writable by any authenticated user by default). Instead of dropping privileges
 // per-pane (needs a native helper: node-pty cannot spawn as another user), the WHOLE
-// PTY sidecar runs as `lokidoki-coding`, so every pty it spawns inherits the boundary.
+// PTY sidecar runs as `maipai-coding`, so every pty it spawns inherits the boundary.
 // The sidecar is launched via scripts/win-sandbox-runner.ps1 (.NET Process.Start with
 // UserName/Password → CreateProcessWithLogonW; no native binary of ours involved),
 // using a random password generated INSIDE the elevated setup script and stored only
@@ -44,14 +44,14 @@ import { IS_MAC, IS_LINUX, IS_WIN } from '@/lib/platform'
 
 const execFileAsync = promisify(execFile)
 
-export const SANDBOX_USER = 'lokidoki-coding'
-export const SANDBOX_GROUP = 'lokidoki-coding-grp'
+export const SANDBOX_USER = 'maipai-coding'
+export const SANDBOX_GROUP = 'maipai-coding-grp'
 export const SANDBOX_WORKSPACES_ROOT = IS_WIN
-  ? join(process.env.ProgramData ?? 'C:\\ProgramData', 'lokidoki-coding')
+  ? join(process.env.ProgramData ?? 'C:\\ProgramData', 'maipai-coding')
   : IS_MAC
-    ? '/usr/local/var/lokidoki-coding'
-    : '/var/lib/lokidoki-coding'
-const SUDOERS_FILE = '/etc/sudoers.d/lokidoki-coding'
+    ? '/usr/local/var/maipai-coding'
+    : '/var/lib/maipai-coding'
+const SUDOERS_FILE = '/etc/sudoers.d/maipai-coding'
 
 // ── Windows-only paths ─────────────────────────────────────────────────────────
 // DPAPI(LocalMachine)-encrypted sandbox-user password. Lives under the app data dir,
@@ -165,12 +165,12 @@ dseditgroup -o edit -a "$APP_USER" -t user "$GROUP_NAME" 2>/dev/null || true
 dseditgroup -o edit -a "$USER_NAME" -t user "$GROUP_NAME" 2>/dev/null || true
 
 RULE="$APP_USER ALL=($USER_NAME) NOPASSWD: $LAUNCH_SCRIPT *"
-echo "$RULE" > /tmp/lokidoki-coding-sudoers
-chmod 440 /tmp/lokidoki-coding-sudoers
-visudo -c -f /tmp/lokidoki-coding-sudoers
-cp /tmp/lokidoki-coding-sudoers "${SUDOERS_FILE}"
+echo "$RULE" > /tmp/maipai-coding-sudoers
+chmod 440 /tmp/maipai-coding-sudoers
+visudo -c -f /tmp/maipai-coding-sudoers
+cp /tmp/maipai-coding-sudoers "${SUDOERS_FILE}"
 chmod 440 "${SUDOERS_FILE}"
-rm -f /tmp/lokidoki-coding-sudoers
+rm -f /tmp/maipai-coding-sudoers
 `.trim()
 }
 
@@ -203,11 +203,11 @@ usermod -aG "$GROUP_NAME" "$APP_USER"
 usermod -aG "$GROUP_NAME" "$USER_NAME"
 
 RULE="$APP_USER ALL=($USER_NAME) NOPASSWD: $LAUNCH_SCRIPT *"
-echo "$RULE" > /tmp/lokidoki-coding-sudoers
-chmod 440 /tmp/lokidoki-coding-sudoers
-visudo -c -f /tmp/lokidoki-coding-sudoers
-install -m 440 /tmp/lokidoki-coding-sudoers "${SUDOERS_FILE}"
-rm -f /tmp/lokidoki-coding-sudoers
+echo "$RULE" > /tmp/maipai-coding-sudoers
+chmod 440 /tmp/maipai-coding-sudoers
+visudo -c -f /tmp/maipai-coding-sudoers
+install -m 440 /tmp/maipai-coding-sudoers "${SUDOERS_FILE}"
+rm -f /tmp/maipai-coding-sudoers
 `.trim()
 }
 
@@ -225,8 +225,8 @@ const APP_ROOT_DIR = join(import.meta.dir, '../../..')
 
 /**
  * Everything this script creates, for the uninstall script to reverse (kept in sync):
- *   local user lokidoki-coding (random pw, hidden from login UI) + group
- *   lokidoki-coding-grp; deny-network/RDP-logon rights entries for the user's SID;
+ *   local user maipai-coding (random pw, hidden from login UI) + group
+ *   maipai-coding-grp; deny-network/RDP-logon rights entries for the user's SID;
  *   WORKSPACES_ROOT (+users/, tmp/) with reset ACL (SYSTEM/Admins F, group M,
  *   OWNER RIGHTS M inherit-only — no CREATOR OWNER, so a file's creator can't
  *   re-grant); deny ACEs for the user on the app dir + data dir (full) and each
@@ -259,12 +259,12 @@ $pw = [Convert]::ToBase64String($bytes)
 $secure = ConvertTo-SecureString $pw -AsPlainText -Force
 
 if (-not (Get-LocalGroup -Name $GroupName -ErrorAction SilentlyContinue)) {
-  New-LocalGroup -Name $GroupName -Description 'loki-doki coding sandbox' | Out-Null
+  New-LocalGroup -Name $GroupName -Description 'maipai-home coding sandbox' | Out-Null
 }
 if (Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue) {
   Set-LocalUser -Name $UserName -Password $secure
 } else {
-  New-LocalUser -Name $UserName -Password $secure -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description 'loki-doki coding sandbox (restricted)' | Out-Null
+  New-LocalUser -Name $UserName -Password $secure -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description 'maipai-home coding sandbox (restricted)' | Out-Null
 }
 Add-LocalGroupMember -Group $GroupName -Member $UserName -ErrorAction SilentlyContinue
 Add-LocalGroupMember -Group $GroupName -Member $AppUser -ErrorAction SilentlyContinue
@@ -278,9 +278,9 @@ Set-ItemProperty -Path $ul -Name $UserName -Value 0 -Type DWord
 # the existing holders — secedit /configure REPLACES a right's list, so a naive write
 # would wipe e.g. Guest from the deny lists.
 $sid = (Get-LocalUser -Name $UserName).SID.Value
-$cur = Join-Path $env:TEMP 'lokidoki-rights-cur.inf'
-$cfg = Join-Path $env:TEMP 'lokidoki-rights.inf'
-$db  = Join-Path $env:TEMP 'lokidoki-rights.sdb'
+$cur = Join-Path $env:TEMP 'maipai-home-rights-cur.inf'
+$cfg = Join-Path $env:TEMP 'maipai-home-rights.inf'
+$db  = Join-Path $env:TEMP 'maipai-home-rights.sdb'
 secedit /export /cfg $cur /areas USER_RIGHTS | Out-Null
 $existing = Get-Content $cur
 $merged = @()
@@ -359,9 +359,9 @@ if (Test-Path $WorkspacesRoot) {
 $u = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
 if ($u) {
   $sid = $u.SID.Value
-  $cur = Join-Path $env:TEMP 'lokidoki-rights-cur.inf'
-  $cfg = Join-Path $env:TEMP 'lokidoki-rights.inf'
-  $db  = Join-Path $env:TEMP 'lokidoki-rights.sdb'
+  $cur = Join-Path $env:TEMP 'maipai-home-rights-cur.inf'
+  $cfg = Join-Path $env:TEMP 'maipai-home-rights.inf'
+  $db  = Join-Path $env:TEMP 'maipai-home-rights.sdb'
   secedit /export /cfg $cur /areas USER_RIGHTS | Out-Null
   $existing = Get-Content $cur
   $merged = @()
@@ -412,15 +412,15 @@ export async function runAsSandboxUser(opts: RunAsSandboxUserOptions): Promise<{
   const timeoutMs = opts.timeoutMs ?? 30_000
   const env = {
     ...process.env,
-    LOKIDOKI_SB_MODE: opts.mode,
-    LOKIDOKI_SB_BLOB: WIN_CRED_BLOB,
-    LOKIDOKI_SB_USER: SANDBOX_USER,
-    LOKIDOKI_SB_EXE: opts.exe,
-    LOKIDOKI_SB_ARGS: JSON.stringify(opts.args),
-    LOKIDOKI_SB_CWD: opts.cwd ?? SANDBOX_WORKSPACES_ROOT,
-    LOKIDOKI_SB_ENV: JSON.stringify(opts.env ?? {}),
-    LOKIDOKI_SB_CLEAN: opts.cleanEnv ? '1' : '0',
-    LOKIDOKI_SB_TIMEOUT_MS: String(timeoutMs),
+    MAIPAI_SB_MODE: opts.mode,
+    MAIPAI_SB_BLOB: WIN_CRED_BLOB,
+    MAIPAI_SB_USER: SANDBOX_USER,
+    MAIPAI_SB_EXE: opts.exe,
+    MAIPAI_SB_ARGS: JSON.stringify(opts.args),
+    MAIPAI_SB_CWD: opts.cwd ?? SANDBOX_WORKSPACES_ROOT,
+    MAIPAI_SB_ENV: JSON.stringify(opts.env ?? {}),
+    MAIPAI_SB_CLEAN: opts.cleanEnv ? '1' : '0',
+    MAIPAI_SB_TIMEOUT_MS: String(timeoutMs),
   }
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -453,7 +453,7 @@ export async function verifyWindowsSandboxBoundary(): Promise<void> {
   }
   const write = await runAsSandboxUser({
     mode: 'probe', exe: 'cmd.exe',
-    args: ['/c', 'echo ok > .lokidoki-sandbox-probe && del .lokidoki-sandbox-probe'],
+    args: ['/c', 'echo ok > .maipai-sandbox-probe && del .maipai-sandbox-probe'],
     cwd: join(SANDBOX_WORKSPACES_ROOT, 'users'),
   })
   if (write.code !== 0) {
@@ -491,7 +491,7 @@ export async function installSandboxUser(onStatus: (msg: string) => void): Promi
   // and $-expansions doesn't survive being crammed through two more layers of string
   // escaping (confirmed live: it doesn't, in several different ways at once). A file
   // path is trivial to escape regardless of what's inside it.
-  const scriptPath = '/tmp/lokidoki-coding-setup.sh'
+  const scriptPath = '/tmp/maipai-coding-setup.sh'
   writeFileSync(scriptPath, `#!/bin/bash\n${script}\n`, { mode: 0o700 })
   try {
     if (IS_MAC) {
@@ -528,7 +528,7 @@ export async function installSandboxUser(onStatus: (msg: string) => void): Promi
 async function installWindowsSandboxUser(onStatus: (msg: string) => void): Promise<void> {
   const appUser = currentUser()
   onStatus('Requesting one-time Windows admin permission (approve the UAC prompt)…')
-  const scriptPath = join(tmpdir(), 'lokidoki-coding-setup.ps1')
+  const scriptPath = join(tmpdir(), 'maipai-coding-setup.ps1')
   writeFileSync(scriptPath, windowsSetupScript(appUser))
   try {
     // Same elevation pattern as gpuTuning.ts: a plain spawn of elevated work fails
@@ -565,7 +565,7 @@ export async function uninstallWindowsSandboxUser(onStatus: (msg: string) => voi
   if (!IS_WIN) throw new Error('uninstallWindowsSandboxUser is Windows-only.')
   const appUser = currentUser()
   onStatus('Requesting one-time Windows admin permission (approve the UAC prompt)…')
-  const scriptPath = join(tmpdir(), 'lokidoki-coding-uninstall.ps1')
+  const scriptPath = join(tmpdir(), 'maipai-coding-uninstall.ps1')
   writeFileSync(scriptPath, windowsUninstallScript(appUser))
   try {
     await execFileAsync('powershell.exe', [
@@ -672,13 +672,13 @@ export function ensureWindowsSandboxMirror(nodeExe: string, claudeCodeDir: strin
  * Kills any leftover sandboxed sidecar processes from before a backend restart.
  * Real gap this closes (found live): the sandboxed opencode process's actual PID
  * belongs to `sudo`'s forked child, not the `sudo` invocation Node's own spawn()
- * returns a handle to, and jessetorres cannot signal a lokidoki-coding-owned
+ * returns a handle to, and jessetorres cannot signal a maipai-coding-owned
  * process directly regardless (confirmed live: EPERM), so a plain restart orphans
  * it permanently, invisible to and unmanageable by the backend's in-memory state
  * (which resets on every restart), silently squatting on its port forever.
  *
  * Deliberately a broad `pkill -f` sweep, not a specific-PID kill: it runs AS
- * lokidoki-coding via the same sudoers-permitted launch script already used to
+ * maipai-coding via the same sudoers-permitted launch script already used to
  * spawn (no new sudoers grant needed), so it can only ever match/kill processes
  * that user itself owns, and that user exists for no other purpose, so killing
  * every tmux/claude process it's running is always safe. Best-effort: a clean box

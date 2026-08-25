@@ -10,7 +10,7 @@ Speed Test measures your connection with a real, multi-stream test and an animat
 ## Three Modes
 
 - **Internet**: your device's real connection speed, out to the open internet.
-- **Server**: your device's connection to your own Loki Doki server, over your local network.
+- **Server**: your device's connection to your own MaiPai Home server, over your local network.
 - **Server Internet**: your server's own upstream connection to the internet.
 
 Run one test at a time, or hit **Run all tests** to chain through all three. Each run reports download and upload speed, ping, and jitter, and animates through each phase as it measures.

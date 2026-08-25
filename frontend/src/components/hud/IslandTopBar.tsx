@@ -106,7 +106,7 @@ export function IslandTopBar({ tab, setTab, topInset }: {
             type="button"
             aria-label={`${unreadCount} unread notifications`}
             title={`${unreadCount} unread notifications`}
-            onClick={() => window.lokiDesktop?.openMainWindow()}
+            onClick={() => window.maipaiDesktop?.openMainWindow()}
             className="flex items-center gap-1 text-[11px] tabular-nums text-white/60 hover:text-white"
           >
             <Bell className="size-3.5" />
@@ -116,9 +116,9 @@ export function IslandTopBar({ tab, setTab, topInset }: {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Open Loki Doki"
-          title="Open Loki Doki"
-          onClick={() => window.lokiDesktop?.openMainWindow()}
+          aria-label="Open MaiPai Home"
+          title="Open MaiPai Home"
+          onClick={() => window.maipaiDesktop?.openMainWindow()}
           // design-ok(glass-on-plain-bg): sits inside the black island surface
           className="h-7 w-8 rounded-full text-white/50 hover:bg-white/10 hover:text-white"
         >

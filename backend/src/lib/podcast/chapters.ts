@@ -73,7 +73,7 @@ export async function getEpisodeChapters(episodeId: string): Promise<EpisodeChap
   let chapters: EpisodeChapter[] = []
   try {
     const res = await safeFetch(ep.chaptersUrl, {
-      headers: { 'User-Agent': 'LokiDoki/3.0 podcast', Accept: 'application/json, */*' },
+      headers: { 'User-Agent': 'MaiPaiHome/3.0 podcast', Accept: 'application/json, */*' },
     }, { timeoutMs: FETCH_TIMEOUT_MS })
     if (res.ok) {
       const text = await res.text()

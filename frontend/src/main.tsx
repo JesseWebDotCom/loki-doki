@@ -20,7 +20,7 @@ window.addEventListener('unhandledrejection', (e) => reportClientError('unhandle
 // maplibre-gl isn't hoisted into this entry bundle. (window flag declared below.)
 declare global {
   interface Window {
-    __lokidokiPmtilesProtocolInstalled__?: boolean
+    __maipaiPmtilesProtocolInstalled__?: boolean
   }
 }
 

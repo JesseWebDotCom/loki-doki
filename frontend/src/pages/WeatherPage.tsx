@@ -24,7 +24,7 @@ import { Spinner } from '@/components/ui/spinner'
 const WEATHER_GRADIENT = getAppByPath('/weather')?.gradient ?? 'linear-gradient(135deg,#0c2a52,#1d6fa8)'
 const celsiusToFahrenheit = (c: number) => c * 9 / 5 + 32
 // Which of the followed cities the user last viewed (per device).
-const ACTIVE_LOCATION_KEY = 'lokidoki.weather.activeLocation'
+const ACTIVE_LOCATION_KEY = 'maipai-home.weather.activeLocation'
 import {
   type WeatherData,
   type WeatherAlert,

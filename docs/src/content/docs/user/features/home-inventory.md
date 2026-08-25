@@ -11,7 +11,7 @@ Your home's details (what you own, where it is, what it's worth) stay on your ha
 
 Home Inventory is an AI-first tracker for your home's appliances, electronics, vehicles, tools, and furniture. Photograph any device and the AI reads its label, looks up the specs and manual, and builds a record for you. From then on you can search your stuff, keep a service log, and get warranty alerts.
 
-Open it at `/home-inventory`.
+Tap **Home Inventory** on the main screen.
 
 ## Adding a Device
 

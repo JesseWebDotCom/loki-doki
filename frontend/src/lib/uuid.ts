@@ -1,5 +1,5 @@
 // crypto.randomUUID is secure-context-only (https or localhost) — on a plain
-// http LAN origin (e.g. http://172.19.x.x:5173 from another device) it's
+// http LAN origin (e.g. http://192.0.2.x:5173 from another device) it's
 // undefined and a bare call throws. crypto.getRandomValues works everywhere,
 // so fall back to building a v4 UUID from it.
 export function uuid(): string {

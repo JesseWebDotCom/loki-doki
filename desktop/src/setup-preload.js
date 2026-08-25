@@ -4,7 +4,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('lokiSetup', {
+contextBridge.exposeInMainWorld('maipaiSetup', {
   currentUrl: () => ipcRenderer.invoke('setup:current-url'),
   validate: (url) => ipcRenderer.invoke('setup:validate', url),
   save: (url) => ipcRenderer.invoke('setup:save', url),

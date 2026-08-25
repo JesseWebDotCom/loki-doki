@@ -154,7 +154,7 @@ export class CastSession {
         contentType: media.contentType,
         metadata: {
           metadataType: 3, // MusicTrackMediaMetadata
-          title: media.title ?? 'Loki Doki',
+          title: media.title ?? 'MaiPai Home',
           artist: media.subtitle ?? '',
           images: media.artworkUrl ? [{ url: media.artworkUrl }] : [],
         },

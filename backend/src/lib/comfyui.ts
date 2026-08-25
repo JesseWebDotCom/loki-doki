@@ -17,7 +17,7 @@ const EXTRA_MODEL_PATHS_FILE = join(COMFYUI_DIR, 'extra_model_paths.yaml')
 // Keep extra_model_paths.yaml pointing at our loras directory so ComfyUI
 // can find installed LoRA files without manual symlinking.
 function ensureExtraModelPaths(): void {
-  const yaml = `loki-doki:\n    base_path: ${dataDir}/\n    loras: loras/\n`
+  const yaml = `maipai-home:\n    base_path: ${dataDir}/\n    loras: loras/\n`
   try {
     if (!existsSync(EXTRA_MODEL_PATHS_FILE) || readFileSync(EXTRA_MODEL_PATHS_FILE, 'utf8') !== yaml) {
       writeFileSync(EXTRA_MODEL_PATHS_FILE, yaml)

@@ -389,9 +389,9 @@ feedsRouter.get('/opml/export', async (c) => {
   const rows = await db.select().from(feeds).where(and(eq(feeds.userId, user.id), eq(feeds.kind, 'rss')))
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const lines = rows.map((f) => `    <outline text="${esc(f.title || f.url || '')}" type="rss" xmlUrl="${esc(f.url || '')}"${f.siteUrl ? ` htmlUrl="${esc(f.siteUrl)}"` : ''}/>`)
-  const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="1.0">\n  <head><title>Loki Feeds</title></head>\n  <body>\n${lines.join('\n')}\n  </body>\n</opml>\n`
+  const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="1.0">\n  <head><title>MaiPai Feeds</title></head>\n  <body>\n${lines.join('\n')}\n  </body>\n</opml>\n`
   c.header('Content-Type', 'text/x-opml; charset=utf-8')
-  c.header('Content-Disposition', 'attachment; filename="loki-feeds.opml"')
+  c.header('Content-Disposition', 'attachment; filename="maipai-feeds.opml"')
   return c.body(opml)
 })
 

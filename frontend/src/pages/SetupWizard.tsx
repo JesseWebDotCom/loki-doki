@@ -215,14 +215,14 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
             <BrandMark glow className="size-10" />
             <div>
               {/* design-ok(raw-h1-in-pages): compact brand wordmark next to the logo mark, mirrors BootScreen */}
-              <h1 className="text-xl font-bold tracking-tight leading-none">Loki Doki</h1>
+              <h1 className="text-xl font-bold tracking-tight leading-none">MaiPai Home</h1>
               <p className="text-xs text-muted-foreground mt-0.5">Your private AI home hub</p>
             </div>
           </div>
         </div>
 
         <div className="flex flex-col items-center gap-6 py-6">
-          <CompanionOrb size={150} active seed="loki-doki-setup" />
+          <CompanionOrb size={150} active seed="maipai-home-setup" />
           <div className="space-y-2.5">
             {VALUE_PROPS.map(vp => (
               <div key={vp.text} className="flex items-center gap-2.5 text-sm text-muted-foreground">
@@ -272,7 +272,7 @@ function WizardShell({ step, children, onNavigate, maxIdx }: { step: Step; child
         {/* Mobile header */}
         <div className="flex items-center gap-2 border-b border-border/50 px-6 py-4 lg:hidden">
           <BrandMark className="size-8" />
-          <span className="font-bold tracking-tight">Loki Doki</span>
+          <span className="font-bold tracking-tight">MaiPai Home</span>
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">{Math.max(1, idx)} / {railSteps.length}</span>
         </div>
 

@@ -147,7 +147,7 @@ export async function runRadioRecordJob(
     const args = [
       '-hide_banner', '-y',
       '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '10',
-      '-user_agent', 'LokiDoki/3.0 radio-recorder',
+      '-user_agent', 'MaiPaiHome/3.0 radio-recorder',
       '-i', row.streamUrl,
       '-t', String(row.requestedSec),
       ...(copyCodec ? ['-c:a', 'copy'] : ['-c:a', 'libmp3lame', '-b:a', '160k']),

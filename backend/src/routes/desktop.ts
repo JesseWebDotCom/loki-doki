@@ -8,7 +8,7 @@ import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { dataDir } from '@/lib/download'
 import type { AppEnv } from '@/types'
 
-// Doki Dock (the desktop app) installer delivery, fully local: the server
+// MaiPai Desktop (the desktop app) installer delivery, fully local: the server
 // builds the installer itself from the bundled desktop/ source (admin-triggered)
 // and serves the result from data/desktop-installers/. No app store, no GitHub;
 // household members download straight from this server. A server can only build
@@ -247,7 +247,7 @@ desktopApp.get('/release', requireAuth, (c) => {
 desktopApp.post('/build', requireAdmin, (c) => {
   if (!canBuildHere()) {
     const why = serverPlatform() === 'linux'
-      ? 'This server runs Linux, which has no Doki Dock installer target. Build on a Mac or Windows machine and drop the file into data/desktop-installers.'
+      ? 'This server runs Linux, which has no MaiPai Desktop installer target. Build on a Mac or Windows machine and drop the file into data/desktop-installers.'
       : 'The desktop app source (desktop/) was not found next to the server.'
     return c.json({ error: why }, 400)
   }

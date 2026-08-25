@@ -87,7 +87,7 @@ async function fetchProxyImage(rawUrl: string): Promise<{ data: Buffer; contentT
     // a plain fetch(..., { redirect: 'follow' }) would silently follow it.
     const res = await safeFetch(
       rawUrl,
-      { headers: { 'User-Agent': 'LokiDoki/3.0 (self-hosted home hub; https://github.com/lokidoki)', Accept: 'image/*' } },
+      { headers: { 'User-Agent': 'MaiPaiHome/3.0 (self-hosted home hub; https://github.com/getmaipai)', Accept: 'image/*' } },
       { timeoutMs: FETCH_TIMEOUT_MS },
     )
     if (!res.ok) {

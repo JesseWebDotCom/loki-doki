@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icons/brand.svg" width="72" alt="Loki Doki" />
+  <img src="assets/icons/brand.svg" width="72" alt="MaiPai Home" />
 </p>
 
-# Agent Guidelines - loki-doki-v3
+# Agent Guidelines - maipai-home-v3
 
 ## Git, Branching & Multi-Session Workflow
 
@@ -19,7 +19,7 @@
 
 ## Context Rule
 
-**Always interpret questions in the context of this app.** When the user asks about a feature, behavior, or concept without specifying a domain, assume they mean loki-doki-v3 - not a general knowledge question. If the question is genuinely ambiguous, ask for clarification before answering generically.
+**Always interpret questions in the context of this app.** When the user asks about a feature, behavior, or concept without specifying a domain, assume they mean maipai-home-v3 - not a general knowledge question. If the question is genuinely ambiguous, ask for clarification before answering generically.
 
 ## Writing Style
 
@@ -82,9 +82,9 @@ It greps the diff's files for the mechanical Visual Language violations (em dash
 **Desktop shell (`desktop/`)**
 - Electron (plain-JS CJS main process, no build step; `bun install` with `trustedDependencies`)
 - A thin wrapper that loads the web app **from the server** (`http://<server>:3000`) - no bundled
-  frontend, so features ship via the server. Two windows on one `persist:loki` partition:
+  frontend, so features ship via the server. Two windows on one `persist:maipai` partition:
   the always-on-top voice HUD (route `/hud`, `frontend/src/pages/HudPage.tsx`) and the full app.
-- Renderer↔shell bridge: `window.lokiDesktop` (`desktop/src/preload.js`, typed in
+- Renderer↔shell bridge: `window.maipaiDesktop` (`desktop/src/preload.js`, typed in
   `frontend/src/types/desktop.d.ts`); all IPC handlers validate the sender's origin.
 - Voice-ownership rule: the HUD window never fully hides while hands-free is armed (visibility
   keeps mic ownership per `voiceOwnership.ts`) - it shrinks to a pill instead.
@@ -588,7 +588,7 @@ onChange: (slug: string | null) => void
 
 ### `BrandMark` - `src/components/shared/BrandMark.tsx`
 
-The Loki Doki app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth, update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
+The MaiPai Home app logo. Renders the canonical brand mark from `/favicon.svg` (single source of truth, update that SVG and every surface follows: browser tab, sidebar, setup wizard, boot screen). Never re-create the logo inline; always use this component.
 
 **Props:**
 ```ts
@@ -776,7 +776,7 @@ books/podcasts, and any new generated surface instead of hand-rolling a per-surf
 { label?: string; tone?: 'muted' | 'brand'; className?: string; title?: string }
 ```
 
-`label` should say what produced the content ("Summarized by Loki", "Made with Imaging").
+`label` should say what produced the content ("Summarized by MaiPai", "Made with Imaging").
 `title` carries an optional hover caveat (e.g. a summary-accuracy note). Never summarize
 safety-relevant content (camera/security alerts) - show it verbatim, no badge, no rewrite.
 

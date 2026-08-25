@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // the store is tied to its owner here and wiped on mismatch. Route guards hold
           // the tree until `loading` clears, so no query observer has read the cache yet.
           try {
-            const OWNER_KEY = 'lokidoki-cache-owner'
+            const OWNER_KEY = 'maipai-home-cache-owner'
             const prevOwner = localStorage.getItem(OWNER_KEY)
             if (prevOwner && prevOwner !== u.id) {
               queryClient.clear()

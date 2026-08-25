@@ -7,8 +7,6 @@ sidebar:
 
 Shows helps you find your next series and keep track of what you're watching. Search any TV show to see where it streams, watch trailers, read a synopsis and reviews, and add it to a personal watchlist, all without a Netflix-style algorithm deciding for you.
 
-![The Shows app with a personal watchlist and trending series to explore](../../../../assets/screenshots/shows-desktop.png)
-
 ## Finding a show
 
 Search by title, or browse what's popular and trending. Open any show to get:

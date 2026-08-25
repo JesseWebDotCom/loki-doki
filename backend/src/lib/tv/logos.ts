@@ -26,7 +26,7 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-/** Monogram: up to two significant initials ("Doki Movies" → "DM", "Marathon" → "MA"). */
+/** Monogram: up to two significant initials ("MaiPai Movies" → "DM", "Marathon" → "MA"). */
 function monogram(name: string): string {
   const words = name.split(/\s+/).filter((w) => /^[a-z0-9]/i.test(w))
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()

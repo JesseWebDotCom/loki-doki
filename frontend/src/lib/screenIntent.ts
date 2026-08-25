@@ -1,7 +1,7 @@
 // Screen-awareness intent detection for the desktop shell: when an utterance or
 // typed message references what's on screen, the companion attaches a live
 // screenshot to the turn (see CompanionEngineContext handleSend). Client-side
-// regex so normal turns pay zero latency; only used when window.lokiDesktop
+// regex so normal turns pay zero latency; only used when window.maipaiDesktop
 // exposes captureScreen, so web builds never consult it.
 //
 // Deliberately excludes bare "looking at" ("I'm looking at buying a bike") and

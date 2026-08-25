@@ -21,7 +21,7 @@ function todayIso(): string {
 export async function todaysHolidays(country = 'US', timeoutMs = 5000): Promise<BriefingItem[]> {
   const year = new Date().getFullYear()
   const res = await fetch(`${NAGER_API}/${year}/${country}`, {
-    headers: { Accept: 'application/json', 'User-Agent': 'LokiDoki/3' },
+    headers: { Accept: 'application/json', 'User-Agent': 'MaiPaiHome/3' },
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`holidays: ${res.status}`)

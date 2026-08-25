@@ -65,7 +65,7 @@ export function SettingsLocalAiTab() {
           <p className="font-semibold">Your AI runs at home</p>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Every AI feature here runs on your own hub using local models. Nothing you say, type, or capture is sent to
-            an outside company, and there are no per-request cloud costs. This is the whole point of Loki Doki.
+            an outside company, and there are no per-request cloud costs. This is the whole point of MaiPai Home.
           </p>
         </div>
       </Card>

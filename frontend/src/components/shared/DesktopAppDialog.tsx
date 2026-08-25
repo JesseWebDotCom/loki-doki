@@ -159,7 +159,7 @@ export function DesktopAppDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Get Doki Dock</DialogTitle>
+          <DialogTitle>Get MaiPai Desktop</DialogTitle>
           <DialogDescription>
             The desktop app puts your companion at the top of your Mac or Windows screen as a
             Dynamic Island, with voice, screen awareness, and a global hotkey. It is built by and
@@ -176,8 +176,8 @@ export function DesktopAppDialog({
           <p className="py-2 text-sm text-muted-foreground">{loadError}</p>
         ) : release && visitorPlatform === null ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Doki Dock is a Mac and Windows desktop app, and this doesn't look like either. Open
-            Loki Doki on that computer and grab it from this same menu.
+            MaiPai Desktop is a Mac and Windows desktop app, and this doesn't look like either. Open
+            MaiPai Home on that computer and grab it from this same menu.
           </p>
         ) : release ? (
           <div className="space-y-4">
@@ -202,7 +202,7 @@ export function DesktopAppDialog({
                   </>
                 ) : (
                   <p className="font-semibold text-foreground">
-                    Doki Dock is installed{desktopStatus.installedVersion ? ` (v${desktopStatus.installedVersion})` : ''}
+                    MaiPai Desktop is installed{desktopStatus.installedVersion ? ` (v${desktopStatus.installedVersion})` : ''}
                     {desktopStatus.installedVersion && desktopStatus.latestVersion ? ', up to date' : ''}.
                   </p>
                 )}
@@ -283,13 +283,13 @@ export function DesktopAppDialog({
                 <>
                   <p>
                     {assets.some((a) => a.name.endsWith('.zip')) &&
-                      'Unzip the download and drag Doki Dock into Applications. '}
+                      'Unzip the download and drag MaiPai Desktop into Applications. '}
                     If your browser warns about the download, choose Keep.
                   </p>
                   <p>
-                    macOS blocks the first open of home-built apps: open Doki Dock and dismiss
+                    macOS blocks the first open of home-built apps: open MaiPai Desktop and dismiss
                     the warning, then go to System Settings, Privacy &amp; Security, scroll to
-                    the Security section, and click Open Anyway next to Doki Dock.
+                    the Security section, and click Open Anyway next to MaiPai Desktop.
                   </p>
                 </>
               ) : (

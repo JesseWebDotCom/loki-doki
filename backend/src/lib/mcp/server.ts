@@ -1,4 +1,4 @@
-// Expose a curated slice of Loki Doki's tool registry over the Model Context
+// Expose a curated slice of MaiPai Home's tool registry over the Model Context
 // Protocol, so a household member's own AI client (Claude Desktop, etc.) can query
 // their hub: "what's on my calendar", "search my notes", "what did the camera see".
 //
@@ -96,7 +96,7 @@ export async function handleMcpMessage(body: JsonRpcRequest, cfg: McpConfig): Pr
       return ok(body.id, {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'loki-doki', version: '1.0.0' },
+        serverInfo: { name: 'maipai-home', version: '1.0.0' },
       })
 
     case 'notifications/initialized':

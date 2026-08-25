@@ -6,7 +6,7 @@
 import type { BriefingItem } from '../types'
 import { webSearch } from '@/lib/webSearch'
 
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 
 export interface PatchResult {
   news: BriefingItem[]

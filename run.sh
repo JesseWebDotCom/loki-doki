@@ -3,7 +3,7 @@ set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Loki Doki runs on the Bun runtime. Install it automatically on first run so a
+# MaiPai Home runs on the Bun runtime. Install it automatically on first run so a
 # fresh machine needs nothing but this script. (Ollama and the AI models are
 # downloaded by the app itself on first launch.)
 if ! command -v bun >/dev/null 2>&1; then
@@ -53,7 +53,7 @@ kill_port() {
 ensure_deps() {
   dir="$1"
   [ -f "$dir/package.json" ] || return 0
-  stamp="$dir/node_modules/.loki-install-stamp"
+  stamp="$dir/node_modules/.maipai-install-stamp"
   if [ ! -d "$dir/node_modules" ] || [ ! -f "$stamp" ] \
      || [ "$dir/bun.lock" -nt "$stamp" ] || [ "$dir/package.json" -nt "$stamp" ]; then
     echo "Installing/refreshing dependencies in $(basename "$dir")..."
@@ -69,7 +69,7 @@ ensure_deps() {
 # so we always go through it. A failed build aborts rather than serving a broken bundle.
 ensure_frontend_build() {
   dir="$1"
-  dist="$dir/dist"; index="$dist/index.html"; stamp="$dist/.loki-build-stamp"
+  dist="$dir/dist"; index="$dist/index.html"; stamp="$dist/.maipai-build-stamp"
   needs=0
   if [ ! -f "$index" ] || [ ! -f "$stamp" ]; then
     needs=1

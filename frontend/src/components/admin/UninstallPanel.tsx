@@ -197,7 +197,7 @@ export function UninstallPanel() {
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
         <div className="flex-1 space-y-1">
-          <h3 className="text-sm font-semibold text-destructive">Danger zone: uninstall Loki</h3>
+          <h3 className="text-sm font-semibold text-destructive">Danger zone: uninstall MaiPai Home</h3>
           <p className="text-xs text-muted-foreground">
             Permanently delete <strong>everything</strong>: the database and all accounts, every downloaded
             AI model, ComfyUI and its Python environment, maps, offline libraries, voice models, generated
@@ -209,7 +209,7 @@ export function UninstallPanel() {
       <div className="mt-3 flex justify-end">
         <Button variant="destructive" size="sm" onClick={openConfirm}>
           <Trash2 className="size-4" />
-          Uninstall Loki…
+          Uninstall MaiPai Home…
         </Button>
       </div>
 
@@ -328,7 +328,7 @@ export function UninstallPanel() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2.5 text-base">
                   <Spinner className="size-5 text-destructive" />
-                  Uninstalling Loki…
+                  Uninstalling MaiPai Home…
                 </DialogTitle>
                 <DialogDescription className="text-xs">
                   Do not close this window. The server will shut down automatically when finished.
@@ -343,7 +343,7 @@ export function UninstallPanel() {
           {phase === 'done' && (
             <DialogHeader className="space-y-3 text-center sm:text-center">
               <Power className="mx-auto size-10 text-success" />
-              <DialogTitle className="text-base">Loki has been uninstalled</DialogTitle>
+              <DialogTitle className="text-base">MaiPai Home has been uninstalled</DialogTitle>
               <DialogDescription className="text-xs">
                 All data, models and the Ollama install have been removed and the server has shut down.
                 You can safely close this window.

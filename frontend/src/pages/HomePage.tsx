@@ -1076,7 +1076,7 @@ function WidgetSubsShell({ label, icon: HeaderIcon, accent, seeAll, items, loadi
 }
 
 /** Unified subscriptions: YouTube feed + the follows feed (TikTok/Vimeo/Reddit) merged
- *  by recency — the widget counterpart of VideosSubscriptionsPage. */
+ *  by recency, the widget counterpart of VideosSubscriptionsPage. */
 function WidgetSubs({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
   const feedLimit = displayMode === 'row' ? 10 : 6;
   const { items: ytItems, loading: ytLoading } = useYtFeed(feedLimit);

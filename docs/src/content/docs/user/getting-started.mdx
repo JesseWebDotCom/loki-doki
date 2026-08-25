@@ -1,30 +1,42 @@
 ---
 title: Getting Started
-description: Install Loki Doki on your server, then log in and take the tour.
+description: Install MaiPai Home on your server, then log in and take the tour.
 sidebar:
   order: 2
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-Loki Doki runs on one machine in your home, the server. You set it up **once**, and then everyone in the household logs in from their own device. If someone has already set up your server, skip ahead to [First Login](#first-login).
+MaiPai Home runs on one machine in your home, the server. You set it up **once**, and then everyone in the household logs in from their own device. If someone has already set up your server, skip ahead to [First Login](#first-login).
 
 ## Install the Server
 
-All you need is a computer with a reasonably modern GPU running Windows, macOS, or Linux. Everything else installs itself.
+**What you need to get started:**
+
+- One computer that stays home: Windows, macOS, or Linux, ideally with a
+  reasonably modern graphics card
+- Your home Wi-Fi
+- About 15 minutes (plus download time for the AI models)
 
 <Steps>
 
-1. **Clone the project and launch it:**
+1. **Run one command on the server machine.**
+
+   On a Mac or Linux machine, open Terminal and paste:
 
    ```sh
-   git clone https://github.com/JesseWebDotCom/loki-doki.git
-   cd loki-doki
-   ./run.sh     # macOS / Linux
-   .\run.ps1    # Windows
+   curl -fsSL https://getmaipai.github.io/home/install.sh | sh
    ```
 
-   The launcher installs the [Bun](https://bun.sh) runtime if it's missing, starts the app, and opens your browser at `http://localhost:3000`.
+   On Windows, open PowerShell and paste:
+
+   ```powershell
+   irm https://getmaipai.github.io/home/install.ps1 | iex
+   ```
+
+   The installer downloads MaiPai Home, sets up everything it needs, and
+   opens the app in your browser. You'll know it worked when the setup
+   wizard greets you.
 
 2. **Create your admin account.** On first launch the setup wizard walks you through a name, a PIN, and your locale. This first account is the **admin**: it controls the whole server.
 
@@ -34,7 +46,7 @@ All you need is a computer with a reasonably modern GPU running Windows, macOS, 
    |---|---|
    | **Books & References** | Wikipedia, iFixit & Khan Academy with no internet _(on by default)_ |
    | **Voice** | Read replies aloud and speak to your AI |
-   | **Wake Word** | Hands-free "Hey Jarvis" activation |
+   | **Wake Word** | Hands-free "Hey MaiPai" activation |
    | **Maps** | Offline maps, place search, and turn-by-turn directions |
    | **Home Inventory OCR** | Reads device-label text accurately when scanning stickers |
 
@@ -46,13 +58,15 @@ All you need is a computer with a reasonably modern GPU running Windows, macOS, 
 
 From the [Admin Panel](../admin/) you can now create accounts for the rest of the family and decide which features each person can use.
 
+**Problems during setup?** Head to [Fix a problem](../fix-a-problem/).
+
 ## First Login
 
 For everyone else in the household, once the admin has created your account:
 
 <Steps>
 
-1. **Open the app** at the address your admin gave you: the server's name or IP on your home network (something like `http://loki-doki.local:3000`).
+1. **Open the app** at the address your admin gave you: the server's name or IP on your home network (something like `http://maipai-home.local:3000`).
 
 2. **Log in** with the username and PIN your admin set up for you.
 
@@ -64,7 +78,7 @@ For everyone else in the household, once the admin has created your account:
 
 </Steps>
 
-Any browser on your home network works — phones, tablets, and laptops with nothing to install. On a Mac or Windows machine you can also install [Doki Dock](../features/desktop/), the desktop app that pins your companion to the top of your screen with the wake word armed.
+Any browser on your home network works — phones, tablets, and laptops with nothing to install. On a Mac or Windows machine you can also install [MaiPai Desktop](../features/desktop/), the desktop app that pins your companion to the top of your screen with the wake word armed.
 
 ## Main Areas
 

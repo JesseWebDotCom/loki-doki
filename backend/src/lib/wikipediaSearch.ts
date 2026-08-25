@@ -15,7 +15,7 @@ export interface WikiResult {
   url: string
 }
 
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 const API = 'https://en.wikipedia.org/w/api.php'
 const REST = 'https://en.wikipedia.org/api/rest_v1/page/summary'
 

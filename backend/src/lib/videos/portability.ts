@@ -88,7 +88,7 @@ export async function subscriptionsAsOpml(userId: string, ownFeedBase: string | 
   }
   const lines = entries.map((e) =>
     `    <outline text="${esc(e.title)}" title="${esc(e.title)}" type="rss" xmlUrl="${esc(e.xmlUrl)}"${e.htmlUrl ? ` htmlUrl="${esc(e.htmlUrl)}"` : ''}/>`)
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="1.0">\n  <head><title>Loki Doki subscriptions</title></head>\n  <body>\n${lines.join('\n')}\n  </body>\n</opml>\n`
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="1.0">\n  <head><title>MaiPai Home subscriptions</title></head>\n  <body>\n${lines.join('\n')}\n  </body>\n</opml>\n`
 }
 
 // ── OPML import ──────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ function rssDoc(title: string, selfUrl: string, items: FeedItem[]): string {
     '  <channel>',
     `    <title>${esc(title)}</title>`,
     `    <link>${esc(selfUrl)}</link>`,
-    `    <description>${esc(title)} — from your Loki Doki hub</description>`,
+    `    <description>${esc(title)} — from your MaiPai Home hub</description>`,
     entries,
     '  </channel>',
     '</rss>',
@@ -212,7 +212,7 @@ export async function folderFeed(userId: string, folderId: string, selfUrl: stri
     }
   }
   items.sort((a, b) => (b.pubDate ?? 0) - (a.pubDate ?? 0))
-  return rssDoc(`${folder.name} — Loki Doki`, selfUrl, items.slice(0, 60))
+  return rssDoc(`${folder.name} — MaiPai Home`, selfUrl, items.slice(0, 60))
 }
 
 // ── Dead-video detection ─────────────────────────────────────────────────────────

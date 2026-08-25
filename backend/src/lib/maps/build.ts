@@ -1,4 +1,4 @@
-// Region build pipeline — ported from v2 lokidoki/maps/build.py.
+// Region build pipeline — ported from the v2 app's maps/build.py.
 //
 // For a selected region: download the OSM PBF (Geofabrik), then build three
 // artifacts:
@@ -36,8 +36,8 @@ export type BuildPhase =
 export interface BuildEvent { phase: BuildPhase; artifact: string; pct?: number; msg?: string }
 type OnEvent = (e: BuildEvent) => void
 
-const BUILD_HEAP_MB = parseInt(process.env.LOKIDOKI_PLANETILER_HEAP_MB ?? '4096', 10)
-const GH_BUILD_HEAP_MB = parseInt(process.env.LOKIDOKI_GRAPHHOPPER_HEAP_MB ?? '4096', 10)
+const BUILD_HEAP_MB = parseInt(process.env.MAIPAI_PLANETILER_HEAP_MB ?? '4096', 10)
+const GH_BUILD_HEAP_MB = parseInt(process.env.MAIPAI_GRAPHHOPPER_HEAP_MB ?? '4096', 10)
 
 function runJava(args: string[], onLine?: (line: string) => void, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -318,13 +318,13 @@ export async function buildRegion(regionId: string, onEvent: OnEvent, signal?: A
     }
 
     // Drop the raw PBF unless asked to keep it (saves a lot of disk).
-    if (process.env.LOKIDOKI_KEEP_PBF !== '1') {
+    if (process.env.MAIPAI_KEEP_PBF !== '1') {
       await rm(regionPbfPath(regionId), { force: true }).catch(() => {})
     }
 
     upsertRegionRow(regionId, {
       geocoderInstalled: geo,
-      pbfInstalled: process.env.LOKIDOKI_KEEP_PBF === '1',
+      pbfInstalled: process.env.MAIPAI_KEEP_PBF === '1',
       installStatus: 'ready',
       phase: 'ready',
       installedAt: new Date(),
@@ -346,7 +346,7 @@ export async function buildRegion(regionId: string, onEvent: OnEvent, signal?: A
 // Rebuild only the geocoder index for an installed region (schema upgrades).
 export async function reindexRegion(regionId: string, onEvent: OnEvent, signal?: AbortSignal): Promise<void> {
   if (!existsSync(regionPbfPath(regionId))) {
-    throw new Error('reindex needs the raw PBF; re-install the region with LOKIDOKI_KEEP_PBF=1')
+    throw new Error('reindex needs the raw PBF; re-install the region with MAIPAI_KEEP_PBF=1')
   }
   upsertRegionRow(regionId, { phase: 'building_geocoder' })
   const geo = await buildGeocoder(regionId, onEvent, signal)

@@ -76,7 +76,7 @@ export async function buildOpdsFeed(userId: string, base: string): Promise<strin
     return [
       '  <entry>',
       `    <title>${xmlEscape(b.title)}</title>`,
-      `    <id>urn:loki:book:${b.id}</id>`,
+      `    <id>urn:maipai:book:${b.id}</id>`,
       `    <updated>${b.updatedAt.toISOString()}</updated>`,
       b.author ? `    <author><name>${xmlEscape(b.author)}</name></author>` : '',
       b.language ? `    <dcterms:language>${xmlEscape(b.language)}</dcterms:language>` : '',
@@ -88,7 +88,7 @@ export async function buildOpdsFeed(userId: string, base: string): Promise<strin
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog">
-  <id>urn:loki:opds:${userId}</id>
+  <id>urn:maipai:opds:${userId}</id>
   <title>My Library</title>
   <updated>${updated}</updated>
   <link rel="self" href="${base}" type="${ACQ_TYPE}"/>

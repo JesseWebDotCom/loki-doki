@@ -281,7 +281,7 @@ export async function setTranscriptStatus(
 async function fetchFeedTranscript(episodeId: string, url: string, typeHint: string | null): Promise<EpisodeTranscript | null> {
   try {
     const res = await safeFetch(url, {
-      headers: { 'User-Agent': 'LokiDoki/3.0 podcast', Accept: 'application/json, text/vtt, application/srt, */*' },
+      headers: { 'User-Agent': 'MaiPaiHome/3.0 podcast', Accept: 'application/json, text/vtt, application/srt, */*' },
     }, { timeoutMs: FETCH_TIMEOUT_MS, maxRedirects: 5 })
     if (!res.ok) { res.body?.cancel().catch(() => {}); return null }
     const text = await res.text()

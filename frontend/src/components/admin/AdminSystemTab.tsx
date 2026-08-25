@@ -281,7 +281,7 @@ function BackgroundActivityCard() {
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        When the house is quiet, Loki Doki gets ahead of the family: converting media so it
+        When the house is quiet, MaiPai Home gets ahead of the family: converting media so it
         plays instantly, summarizing new videos, articles and episodes, and warming slow
         pages. It pauses itself whenever someone is chatting, generating, or streaming.
       </p>
@@ -499,7 +499,7 @@ export function AdminSystemTab() {
               {
                 value: 'suggested',
                 label: 'Automatic (recommended)',
-                description: 'Loki figures out the best limits for your device at startup. Works well for most setups.',
+                description: 'MaiPai figures out the best limits for your device at startup. Works well for most setups.',
                 recommended: true,
               },
               {

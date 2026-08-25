@@ -1,4 +1,4 @@
-// Dock resource monitoring ingest: Doki Dock installs sample their machine's
+// Dock resource monitoring ingest: MaiPai Desktop installs sample their machine's
 // CPU/memory/disk/battery locally (desktop/src/resources.js) and their HUD page
 // POSTs snapshots + threshold-alert events here. Snapshots feed the companion's
 // machine_status tool; alert events become notifications (+ optional spoken

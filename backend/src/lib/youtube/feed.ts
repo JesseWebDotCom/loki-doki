@@ -196,7 +196,7 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
   const url = `${YT_FEED_BASE}?${feedParam}`
 
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/rss+xml, application/atom+xml, text/xml' },
+    headers: { 'User-Agent': 'MaiPaiHome/1.0', Accept: 'application/rss+xml, application/atom+xml, text/xml' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`RSS ${res.status} for ${url}`)

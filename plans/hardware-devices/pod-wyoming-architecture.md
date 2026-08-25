@@ -1,4 +1,4 @@
-# Loki Doki Pods — Software Architecture (Wyoming-compatible)
+# MaiPai Home Pods — Software Architecture (Wyoming-compatible)
 
 Status: **backend built + verified; Atom Echo firmware scaffolded** · Last updated: 2026-06-26
 
@@ -31,7 +31,7 @@ weather answer) with "Bad chunked encoding" — now byte-correct
 Companion to [`README.md`](./README.md) (hardware selection) and
 `docs/src/content/docs/dev/hardware.md`. That doc picks the *devices*; this doc
 specifies the **software** — how a dumb ESP32 device ("Pod") gets its brains from
-the Loki Doki backend ("Host").
+the MaiPai Home backend ("Host").
 
 ## TL;DR decision
 
@@ -51,7 +51,7 @@ JSON headers + raw PCM over a TCP socket), and it is exactly the
   vision stacks — Wyoming is mostly a **re-framing** of WebSocket protocols we
   already have, not a rewrite.
 - **Echo-Show display layer** (companion face, clock/weather/alarms on screen) is
-  a **Loki Doki extension on top of Wyoming** (Wyoming has no display concept).
+  a **MaiPai Home extension on top of Wyoming** (Wyoming has no display concept).
 - **Firmware reuse is real but nuanced** — see "Firmware paths" below. Stock
   ESPHome `voice_assistant` is *not* directly reusable (it targets HA's native
   API); we reuse ESPHome's board/Wi-Fi/OTA/audio components + a custom Wyoming
@@ -83,7 +83,7 @@ else targets, so off-the-shelf satellites and tooling interoperate.
 
 ```
 ┌─────────────────────────────┐         Wyoming over TCP          ┌──────────────────────────────┐
-│  POD (ESP32-S3 / -P4)        │   (newline-JSON + raw PCM)        │  HOST = Loki Doki backend      │
+│  POD (ESP32-S3 / -P4)        │   (newline-JSON + raw PCM)        │  HOST = MaiPai Home backend      │
 │                              │ ───── audio-start/chunk/stop ───▶ │                                │
 │  • I2S mic  ───────────────► │                                   │  Wyoming endpoint (NEW)        │
 │  • I2S speaker ◀──────────── │ ◀──── audio-start/chunk/stop ──── │   ├─ wake: openWakeWord (svr)  │
@@ -131,7 +131,7 @@ Events we use:
   display frames, camera images, alarm fires, clock/weather data, device auth
 
 > **Intent vs. conversation:** stock Wyoming assumes an *intent* pipeline
-> (`recognize` → `intent` → `handled`). Loki Doki is a conversational LLM, not a
+> (`recognize` → `intent` → `handled`). MaiPai Home is a conversational LLM, not a
 > fixed intent matcher. We **skip the `recognize`/`intent` stage** and run our own
 > `transcript → chat/router → handled-chunk(text) → synthesize` flow, which is a
 > legal Wyoming pipeline (`start_stage:"asr"`, `end_stage:"tts"`, handle in the
@@ -143,7 +143,7 @@ Events we use:
 
 The backend is ~70% of the way there; most work is **re-framing**, not new logic.
 
-| Capability | Loki Doki today | Wyoming target | Work |
+| Capability | MaiPai Home today | Wyoming target | Work |
 | --- | --- | --- | --- |
 | **Mic stream** | `routes/stt.ts` WS: `{t:'hello',sample_rate}` + binary **float32** frames | `audio-start`+`audio-chunk` (int16, `width:2`) | Re-frame; convert float32→int16 (or accept both); map `hello`→`audio-start` |
 | **STT** | `SttSession` (RMS VAD, partials, 0.7s silence finalize) → `{t:'final'}` | `transcribe`→`transcript`; VAD→`voice-started/stopped` | **Reuse `SttSession` as-is**; rename emitted events |
@@ -167,7 +167,7 @@ The backend is ~70% of the way there; most work is **re-framing**, not new logic
    times to onboard RTC (battery Pods). Also hardens alarms for the *browser* app
    (today they only fire if a tab is open).
 3. **Display/companion-face channel** — Wyoming has no screen concept. Define a
-   Loki Doki `user-event` sub-vocabulary: `display.face` (viseme/expression
+   MaiPai Home `user-event` sub-vocabulary: `display.face` (viseme/expression
    state, not pixels — Pod renders LVGL locally), `display.data` (clock/weather/
    timer fields), `display.fire` (alarm ring screen). Keeps the wire light and
    the Pod's renderer dumb-but-local.
@@ -283,7 +283,7 @@ it speaks HA's protobuf native API, not Wyoming. Options, in order of recommend:
   trivial here: a TCP socket, JSON header writer/reader, PCM in/out. Full control
   of LVGL face + camera + RTC. Most work, best fit for the Echo-Show display layer.
 - **B — ESPHome (board/Wi-Fi/OTA/audio/microWakeWord components) + custom
-  external component** that speaks Wyoming to Loki Doki. Reuses ESPHome's hardware
+  external component** that speaks Wyoming to MaiPai Home. Reuses ESPHome's hardware
   abstractions and OTA for free; you write the Wyoming client as a component.
 - **Test harness — `wyoming-satellite` on a Pi Zero 2 W** (or a Node script).
   *Not a shipping device* (the hardware doc bans Raspberry Pi), but the fastest way
@@ -333,6 +333,6 @@ continuous streaming.
   [ESPHome microWakeWord](https://esphome.io/components/micro_wake_word/) ·
   [ESPHome voice_assistant](https://esphome.io/components/voice_assistant/)
 - Precedent: [HA ESPHome voice satellite](https://community.home-assistant.io/t/esphome-voice-satellite-voice-assistant-on-a-esp32/719865) ·
-  OmniBot (`/Users/jessetorres/Projects/OmniBot`)
+  OmniBot (`/Users/you/Projects/OmniBot`)
 </content>
 </invoke>

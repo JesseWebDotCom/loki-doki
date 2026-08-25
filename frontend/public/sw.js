@@ -24,8 +24,8 @@
 // re-fetched at scroll time. Kept in a SEPARATE cache from the shell so trimming it
 // (LRU-ish, by insertion order) can never evict offline.html or a hashed chunk.
 const CACHE_VERSION = "v4";
-const CACHE_NAME = `lokidoki-${CACHE_VERSION}`;
-const IMG_CACHE_NAME = `lokidoki-img-${CACHE_VERSION}`;
+const CACHE_NAME = `maipai-home-${CACHE_VERSION}`;
+const IMG_CACHE_NAME = `maipai-home-img-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
 // API GETs worth serving stale-while-revalidate — small, frequently-polled, and useful
@@ -136,7 +136,7 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  let payload = { title: "Loki Doki" };
+  let payload = { title: "MaiPai Home" };
   try { if (event.data) payload = { ...payload, ...event.data.json() }; } catch { /* not JSON */ }
 
   event.waitUntil(

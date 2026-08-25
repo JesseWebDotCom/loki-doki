@@ -1,5 +1,5 @@
 // Offline geocoder — FTS5 search + reverse lookup over per-region SQLite
-// databases. Ported from v2 lokidoki/maps/geocode/. Each installed region has a
+// databases. Ported from the v2 app's maps/geocode/. Each installed region has a
 // `geocoder.sqlite` with an FTS5 `places` table and an `places_rtree` spatial
 // index. Search is in-process linear over the small set of installed regions.
 

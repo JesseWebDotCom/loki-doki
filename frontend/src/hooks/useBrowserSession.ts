@@ -18,7 +18,7 @@ import { getDeviceId } from '@/lib/together/deviceIdentity'
 // radio player (play/pause/next/prev/play a station). This is how the physical controller
 // remote-controls the app open in the browser.
 //
-// The registration also carries voice-arbitration metadata: the Doki Dock desktop app
+// The registration also carries voice-arbitration metadata: the MaiPai Desktop desktop app
 // registers with dock=1 (surface 'hud' for the island window), and the server pushes
 // `voice` events telling web tabs on the same machine to yield companion speech to the
 // dock (see lib/voice/dockYield.ts). Dock sessions receive `dock` events - server→dock
@@ -52,7 +52,7 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
 
   useEffect(() => {
     return manageEventSource(() => {
-      const isDock = !!window.lokiDesktop
+      const isDock = !!window.maipaiDesktop
       // The device id registers this session as an addressable target: Listening Together
       // routes a command to THIS tab rather than "the user's most recent tab", and video
       // casting picks a screen to play on. ONE identity serves both (together's
@@ -174,7 +174,7 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
         })()
       })
 
-      // Server-arbitrated "dock wins" voice signal: {yield: true} means a Doki Dock on
+      // Server-arbitrated "dock wins" voice signal: {yield: true} means a MaiPai Desktop on
       // this machine owns companion speech and this tab must go quiet.
       es.addEventListener('voice', (e: MessageEvent) => {
         try {
@@ -195,8 +195,8 @@ export function useBrowserSession({ surface = 'app' }: { surface?: 'app' | 'hud'
             requestId = req.requestId
             let result: { ok: boolean; error?: string; data?: unknown }
             if (req.type !== 'files') result = { ok: false, error: 'unsupported_request' }
-            else if (!window.lokiDesktop?.fsRequest) result = { ok: false, error: 'shell_outdated' }
-            else result = await window.lokiDesktop.fsRequest({ action: String(req.action ?? ''), path: String(req.path ?? '') })
+            else if (!window.maipaiDesktop?.fsRequest) result = { ok: false, error: 'shell_outdated' }
+            else result = await window.maipaiDesktop.fsRequest({ action: String(req.action ?? ''), path: String(req.path ?? '') })
             await fetch('/api/browser-session/dock-result', {
               method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ requestId, result }),

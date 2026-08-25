@@ -53,7 +53,7 @@ export function TvSignInPage() {
         {/* design-ok(raw-h1-in-pages): read across a room, not at arm's length. */}
         <h1 className="text-4xl font-bold tracking-tight">Sign in from your phone</h1>
         <p className="text-xl text-muted-foreground">
-          Open Loki Doki on your phone, go to Settings, and enter this code.
+          Open MaiPai Home on your phone, go to Settings, and enter this code.
         </p>
       </div>
 

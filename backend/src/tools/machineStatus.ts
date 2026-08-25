@@ -1,5 +1,5 @@
 // Companion chat tool: answer "how's this computer doing?", "how much disk space
-// is left on my mac?" from the live resource snapshots that Doki Dock installs
+// is left on my mac?" from the live resource snapshots that MaiPai Desktop installs
 // report (lib/monitoring/resources.ts). Read-only; no side effects. Snapshots are
 // household-visible — they contain machine health numbers, nothing personal.
 
@@ -52,7 +52,7 @@ function gistFor(r: Row): string {
 export const machineStatusTool: Tool = {
   id: 'machineStatus',
   name: 'Computer status',
-  description: 'Check the live health of computers running the Doki Dock desktop app — CPU load, memory, free disk space, and battery. Answers "how is this computer doing?", "how much disk space is left?", "is my laptop battery low?".',
+  description: 'Check the live health of computers running the MaiPai Desktop desktop app — CPU load, memory, free disk space, and battery. Answers "how is this computer doing?", "how much disk space is left?", "is my laptop battery low?".',
   offline: true,
   dataSources: [],
   examples: [
@@ -67,7 +67,7 @@ export const machineStatusTool: Tool = {
     type: 'function',
     function: {
       name: 'machineStatus',
-      description: 'Read live CPU / memory / disk / battery stats for computers running the Doki Dock desktop app. Use for questions about a computer\'s health, speed, storage, or battery. Only machines with Doki Dock open report stats.',
+      description: 'Read live CPU / memory / disk / battery stats for computers running the MaiPai Desktop desktop app. Use for questions about a computer\'s health, speed, storage, or battery. Only machines with MaiPai Desktop open report stats.',
       parameters: {
         type: 'object',
         properties: {
@@ -86,7 +86,7 @@ export const machineStatusTool: Tool = {
     if (!rows.length) {
       return {
         success: true,
-        data: { answer_payload: { gist: "Doki Dock isn't running on any computer right now, so I can't see live stats. Open the Doki Dock app on the machine you're curious about." } },
+        data: { answer_payload: { gist: "MaiPai Desktop isn't running on any computer right now, so I can't see live stats. Open the MaiPai Desktop app on the machine you're curious about." } },
       }
     }
 

@@ -40,7 +40,7 @@ const RB_MIRRORS = [
   'https://nl1.api.radio-browser.info/json',
   'https://at1.api.radio-browser.info/json',
 ]
-const RB_UA = 'LokiDoki/3.0 music-radio-browser'
+const RB_UA = 'MaiPaiHome/3.0 music-radio-browser'
 let rbPreferred = 0
 
 /** GET a radio-browser API path (e.g. 'stations/search?…') with mirror failover. */

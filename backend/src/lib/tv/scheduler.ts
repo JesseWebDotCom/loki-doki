@@ -1,5 +1,5 @@
-// The Doki TV scheduler: materializes each channel's next ~24h of concrete blocks into
-// tv_schedule (plans/doki-tv.md). Determinism rule: the same channel on the same day
+// The MaiPai TV scheduler: materializes each channel's next ~24h of concrete blocks into
+// tv_schedule (plans/maipai-tv.md). Determinism rule: the same channel on the same day
 // draws from the same seeded lineup, so incremental extensions never reshuffle what the
 // guide already promised. Every source degrades to offair blocks, never to a failure.
 
@@ -261,7 +261,7 @@ async function buildAudioBlocks(
     if (pick) {
       blocks.push({
         startAt: new Date(cursor), endAt: new Date(end), blockKind: 'audio',
-        title: pick.name, subtitle: 'Doki FM', payload: { src: 'station', stationId: pick.id, stationName: pick.name },
+        title: pick.name, subtitle: 'MaiPai FM', payload: { src: 'station', stationId: pick.id, stationName: pick.name },
       })
     } else {
       blocks.push(offairBlock(cursor, end, 'not-configured', `${channel.name} is off the air`))

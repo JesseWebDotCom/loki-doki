@@ -146,7 +146,7 @@ export function MusicScrobbleSettings() {
         <Card className="p-4">
           <p className="text-sm font-semibold">Backfill history</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Send everything you have already played on Loki Doki. Listens go out in small batches so ListenBrainz is
+            Send everything you have already played on MaiPai Home. Listens go out in small batches so ListenBrainz is
             never hammered. Running this twice never sends a listen twice.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">

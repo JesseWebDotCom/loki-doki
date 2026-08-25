@@ -2,7 +2,7 @@ import type { Tool, ToolResult } from './index'
 
 // Hybrid holidays tool: an offline fixed-date table answers common US holidays with no
 // network; Nager.Date (https://date.nager.at, no API key) enriches with global coverage,
-// movable holidays, and full per-country lists when online. Ported from loki-doki v1/v2.
+// movable holidays, and full per-country lists when online. Ported from maipai-home v1/v2.
 
 const NAGER_API = 'https://date.nager.at/api/v3/PublicHolidays'
 
@@ -116,7 +116,7 @@ interface NagerHoliday { name: string; date: string; global: boolean }
 async function fetchNager(country: string, year: number): Promise<{ holidays: NagerHoliday[]; url: string } | null> {
   const url = `${NAGER_API}/${year}/${country}`
   const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'LokiDoki/3' },
+    headers: { Accept: 'application/json', 'User-Agent': 'MaiPaiHome/3' },
     signal: AbortSignal.timeout(5000),
   })
   if (!res.ok) return null

@@ -120,7 +120,7 @@ export function AdminMonitoringTab() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label>Kuma URL</Label>
-            <Input value={cfg.baseUrl} placeholder="http://172.19.211.220:3001"
+            <Input value={cfg.baseUrl} placeholder="http://192.0.2.20:3001"
               onChange={(e) => patch({ baseUrl: e.target.value })} />
           </div>
           <div className="space-y-1.5">

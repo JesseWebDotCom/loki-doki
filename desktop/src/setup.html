@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Connect Doki Dock</title>
+<title>Connect MaiPai Desktop</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; margin: 0; }
@@ -55,8 +55,8 @@
 <main>
   <!-- Panel 1: connect to the home server -->
   <section id="connect-panel">
-    <h1>Connect Doki Dock</h1>
-    <p class="hint">Enter your Loki Doki server address.</p>
+    <h1>Connect MaiPai Desktop</h1>
+    <p class="hint">Enter your MaiPai Home server address.</p>
     <input id="url" type="text" placeholder="http://192.168.1.10:3000" autofocus spellcheck="false" />
     <button id="connect">Connect</button>
     <p class="error" id="error"></p>
@@ -82,14 +82,14 @@
           <div class="title">Screen awareness <span style="font-weight:400;color:#98989f">(optional)</span></div>
           <div class="desc" id="screen-desc">
             To let the companion see your screen, ask it about your screen once,
-            then flip Doki Dock on in System Settings › Privacy &amp; Security ›
+            then flip MaiPai Desktop on in System Settings › Privacy &amp; Security ›
             Screen Recording and relaunch. You can do this later.
           </div>
           <div class="status" id="screen-status"></div>
         </div>
       </li>
     </ul>
-    <button id="finish">Open Doki Dock</button>
+    <button id="finish">Open MaiPai Desktop</button>
   </section>
 </main>
 <script>

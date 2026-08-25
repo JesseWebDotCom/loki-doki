@@ -7,10 +7,10 @@ import type { BatteryStatus } from '@/types/desktop'
 export function useBattery(): BatteryStatus | null {
   const [battery, setBattery] = useState<BatteryStatus | null>(null)
   useEffect(() => {
-    if (!window.lokiDesktop?.getBattery) return
+    if (!window.maipaiDesktop?.getBattery) return
     let cancelled = false
     const tick = () => {
-      void window.lokiDesktop?.getBattery?.().then((b) => { if (!cancelled) setBattery(b) })
+      void window.maipaiDesktop?.getBattery?.().then((b) => { if (!cancelled) setBattery(b) })
     }
     tick()
     const t = setInterval(tick, 60_000)

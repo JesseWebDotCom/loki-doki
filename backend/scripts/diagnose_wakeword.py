@@ -11,7 +11,7 @@ utterance, the same number that fires hands-free in production.
 Usage:
   python diagnose_wakeword.py --wakeword-dir <dir> \
       --voice-server http://localhost:8091 \
-      [--detector <file.onnx>] [--phrase "hey loki"] [--voices am_santa,af_heart,...]
+      [--detector <file.onnx>] [--phrase "hey maipai"] [--voices am_santa,af_heart,...]
 
 With no --detector it runs the validation sweep: hey_jarvis vs "hey jarvis"
 (known-good, proves the harness is faithful) then the trained detector(s).
@@ -96,7 +96,7 @@ def main():
     ap.add_argument("--wakeword-dir", required=True)
     ap.add_argument("--voice-server", default="http://localhost:8091")
     ap.add_argument("--detector", default=None, help="specific detector .onnx (basename)")
-    ap.add_argument("--phrase", default="hey loki")
+    ap.add_argument("--phrase", default="hey maipai")
     ap.add_argument("--train-voice", default="am_santa", help="voice the detector was trained on")
     ap.add_argument("--voices", default=None, help="comma list; default = a diverse sample")
     args = ap.parse_args()

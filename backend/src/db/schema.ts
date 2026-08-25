@@ -62,7 +62,7 @@ export const characters = sqliteTable('characters', {
   replyStyle: text('reply_style', { enum: ['brief', 'balanced', 'detailed', 'auto'] }).notNull().default('balanced'),
   // ── Voice ──
   // ttsVoice is a qualified `engine:voice_id` (e.g. 'piper:en_US-amy-medium' or
-  // 'clone:loki'); null falls back to the user/app default voice. voiceId (above)
+  // 'clone:bruno'); null falls back to the user/app default voice. voiceId (above)
   // remains the link to this character's active voiceSamples reference for cloning.
   ttsVoice: text('tts_voice'),
   // Wakeword model id (a pretrained catalog id like 'hey_jarvis' or a trained
@@ -4429,8 +4429,8 @@ export const icloudMailExtracts = sqliteTable('icloud_mail_extracts', {
   kindDateIdx: index('icloud_mail_extracts_kind_date_idx').on(t.kind, t.eventDate),
 }))
 
-// ── Doki TV: linear family channels ──────────────────────────────────────────────
-// A channel is config plus a materialized schedule (plans/doki-tv.md). The scheduler
+// ── MaiPai TV: linear family channels ──────────────────────────────────────────────
+// A channel is config plus a materialized schedule (plans/maipai-tv.md). The scheduler
 // writes concrete blocks into tv_schedule 24h ahead; tune-in resolves the row covering
 // now(). tv_segments holds pre-rendered AI assets and the shared ad/bumper pools.
 export const tvChannels = sqliteTable('tv_channels', {

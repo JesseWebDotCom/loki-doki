@@ -1,7 +1,7 @@
 import type { Tool, ToolResult } from './index'
 import { webStreamingFallback, type WebProvider } from '@/lib/titles/streamingFallback'
 
-// JustWatch GraphQL — public endpoint, no API key required. Ported from loki-doki-v2.
+// JustWatch GraphQL — public endpoint, no API key required. Ported from maipai-home-v2.
 // Supports three modes: lookup (where is a title streaming), popular (top titles),
 // and new (newest titles) — the latter two optionally filtered to one provider.
 const GRAPHQL_URL = 'https://apis.justwatch.com/graphql'

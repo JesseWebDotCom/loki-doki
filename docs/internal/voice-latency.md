@@ -52,7 +52,7 @@ Secondary findings:
   their own leg; nothing stamps speech-end to first-audio. We cannot see regressions.
 - **ONNX wakeword path clips run-on commands.** On wake, `useHandsFree.ts` opens a fresh STT
   socket with no pre-roll replay (pre-roll is only buffered during reply/capture states), so
-  "hey loki, turn off the lights" in one breath can lose the command head. Users repeat
+  "hey maipai, turn off the lights" in one breath can lose the command head. Users repeat
   themselves, which reads as slowness. The whisper-phrase wake path avoids this but pays a
   full extra endpoint cycle to detect the wake word at all.
 - **Follow-up turns pay +400 ms** (`TTS_MUTE_GRACE_MS`) of muted mic after each reply.

@@ -14,7 +14,7 @@ import { safeFetch } from '@/lib/ssrfGuard'
 import { googleNewsSearch } from '@/lib/briefing/sources/rss'
 import { prefetchFeedItemContent } from '@/lib/feeds/contentQuality'
 
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 const FETCH_TIMEOUT_MS = 10_000
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000
 const MIN_HOST_GAP_MS = 1500

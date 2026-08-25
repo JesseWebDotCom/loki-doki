@@ -140,7 +140,7 @@ export function transcript(text: string): WyomingEvent {
 }
 
 /**
- * Loki Doki text-reply extension (Wyoming `user-event`): the companion's reply as TEXT,
+ * MaiPai Home text-reply extension (Wyoming `user-event`): the companion's reply as TEXT,
  * for a device in "text only" reply mode (voice muted). The device types it on screen
  * (bottom-middle) instead of playing TTS. Sent progressively so it appears to type.
  */
@@ -149,7 +149,7 @@ export function replyText(text: string): WyomingEvent {
 }
 
 /**
- * Loki Doki display extension (carried on Wyoming `user-event`): tells the Pod
+ * MaiPai Home display extension (carried on Wyoming `user-event`): tells the Pod
  * what animation/expression the companion should show. The mouth is driven on
  * the Pod from the audio amplitude — see the "Companion face" section of
  * plans/hardware-devices/pod-wyoming-architecture.md.
@@ -159,7 +159,7 @@ export function faceState(state: FaceState): WyomingEvent {
 }
 
 /**
- * Loki Doki config extension (Wyoming `user-event`): pushes a device's effective
+ * MaiPai Home config extension (Wyoming `user-event`): pushes a device's effective
  * settings (dimming, …) so the Pod applies them live. Sent on (re)connect and again
  * whenever the device's group settings change — central settings, no re-flash.
  */
@@ -168,7 +168,7 @@ export function deviceConfig(settings: Record<string, unknown>): WyomingEvent {
 }
 
 /**
- * Loki Doki screen-mode extension (Wyoming `user-event`): switches a screen Pod's
+ * MaiPai Home screen-mode extension (Wyoming `user-event`): switches a screen Pod's
  * UI between the ambient clock, the camera test, and the touch test. Pushed live
  * from Admin → Devices → Testing.
  */
@@ -189,7 +189,7 @@ export function contentMode(mode: string): WyomingEvent {
 }
 
 /**
- * Loki Doki orientation extension (Wyoming `user-event`): tells the device's LVGL
+ * MaiPai Home orientation extension (Wyoming `user-event`): tells the device's LVGL
  * driver to call lv_disp_set_rotation(disp, …) so touch coordinates and native
  * buttons rotate along with the server-rendered JPEG. Degrees: 0 | 90 | 180 | 270.
  * Pushed on (re)connect and immediately when the admin changes the setting.
@@ -199,7 +199,7 @@ export function displayOrientation(degrees: number): WyomingEvent {
 }
 
 /**
- * Loki Doki layout extension (Wyoming `user-event`): the full slot-based dashboard
+ * MaiPai Home layout extension (Wyoming `user-event`): the full slot-based dashboard
  * descriptor — which pre-built widget sits in which 3×3 slot at what size, the theme
  * tokens, and the resolved sound-pack event→URL map. Pushed on (re)connect and on any
  * template/assignment edit; the device places/themes its widgets and caches the sounds
@@ -210,7 +210,7 @@ export function layout(descriptor: Record<string, unknown>): WyomingEvent {
 }
 
 /**
- * Loki Doki live-data extension (Wyoming `user-event`): the data feed for the NATIVE
+ * MaiPai Home live-data extension (Wyoming `user-event`): the data feed for the NATIVE
  * LVGL dashboard (renderer 'lvgl') — current weather for the device's location and
  * whether a family photo is configured. The device draws its own clock from on-board
  * time; this fills in what it can't compute locally. Pushed on (re)connect, on layout
@@ -221,7 +221,7 @@ export function displayData(payload: Record<string, unknown>): WyomingEvent {
 }
 
 /**
- * Loki Doki earcon extension (Wyoming `user-event`): asks the device to play the
+ * MaiPai Home earcon extension (Wyoming `user-event`): asks the device to play the
  * sound mapped to a UI event in its active pack (it already cached the URL from the
  * layout descriptor). `wake` is normally played locally on-device for zero latency;
  * this is for the server-owned events (success/error/notification/…).
@@ -231,7 +231,7 @@ export function soundTrigger(event: string): WyomingEvent {
 }
 
 /**
- * Loki Doki asset-sync extension (Wyoming `user-event`): tells the device to fetch
+ * MaiPai Home asset-sync extension (Wyoming `user-event`): tells the device to fetch
  * the listed custom WAVs (url + sha256) to its SD card once, before a custom pack/
  * alarm tone can play. Built-in tones ship in flash and never appear here.
  */
@@ -240,7 +240,7 @@ export function assetSync(packId: string | null, files: Array<{ path: string; ur
 }
 
 /**
- * Loki Doki centralised-alarm extensions. `alarmFire` rings a device (label + resolved
+ * MaiPai Home centralised-alarm extensions. `alarmFire` rings a device (label + resolved
  * tone URL + snooze minutes); `alarmStop` is the coordinated dismiss sent to the OTHER
  * targets when one device snoozes/cancels. The server owns alarm state — the device is
  * only a renderer (see §8 of the slot-UI doc).
@@ -253,7 +253,7 @@ export function alarmStop(alarmId: string): WyomingEvent {
 }
 
 /**
- * Loki Doki controller extension (Wyoming `user-event`): pushes the full button
+ * MaiPai Home controller extension (Wyoming `user-event`): pushes the full button
  * grid config to a device in controller mode. The device renders pages natively
  * in LVGL and only contacts the server when a button is pressed — no pixel streaming.
  */

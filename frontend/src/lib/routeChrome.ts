@@ -43,7 +43,7 @@ export function classifyRoute(pathname: string): RouteChrome {
     // (not isReader, that suppresses it), just owns its own full-height content.
     pathname.startsWith("/coding") ||
     pathname.startsWith("/remote") ||
-    // Doki TV linear channels: always-dark cinema shell that owns its scroller.
+    // MaiPai TV linear channels: always-dark cinema shell that owns its scroller.
     pathname.startsWith("/channels");
   // The shell paints the backdrop for standard scroller apps only. Full-bleed,
   // chat and panel routes own their own backgrounds (PageShell self-tints them).

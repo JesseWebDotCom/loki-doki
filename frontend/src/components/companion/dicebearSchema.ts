@@ -1,7 +1,7 @@
 import * as collection from "@dicebear/collection";
 import type { CharacterStyle } from "./styles";
 
-// Adapted from loki-doki-v2 styleSchemas.ts — sources per-style schemas from
+// Adapted from maipai-home-v2 styleSchemas.ts — sources per-style schemas from
 // @dicebear/collection (v3 bundles all styles in one package). Used to strip
 // cross-style option keys so DiceBear doesn't choke when a saved avatarConfig
 // carries keys from a different style.

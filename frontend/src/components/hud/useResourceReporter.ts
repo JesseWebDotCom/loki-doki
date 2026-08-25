@@ -14,7 +14,7 @@ const SNAPSHOT_EVERY_MS = 60_000
 
 export function useResourceReporter() {
   useEffect(() => {
-    const bridge = window.lokiDesktop
+    const bridge = window.maipaiDesktop
     if (!bridge?.getResources) return
     let cancelled = false
     let lastSnapshotAt = 0

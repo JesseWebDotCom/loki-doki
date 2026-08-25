@@ -63,7 +63,7 @@ async function fetchFeedCached(feed: OnThisDayFeed, month: number, day: number, 
   const p = (async () => {
     const res = await fetch(
       `https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/${feed}/${pad2(month)}/${pad2(day)}`,
-      { headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) },
+      { headers: { 'User-Agent': 'MaiPaiHome/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) },
     )
     if (!res.ok) throw new Error(`onThisDay(${feed}): ${res.status}`)
     const data = (await res.json()) as Record<string, FeedEntry[] | undefined>

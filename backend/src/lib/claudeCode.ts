@@ -45,7 +45,7 @@ export async function installClaudeCode(onStatus: (msg: string) => void, signal?
   // .bin shim that can't remap and fails at runtime with "bin executable does not exist on disk".
   const pkgPath = join(CLAUDE_CODE_DIR, 'package.json')
   writeFileSync(pkgPath, JSON.stringify({
-    name: 'loki-doki-claude-code-runtime', private: true,
+    name: 'maipai-home-claude-code-runtime', private: true,
     trustedDependencies: ['@anthropic-ai/claude-code'],
   }, null, 2))
   // Start from a clean tree so bun regenerates the launcher shims and re-runs the postinstall from

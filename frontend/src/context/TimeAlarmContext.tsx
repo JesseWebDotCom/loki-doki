@@ -264,7 +264,7 @@ export function TimeAlarmProvider({ children }: { children: React.ReactNode }) {
     if (!ringing) return
     ringHandleRef.current = startRinging(ringing.tone)
     // The tone rings on every surface (an alarm must never be silently missed), but the
-    // spoken line is deduped per machine: a tab yielded to Doki Dock stays quiet (the
+    // spoken line is deduped per machine: a tab yielded to MaiPai Desktop stays quiet (the
     // dock's HUD announces), and within the dock only the HUD window speaks.
     if (ringing.announce && shouldSpeakProactively()) {
       const generic = !ringing.label || /^(alarm|timer)$/i.test(ringing.label.trim())

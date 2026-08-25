@@ -183,8 +183,8 @@ async function submitBatch(token: string, listens: Array<{ artist: string; title
           artist_name: l.artist,
           track_name: l.title,
           additional_info: {
-            media_player: 'Loki Doki',
-            submission_client: 'Loki Doki',
+            media_player: 'MaiPai Home',
+            submission_client: 'MaiPai Home',
             ...(l.durationSec ? { duration_ms: Math.round(l.durationSec * 1000) } : {}),
           },
         },

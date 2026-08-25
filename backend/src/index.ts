@@ -1,5 +1,15 @@
 // Keep this first: locks PLAYWRIGHT_BROWSERS_PATH before anything can load playwright.
 import '@/lib/playwrightEnv'
+// Legacy env compatibility: installs configured before the MaiPai rename may
+// still export LOKIDOKI_* variables. Honor them under the new names once, at
+// boot, so nothing breaks mid-upgrade. Remove after the fleet has migrated.
+for (const k of Object.keys(process.env)) {
+  if (k.startsWith('LOKIDOKI_')) {
+    const nk = 'MAIPAI_' + k.slice('LOKIDOKI_'.length)
+    if (process.env[nk] === undefined) process.env[nk] = process.env[k]
+  }
+}
+import('./lib/legacyCutover').then(({ migrateLegacyRemote }) => migrateLegacyRemote()).catch(() => {})
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -408,7 +418,7 @@ if (firstBoot) {
   // background so first use never stalls on a download — see lib/prewarm.ts.
   import('@/lib/prewarm').then((m) => m.scheduleBinaryPrewarm()).catch(() => {})
   startYoutubeFeedPoller()
-  // Doki TV: seed the channel dial and keep 24h of schedule materialized (lib/tv/).
+  // MaiPai TV: seed the channel dial and keep 24h of schedule materialized (lib/tv/).
   import('@/lib/tv/scheduler').then((m) => m.initTvScheduler()).catch(() => {})
   // Videos hub: refresh non-YouTube follows + cross-source auto-save (lib/videos/feed.ts).
   import('@/lib/videos/feed').then((m) => m.startVideosFeedPoller()).catch(() => {})
@@ -944,9 +954,9 @@ const port = parseInt(process.env.PORT ?? '3000')
 // HTTPS) and add its own authentication.
 const hostname = process.env.HOST ?? '0.0.0.0'
 if (hostname === '0.0.0.0' || hostname === '::') {
-  logger.info(`loki-doki running on http://localhost:${port} (also reachable on your LAN at http://<this-machine-ip>:${port}). Do not port-forward this port to the internet without a TLS reverse proxy in front.`)
+  logger.info(`maipai-home running on http://localhost:${port} (also reachable on your LAN at http://<this-machine-ip>:${port}). Do not port-forward this port to the internet without a TLS reverse proxy in front.`)
 } else {
-  logger.info(`loki-doki running on http://${hostname}:${port}`)
+  logger.info(`maipai-home running on http://${hostname}:${port}`)
 }
 
 // websocket.idleTimeout: Bun auto-pings each WS client and closes any that hasn't sent

@@ -1,6 +1,6 @@
-# Doki Dock
+# MaiPai Desktop
 
-The Loki Doki desktop app: a thin Electron shell around the web app served by your home server. It adds
+The MaiPai Home desktop app: a thin Electron shell around the web app served by your home server. It adds
 what a browser tab can't: an always-on-top voice HUD near the notch, a global hotkey,
 a tray icon, and launch-at-login. Every feature (chat, music, videos, ...) loads live
 from the server, so server updates reach the desktop app automatically — the shell
@@ -33,7 +33,7 @@ itself rarely needs a new release.
 
 ## Development
 
-Requires a running Loki Doki server (see the repo root `run.sh`).
+Requires a running MaiPai Home server (see the repo root `run.sh`).
 
 ```sh
 cd desktop
@@ -79,7 +79,7 @@ block in `electron-builder.yml`; that trio is the single source of truth for the
 
 ### Building the Mac app (and DMG) on Windows, no Mac
 
-`scripts/build-mac-on-windows.ts` assembles, brands, and ad-hoc signs `Doki Dock.app`
+`scripts/build-mac-on-windows.ts` assembles, brands, and ad-hoc signs `MaiPai Desktop.app`
 from a prebuilt Electron darwin zip (see its header for inputs and `rcodesign`). It
 always writes the `.zip`, and also writes the styled `.dmg` when an HFS+ sealer is
 available, reusing the committed layout above. Sealing a folder into a UDIF image needs
@@ -88,7 +88,7 @@ a tool Windows lacks natively, so point `DMGTOOL` at one:
 ```sh
 # under WSL, using the libdmg-hfsplus reference sealer:
 DMGTOOL="wsl scripts/seal-dmg.sh" RCODESIGN=... \
-  bun run scripts/build-mac-on-windows.ts electron-*-darwin-arm64.zip DokiDock-arm64.zip
+  bun run scripts/build-mac-on-windows.ts electron-*-darwin-arm64.zip MaiPaiDesktop-arm64.zip
 ```
 
 `scripts/seal-dmg.sh` needs `hfsprogs` (`mkfs.hfsplus`) plus libdmg-hfsplus's `hfsplus`
@@ -105,7 +105,7 @@ attempt. Ask the companion about your screen once, flip the toggle, then **fully
 and relaunch** (the grant doesn't apply to a running process). Dev gotchas:
 
 - In dev the grant attaches to the **Electron binary** (`desktop/node_modules/electron/...`),
-  listed as **"Electron"** — not "Doki Dock".
+  listed as **"Electron"** — not "MaiPai Desktop".
 - Upgrading the `electron` dependency replaces that binary, so expect to re-grant
   (remove the stale "Electron" row and re-add if captures come back black).
 - Terminal-launched dev runs can inherit the terminal's grant on some macOS versions —
@@ -118,7 +118,7 @@ Phase 1 builds are not code-signed:
 - **macOS**: Gatekeeper blocks the first launch. On macOS 15+ the old right-click → Open
   bypass is gone: open the app once (it gets blocked), then go to
   System Settings → Privacy & Security and click **Open Anyway** (or, from a terminal,
-  `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`). The DMG window and
+  `xattr -dr com.apple.quarantine "/Applications/MaiPai Desktop.app"`). The DMG window and
   the app's first-run primer both spell this out. The only way to remove the prompt is
   Developer ID signing + notarization (rcodesign can do both from Windows), not done in
   Phase 1.
@@ -136,7 +136,7 @@ handlers live in `src/main.js` (`setup:request-mic` / `setup:screen-status` /
 ## Architecture notes
 
 - The renderer is the server's web app; the shell exposes a tiny bridge
-  (`window.lokiDesktop`, see `src/preload.js` and `frontend/src/types/desktop.d.ts`)
+  (`window.maipaiDesktop`, see `src/preload.js` and `frontend/src/types/desktop.d.ts`)
   for listen toggling, HUD resize requests, and opening the main window. All IPC
   handlers validate the sender frame's origin against the configured server.
 - The HUD page is `frontend/src/pages/HudPage.tsx` (route `/hud`).

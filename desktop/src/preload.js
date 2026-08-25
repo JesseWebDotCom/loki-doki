@@ -4,7 +4,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('lokiDesktop', {
+contextBridge.exposeInMainWorld('maipaiDesktop', {
   platform: process.platform,
 
   // Running shell version (app package.json), so the web app can show

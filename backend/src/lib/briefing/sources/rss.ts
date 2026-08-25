@@ -44,7 +44,7 @@ function parseRss(xml: string, limit: number): RssItem[] {
 
 async function fetchRss(url: string, limit: number, timeoutMs: number): Promise<RssItem[]> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/rss+xml, application/xml, text/xml' },
+    headers: { 'User-Agent': 'MaiPaiHome/1.0', Accept: 'application/rss+xml, application/xml, text/xml' },
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`RSS ${res.status}`)
@@ -106,7 +106,7 @@ function parseBingRss(xml: string, limit: number): RssItem[] {
  *  renders images (e.g. local news cards); Bing gives real per-article thumbnails. */
 export async function bingNewsSearch(query: string, limit = 5, timeoutMs = 6000): Promise<RssItem[]> {
   const res = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(query)}&format=RSS`, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`Bing RSS ${res.status}`)
@@ -179,7 +179,7 @@ export async function worldHeadlines(limit = 12, timeoutMs = 6000): Promise<RssI
   const lists = await Promise.all(
     WORLD_FEEDS.map((f) =>
       fetch(f.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
         signal: AbortSignal.timeout(timeoutMs),
       })
         .then((r) => (r.ok ? r.text() : ''))

@@ -1,7 +1,7 @@
 // Station cover backfill. Covers are normally stamped from the first built
 // queue on tune-in (stampStationCoverIfEmpty), which left every never-played
 // station (118 of the 121 shipped ones at the time of writing) without art in
-// both the Music app and the Doki Dock island. For each coverless station the
+// both the Music app and the MaiPai Desktop island. For each coverless station the
 // local LLM names a handful of REAL iconic songs matching the station's vibe;
 // the first whose album art actually resolves on iTunes is stamped as the
 // cover. videoId stays empty: the cover is art metadata only, every consumer

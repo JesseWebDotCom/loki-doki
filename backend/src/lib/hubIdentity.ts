@@ -34,7 +34,7 @@ export async function getHubInstanceId(): Promise<string> {
 export async function getHubName(): Promise<string> {
   const stored = await getAppSetting(NAME_KEY)
   if (typeof stored === 'string' && stored.trim()) return stored.trim()
-  return hostname().replace(/\.local$/, '') || 'Loki Doki'
+  return hostname().replace(/\.local$/, '') || 'MaiPai Home'
 }
 
 export async function setHubName(name: string): Promise<void> {

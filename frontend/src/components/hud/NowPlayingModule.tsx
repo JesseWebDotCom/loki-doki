@@ -18,7 +18,7 @@ import type { NowPlayingInfo } from './useNowPlaying'
 // deep-links into the main app window.
 
 function openDeepLink(info: NowPlayingInfo) {
-  window.lokiDesktop?.openMainWindow(info.deepLink)
+  window.maipaiDesktop?.openMainWindow(info.deepLink)
 }
 
 function fmtTime(sec: number): string {

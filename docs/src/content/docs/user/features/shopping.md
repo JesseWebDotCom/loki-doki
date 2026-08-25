@@ -9,15 +9,15 @@ Shopping is your household's private price tracker. Watch products across major 
 
 ## Tracking a Product
 
-One search box does double duty. Paste a product link from Amazon, Walmart, Target, Best Buy, or most other stores, and Loki Doki starts tracking it. Or type a product name to search across retailers at once and pick the listing you want.
+One search box does double duty. Paste a product link from Amazon, Walmart, Target, Best Buy, or most other stores, and MaiPai Home starts tracking it. Or type a product name to search across retailers at once and pick the listing you want.
 
 Every tracked item shows a price-history chart (Amazon listings get an extended history), so you can see whether now is actually a good time to buy. Favorite the items you care about most, and your recently-viewed list makes it easy to find your way back to something you looked at earlier. Tracked products are shared with your whole household.
 
-If you've told Loki Doki about discounts you get at checkout (a store card, military or student discount, a membership), prices shown reflect what you'd actually pay, compounded the way a real checkout would.
+If you've told MaiPai Home about discounts you get at checkout (a store card, military or student discount, a membership), prices shown reflect what you'd actually pay, compounded the way a real checkout would.
 
 ## Price Alerts
 
-Set an alert on anything you track: notify me when the price drops to a target amount, drops by a percentage, drops at all, or when an out-of-stock item comes back. Alerts arrive as a regular Loki Doki notification, so you'll know the moment it's worth buying.
+Set an alert on anything you track: notify me when the price drops to a target amount, drops by a percentage, drops at all, or when an out-of-stock item comes back. Alerts arrive as a regular MaiPai Home notification, so you'll know the moment it's worth buying.
 
 ## Deals and Coupons
 
@@ -25,7 +25,7 @@ A **Today's Deals** feed surfaces what's actually worth a look right now, pulled
 
 ## Identify by Photo
 
-Snap a photo of a barcode or the product itself and Loki Doki suggests matching listings to track, no typing required.
+Snap a photo of a barcode or the product itself and MaiPai Home suggests matching listings to track, no typing required.
 
 ## Ask Your Companion
 

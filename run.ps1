@@ -1,5 +1,5 @@
 <#
-  Windows launcher for Loki Doki, the PowerShell counterpart to run.sh.
+  Windows launcher for MaiPai Home, the PowerShell counterpart to run.sh.
 
   Usage:
     powershell -ExecutionPolicy Bypass -File .\run.ps1            # production (default)
@@ -14,7 +14,7 @@
     • Dev (-Dev, or run-dev.ps1): Vite dev server on 5173 + hot-reloading backend,
       for local editing with instant HMR. Heavy to load over the LAN.
 
-  Loki Doki runs on the Bun runtime. This installs Bun automatically on first run
+  MaiPai Home runs on the Bun runtime. This installs Bun automatically on first run
   so a fresh machine needs nothing but this script and Ollama (which you install
   once from https://ollama.com/download; the app auto-detects it). Ollama and the
   AI models download on first launch from the setup wizard.
@@ -93,7 +93,7 @@ function Ensure-Bun {
 # times against; `bun install` is a fast no-op when everything is already satisfied.
 function Ensure-Deps([string]$Dir) {
   if (-not (Test-Path (Join-Path $Dir 'package.json'))) { return }
-  $stamp = Join-Path $Dir 'node_modules\.loki-install-stamp'
+  $stamp = Join-Path $Dir 'node_modules\.maipai-install-stamp'
   $needs = $false
   if (-not (Test-Path (Join-Path $Dir 'node_modules'))) { $needs = $true }
   elseif (-not (Test-Path $stamp)) { $needs = $true }
@@ -125,7 +125,7 @@ function Ensure-Deps([string]$Dir) {
 function Ensure-FrontendBuild([string]$Dir) {
   $dist  = Join-Path $Dir 'dist'
   $index = Join-Path $dist 'index.html'
-  $stamp = Join-Path $dist '.loki-build-stamp'
+  $stamp = Join-Path $dist '.maipai-build-stamp'
   $needs = $false
   if (-not (Test-Path $index)) { $needs = $true }
   elseif (-not (Test-Path $stamp)) { $needs = $true }
@@ -183,7 +183,7 @@ function Set-GpuPowerCaps([int]$CapWatts) {
       if ($LASTEXITCODE -eq 0) {
         Write-Host "GPU $idx power limit capped to $target W (transient-brownout mitigation)."
       } else {
-        Write-Host "Could not cap GPU $idx power from this (unelevated) shell. If the LokiDoki-GpuPowerGuard task is installed the card is already protected; otherwise run .\gpu-power-guard.ps1 -Install once from an elevated shell." -ForegroundColor Yellow
+        Write-Host "Could not cap GPU $idx power from this (unelevated) shell. If the MaiPaiHome-GpuPowerGuard task is installed the card is already protected; otherwise run .\gpu-power-guard.ps1 -Install once from an elevated shell." -ForegroundColor Yellow
       }
     }
   } catch {
@@ -393,7 +393,7 @@ try {
   }
 
   Write-Host ''
-  Write-Host "Loki Doki is running at $url  (press Ctrl+C to stop)"
+  Write-Host "MaiPai Home is running at $url  (press Ctrl+C to stop)"
 
   # Supervise: a crashed server restarts automatically instead of taking the whole
   # app down (previously one backend crash killed everything until a manual re-run).

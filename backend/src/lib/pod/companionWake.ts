@@ -1,6 +1,6 @@
 // Companion wake words for physical devices.
 //
-// A device should answer to its companion's name (e.g. "Hey Loki"), not the app
+// A device should answer to its companion's name (e.g. "Hey MaiPai"), not the app
 // default "Hey Jarvis". Companions ship a `wakeWordPhrase` but no trained detector,
 // so the first time a device bound to a companion connects we auto-train an
 // openWakeWord model from that phrase (Kokoro-synthesized samples → logistic

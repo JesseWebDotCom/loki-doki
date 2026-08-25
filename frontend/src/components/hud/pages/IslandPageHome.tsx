@@ -38,7 +38,7 @@ const VOLUME_ACTIONS: { action: 'mute' | 'down' | 'up'; icon: LucideIcon; label:
 ]
 
 function VolumeCluster() {
-  if (!window.lokiDesktop?.volumeCommand) return null
+  if (!window.maipaiDesktop?.volumeCommand) return null
   return (
     <div className="flex items-center gap-1">
       {VOLUME_ACTIONS.map((v) => (
@@ -48,7 +48,7 @@ function VolumeCluster() {
           size="icon"
           aria-label={v.label}
           title={v.label}
-          onClick={() => void window.lokiDesktop?.volumeCommand?.(v.action)}
+          onClick={() => void window.maipaiDesktop?.volumeCommand?.(v.action)}
           // design-ok(glass-on-plain-bg): sits inside the black island surface
           className="size-7 rounded-full text-white/50 hover:bg-white/10 hover:text-white"
         >

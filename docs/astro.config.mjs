@@ -11,13 +11,13 @@ export default defineConfig({
   redirects: { '/user/features/youtube': `${base}/user/features/videos` },
   integrations: [
     starlight({
-      title: 'Loki Doki',
+      title: 'MaiPai Home',
       tagline: 'Your family. Your data. Your rules.',
-      logo: { src: './src/assets/brand.svg', alt: 'LokiDoki' },
+      logo: { src: './src/assets/brand.svg', alt: 'MaiPai Home' },
       favicon: '/favicon.svg',
       customCss: ['./src/styles/custom.css'],
       social: {
-        github: 'https://github.com/JesseWebDotCom/loki-doki',
+        github: 'https://github.com/getmaipai/home',
       },
       head: [
         {
@@ -70,12 +70,32 @@ export default defineConfig({
         },
       },
       sidebar: [
+        { label: 'Start here', items: ['user/welcome', 'user/getting-started', 'user/update'] },
+        { label: 'Everyday use', items: [
+          'user/features/chat', 'user/features/voice', 'user/features/companions',
+          'user/features/music', 'user/features/videos', 'user/features/movies',
+          'user/features/shows', 'user/features/podcasts', 'user/features/books',
+          'user/features/news', 'user/features/today', 'user/features/image-generation',
+          'user/features/canvas', 'user/features/maps', 'user/features/desktop',
+        ] },
+        { label: 'More apps & tools', collapsed: true, items: [
+          'user/features/app-store', 'user/features/bookmarks', 'user/features/clips',
+          'user/features/coding', 'user/features/converter', 'user/features/drop',
+          'user/features/home-inventory', 'user/features/notifications',
+          'user/features/recognition', 'user/features/reference',
+          'user/features/reverse-lookup', 'user/features/shopping',
+          'user/features/skills', 'user/features/speed-test', 'user/features/time',
+          'user/features/tools', 'user/features/voice-memos',
+        ] },
+        { label: 'Connect your home', collapsed: true, items: [
+          'user/features/home-assistant', 'user/features/frigate', 'user/features/plex',
+        ] },
+        { label: 'Your family', items: ['user/admin'] },
+        { label: 'Privacy & safety', items: ['user/privacy'] },
+        { label: 'Fix a problem', items: ['user/fix-a-problem'] },
         {
-          label: 'User Guide',
-          autogenerate: { directory: 'user' },
-        },
-        {
-          label: 'Developer Guide',
+          label: 'For tinkerers & developers',
+          collapsed: true,
           autogenerate: { directory: 'dev' },
         },
       ],

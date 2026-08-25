@@ -1,7 +1,7 @@
-# Loki Doki — M5Stack Tab5 voice satellite (ESPHome)
+# MaiPai Home — M5Stack Tab5 voice satellite (ESPHome)
 #
 # A 5" ESP32-P4 tablet (1280×720 MIPI-DSI, ES7210 mic array + ES8388 speaker codec,
-# ESP32-C6 co-processor for Wi-Fi over SDIO) turned into a Loki Doki voice satellite.
+# ESP32-C6 co-processor for Wi-Fi over SDIO) turned into a MaiPai Home voice satellite.
 # Like the Atom Echo it streams 16 kHz mic PCM to the Wyoming gateway and plays the
 # companion's spoken reply; wake word runs SERVER-SIDE.
 #
@@ -23,7 +23,7 @@
 #   https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Tab5/config.yaml
 # Do NOT "tune" those values. What we change vs. upstream: (1) the PIPELINE — we drop
 # Home Assistant's voice_assistant/micro_wake_word/media_player and use our own
-# `lokidoki_satellite` component (server-side wake, our Wyoming framing), like
+# `maipai_satellite` component (server-side wake, our Wyoming framing), like
 # firmware/atom-echo/atom-echo.yaml; and (2) TOUCH — upstream's gt911 block is for the
 # OLD revision; this V2 unit needs the `st7123` driver (see HARDWARE REVISION above).
 #
@@ -32,11 +32,11 @@
 # device when it announces itself.
 
 substitutions:
-  name: lokidoki-tab5
-  friendly_name: LokiDoki Tab5
-  lokidoki_host: "192.168.1.50"   # ← your Loki Doki server's LAN IP (injected at build)
-  lokidoki_port: "10700"          # POD_GATEWAY_PORT (default 10700)
-  lokidoki_http_port: "3000"      # HTTP API port — serves the server-rendered display
+  name: maipai-home-tab5
+  friendly_name: MaiPaiHome Tab5
+  maipai_host: "192.168.1.50"   # ← your MaiPai Home server's LAN IP (injected at build)
+  maipai_port: "10700"          # POD_GATEWAY_PORT (default 10700)
+  maipai_http_port: "3000"      # HTTP API port — serves the server-rendered display
   # Home Wi-Fi is injected at build time by the app, so a flashed device auto-joins
   # on power-up — no per-device Wi-Fi step. Left blank here, it falls back to the
   # setup AP + Improv (serial) provisioning.
@@ -434,7 +434,7 @@ image:
   - file: placeholder.png
     id: cam_placeholder
     type: RGB565
-  # LokiDoki brand mark for the boot / "Connecting" splash (same logo as the app
+  # MaiPaiHome brand mark for the boot / "Connecting" splash (same logo as the app
   # bootloader). RGBA so the squircle's rounded corners stay transparent on the dark bg.
   - file: logo.png
     id: boot_logo
@@ -528,7 +528,7 @@ image:
 # The LVGL `cam_img` widget is bound to the decoded buffer in the interval below.
 hw_jpeg:
   id: cam
-  host: "${lokidoki_host}"   # frames stream over UDP (TCP inbound stalls on esp-hosted #184)
+  host: "${maipai_host}"   # frames stream over UDP (TCP inbound stalls on esp-hosted #184)
   udp_port: 10701
   width: 1280
   height: 720
@@ -543,7 +543,7 @@ http_request:
 
 online_image:
   - id: cover_online
-    url: "http://${lokidoki_host}:${lokidoki_http_port}/api/pod/cover/init.jpg"
+    url: "http://${maipai_host}:${maipai_http_port}/api/pod/cover/init.jpg"
     format: JPEG
     type: RGB565
     # Fill the slot HEIGHT (108) and let the square, corner-clipped cover box crop the width
@@ -570,7 +570,7 @@ online_image:
   # Controller thumbnail atlas: 5×2 POSTER tiles of 244×180 = 1220×360, composited server-side
   # (the label sits in a strip below each poster). The grid shows each cell its tile (offset).
   - id: ctrl_atlas
-    url: "http://${lokidoki_host}:${lokidoki_http_port}/api/pod/controller-atlas/init.jpg"
+    url: "http://${maipai_host}:${maipai_http_port}/api/pod/controller-atlas/init.jpg"
     format: JPEG
     type: RGB565
     resize: 1220x360
@@ -602,10 +602,10 @@ lvgl:
       bg_opa: COVER
       widgets:
         # Boot / fallback splash, shown until the server's rendered layout streams in
-        # (and again if it ever stops): a LokiDoki "Connecting" screen, like the boot
+        # (and again if it ever stops): a MaiPaiHome "Connecting" screen, like the boot
         # look. The ambient_img below covers this the instant layout frames arrive.
         # The app's brand mark with a soft violet bloom (matches the bootloader glow),
-        # the LokiDoki wordmark, then "Connecting…".
+        # the MaiPaiHome wordmark, then "Connecting…".
         - image:
             id: boot_logo_img
             src: boot_logo
@@ -623,7 +623,7 @@ lvgl:
             id: lbl_brand
             align: CENTER
             y: 30
-            text: "Loki Doki"
+            text: "MaiPai Home"
             text_font: font_brand
             text_color: 0xFFFFFF
         - label:
@@ -1423,7 +1423,7 @@ lvgl:
                   text_color: 0xFFFFFF
 
     # ── Stream Deck (controller mode) ──────────────────────────────────────────
-    # All button content is created dynamically in C++ (lokidoki_satellite.cpp)
+    # All button content is created dynamically in C++ (maipai_satellite.cpp)
     # when the server pushes stream_deck_config. This page is just the canvas.
     - id: page_stream_deck
       bg_color: 0x0f0f1a
@@ -1657,7 +1657,7 @@ interval:
             id(cover_online)->update();
           } else if (id(satellite)->take_atlas_dirty()) {
             // (Re)fetch the controller thumbnail atlas whenever the native grid was rebuilt.
-            std::string u = std::string("http://${lokidoki_host}:${lokidoki_http_port}/api/pod/controller-atlas/")
+            std::string u = std::string("http://${maipai_host}:${maipai_http_port}/api/pod/controller-atlas/")
                           + id(satellite)->hwid() + ".jpg";
             id(ctrl_atlas)->set_url(u.c_str());
             id(ctrl_atlas)->update();
@@ -1995,7 +1995,7 @@ text_sensor:
                   // Fetch this track's cover. The ?rev= cache-buster makes each track a NEW
                   // URL so online_image actually re-downloads (a static URL gets reused).
                   // The server 404s when there's no art → on_error → placeholder note.
-                  std::string u = std::string("http://${lokidoki_host}:${lokidoki_http_port}/api/pod/cover/")
+                  std::string u = std::string("http://${maipai_host}:${maipai_http_port}/api/pod/cover/")
                                 + id(satellite)->hwid() + ".jpg?rev=" + std::to_string(mrev);
                   id(cover_online)->set_url(u.c_str());
                   id(cover_retries) = 0; id(cover_retry_at) = 0;   // fresh track → fresh retry budget
@@ -2107,19 +2107,19 @@ script:
       - script.execute: hide_reply_now
 
 external_components:
-  # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).
+  # The shared Wyoming/MaiPai Home satellite runtime (firmware/components/).
   - source:
       type: local
       path: ../components
 
-# ── The Loki Doki satellite link — replaces HA's voice_assistant pipeline ──────
+# ── The MaiPai Home satellite link — replaces HA's voice_assistant pipeline ──────
 # Streams the mic up and plays the reply down over our Wyoming gateway; wake word
 # runs server-side. No RGB LED on the Tab5 — instead the conversation state is
 # mirrored to the `face_state` text sensor, which drives the LVGL overlay above.
-lokidoki_satellite:
+maipai_satellite:
   id: satellite
-  host: ${lokidoki_host}
-  port: ${lokidoki_port}
+  host: ${maipai_host}
+  port: ${maipai_port}
   model: tab5
   microphone: tab5_microphone
   speaker: tab5_speaker

@@ -1,4 +1,4 @@
-// Polls the Plex Media Server for active sessions and maps them to loki userIds
+// Polls the Plex Media Server for active sessions and maps them to hub userIds
 // via the stored plex_username mapping. Updates the per-user PlexActivity store
 // (nowPlaying.ts) so screen Pods in 'activity' mode can show the poster + progress.
 //
@@ -15,7 +15,7 @@ import { logger } from '@/lib/logger'
 
 const POLL_MS = 30_000
 
-// In-memory username → loki userId map, warm-loaded once at start and refreshed
+// In-memory username → hub userId map, warm-loaded once at start and refreshed
 // whenever a linked user is encountered without a stored username.
 const usernameMap = new Map<string, string>() // plexUsername.toLowerCase() → userId
 

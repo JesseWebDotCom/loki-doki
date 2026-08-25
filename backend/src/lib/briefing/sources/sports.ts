@@ -72,7 +72,7 @@ async function fetchScoreboard(league: LeagueRef, timeoutMs: number, date?: stri
   const p = (async () => {
     const url = `https://site.api.espn.com/apis/site/v2/sports/${league.path}/scoreboard${date ? `?dates=${date}` : ''}`
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/json' },
+      headers: { 'User-Agent': 'MaiPaiHome/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) throw new Error(`sports ${league.key}: ${res.status}`)

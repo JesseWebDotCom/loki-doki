@@ -49,7 +49,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $Root = $PSScriptRoot
-$TaskName = 'LokiDoki-GpuPowerGuard'
+$TaskName = 'MaiPaiHome-GpuPowerGuard'
 $LogDir = Join-Path $Root 'data\logs'
 $LogFile = Join-Path $LogDir 'gpu-power-guard.log'
 
@@ -80,7 +80,7 @@ if ($Install) {
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
     -Principal $principal -Settings $settings `
-    -Description 'Loki Doki GPU transient-brownout guard: power limit + clock lock, reapplied on boot/replug/driver reset' -Force | Out-Null
+    -Description 'MaiPai Home GPU transient-brownout guard: power limit + clock lock, reapplied on boot/replug/driver reset' -Force | Out-Null
   Write-Host "Installed SYSTEM task '$TaskName' (boot + logon). Starting it now..."
   Start-ScheduledTask -TaskName $TaskName
   exit 0

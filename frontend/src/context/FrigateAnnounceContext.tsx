@@ -64,7 +64,7 @@ export function FrigateAnnounceProvider({ children }: { children: React.ReactNod
     let cancelled = false
 
     const tick = async () => {
-      // A tab yielded to Doki Dock (and the dock's main window) must not claim -
+      // A tab yielded to MaiPai Desktop (and the dock's main window) must not claim -
       // the dock's HUD is the machine's announcer. The HUD itself polls even while
       // its window is hidden (visibilityState is 'hidden' but it must still speak).
       if (!shouldSpeakProactively()) return

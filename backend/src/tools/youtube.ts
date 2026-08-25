@@ -3,7 +3,7 @@ import { innertubeSearch } from '@/lib/youtube/innertube'
 import { stripTags } from '@/lib/htmlText'
 
 const DDG_HTML = 'https://html.duckduckgo.com/html/'
-const USER_AGENT = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const USER_AGENT = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 const VIDEO_ID_RE = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{6,15})/
 
 interface VideoResult {

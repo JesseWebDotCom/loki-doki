@@ -8,9 +8,9 @@ import { MapPin } from "lucide-react";
 // here (in the lazy Maps chunk) rather than main.tsx so maplibre-gl (~800KB) isn't hoisted into
 // the entry bundle every session pays for. Runs once when this chunk first loads; guarded so
 // HMR never double-registers.
-if (!window.__lokidokiPmtilesProtocolInstalled__) {
+if (!window.__maipaiPmtilesProtocolInstalled__) {
   maplibregl.addProtocol("pmtiles", new Protocol().tile);
-  window.__lokidokiPmtilesProtocolInstalled__ = true;
+  window.__maipaiPmtilesProtocolInstalled__ = true;
 }
 import { PageShell } from "@/components/shared/PageShell";
 import { SpaceBackdrop } from "@/components/shared/SpaceBackdrop";

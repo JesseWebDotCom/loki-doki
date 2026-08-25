@@ -119,7 +119,7 @@ export function IslandExpanded({ nowPlaying, topInset }: {
       ) : (
         <>
           <span className="min-w-0 flex-1 truncate text-sm text-white/70">
-            {engine.character ? engine.character.name : 'Loki Doki'}
+            {engine.character ? engine.character.name : 'MaiPai Home'}
           </span>
           <WeatherChip />
         </>

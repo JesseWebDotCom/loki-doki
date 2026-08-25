@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn'
 import { timeAgo } from '@/lib/notifications'
 import type { ResourceState } from '@/types/desktop'
 
-// System page of the island panel: live ring gauges for the machine Doki Dock
+// System page of the island panel: live ring gauges for the machine MaiPai Desktop
 // runs on (CPU / memory / disk / battery from desktop/src/resources.js) plus
 // the recent threshold alerts. Read-only glance; thresholds live in Settings.
 
@@ -76,17 +76,17 @@ export function IslandPageStats() {
   const [state, setState] = useState<ResourceState | null>(null)
 
   useEffect(() => {
-    if (!window.lokiDesktop?.getResources) return
+    if (!window.maipaiDesktop?.getResources) return
     let cancelled = false
     const tick = () => {
-      void window.lokiDesktop?.getResources?.().then((s) => { if (!cancelled) setState(s) })
+      void window.maipaiDesktop?.getResources?.().then((s) => { if (!cancelled) setState(s) })
     }
     tick()
     const t = setInterval(tick, POLL_MS)
     return () => { cancelled = true; clearInterval(t) }
   }, [])
 
-  if (!window.lokiDesktop?.getResources) {
+  if (!window.maipaiDesktop?.getResources) {
     return <p className="pt-2 text-xs text-white/40">Machine stats are available in the desktop app.</p>
   }
   if (!state?.snapshot) {

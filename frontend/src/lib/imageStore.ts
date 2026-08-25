@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react'
 
-const DB_NAME = 'lokidoki-img'
+const DB_NAME = 'maipai-home-img'
 const STORE = 'images'
 /** Entry ceiling, pruned oldest-lastUsed-first. Card art is a few KB to a few tens of KB,
  *  so this is a modest store that still covers many screens of feed. */

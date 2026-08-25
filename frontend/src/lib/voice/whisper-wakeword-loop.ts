@@ -3,9 +3,9 @@
 // Instead of an ONNX phrase-detector that must be trained per word, this class
 // opens a rolling series of STT WebSocket sessions, transcribes each utterance,
 // and checks whether the result contains the configured phrase. Any text can be
-// a wakeword — "hey loki", "computer", "yo", etc. — with no setup required.
+// a wakeword — "hey maipai", "computer", "yo", etc. — with no setup required.
 //
-// CRUCIAL for low latency + run-on commands ("hey loki what's today's date"):
+// CRUCIAL for low latency + run-on commands ("hey maipai what's today's date"):
 // the SAME transcription that detects the phrase usually already contains the
 // command. So on the final transcript we emit the wake event AND deliver the
 // text after the phrase as the command (`onCommand`) — no separate capture
@@ -33,11 +33,11 @@ export class WhisperWakewordLoop {
   private capture: SttCapture | null = null
   private lastFireAt: number | null = null
   // True after a bare "<phrase>" with no trailing command — the NEXT utterance
-  // is then taken as the command (supports both "hey loki <cmd>" in one breath
-  // and "hey loki" … pause … "<cmd>").
+  // is then taken as the command (supports both "hey maipai <cmd>" in one breath
+  // and "hey maipai" … pause … "<cmd>").
   private awaitingCommand = false
   /** Delivers the command spoken in the same breath as the wake phrase
-   *  ("hey loki <command>") — the text after the phrase in the final transcript.
+   *  ("hey maipai <command>") — the text after the phrase in the final transcript.
    *  `whispered`: this utterance's average RMS was below the auto whisper-match
    *  threshold (design: keen-percolating-swan); see sttSession.ts's caveats. */
   onCommand: ((text: string, whispered: boolean) => void) | null = null
@@ -127,13 +127,13 @@ export class WhisperWakewordLoop {
    * char span of the match (so the command can be sliced from `end`), or null.
    *
    * Two deliberate constraints, both to stop the false triggers this path caused
-   * (measured: the old matcher fired "hey loki" on "hey look at this" and "that guy
-   * loki from the movie", "hey sol" on "hey so what do you think"):
+   * (measured: the old matcher fired "hey maipai" on "hey look at this" and "that guy
+   * a similar word mid-sentence", "hey sol" on "hey so what do you think"):
    *   1. START-ANCHORED. A wake phrase is spoken at the beginning of an utterance,
    *      before any command. Only the first (or, tolerating one filler word, second)
    *      word position is considered; the phrase appearing mid-sentence is NOT a wake.
    *   2. TIGHT edit distance, no phonetic-skeleton match. The vowel-free skeleton
-   *      collapsed "loki"/"look" and "sol"/"so", firing on ordinary speech. A short
+   *      collapsed similar words ("sol"/"so"), firing on ordinary speech. A short
    *      phrase gets at most one edit (a single edit already reaches a different real
    *      word); longer phrases scale to ~0.2×length.
    */
@@ -177,7 +177,7 @@ export class WhisperWakewordLoop {
   }
 
   /** On a final transcript: fire the wake (if not already) and deliver the
-   *  trailing words as the command, so "hey loki <command>" works in one breath. */
+   *  trailing words as the command, so "hey maipai <command>" works in one breath. */
   private handleFinal(text: string, whispered: boolean): void {
     const norm = normalizePhrase(text)
     const m = this.match(norm)

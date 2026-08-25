@@ -84,9 +84,16 @@ DiceBear Toon Head  (via @dicebear/toon-head v9)
 UI ASSETS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Nerd Fonts symbols font (SymbolsNerdFontMono)
+  License: MIT / SIL Open Font License
+  https://github.com/ryanoasis/nerd-fonts
+  Downloaded at build time from the nerd-fonts release; not distributed in
+  this repository.
+
 amCharts Animated SVG Weather Icons
   License: Creative Commons Attribution 4.0 International (CC-BY 4.0)
-  © amCharts — https://www.amcharts.com/
+  © amCharts, https://www.amcharts.com/
+  Downloaded at build time from amcharts.com; not distributed in this repository.
   https://creativecommons.org/licenses/by/4.0/
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

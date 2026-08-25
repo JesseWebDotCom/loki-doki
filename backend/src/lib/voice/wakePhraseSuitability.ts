@@ -17,7 +17,7 @@ export interface PhraseScore {
 // Short words / particles a wake NAME collides with when it is itself short. Not
 // exhaustive — it's a cheap guard for the worst offenders, not a pronunciation model.
 const COMMON_COLLISIONS = new Set([
-  'look', 'luck', 'low', 'loki', 'so', 'sol', 'soul', 'sole', 'bo', 'bow', 'go', 'no',
+  'look', 'luck', 'low', 'so', 'sol', 'soul', 'sole', 'bo', 'bow', 'go', 'no',
   'oh', 'hi', 'yo', 'okay', 'ok', 'mo', 'joe', 'row', 'know', 'now', 'new', 'you', 'who',
   'to', 'two', 'do', 'lo', 'ho', 'po', 'see', 'be', 'me', 'we', 'key', 'way', 'day',
   'they', 'pay', 'may', 'lux', 'looks', 'pip', 'volt', 'otto', 'auto', 'milo',

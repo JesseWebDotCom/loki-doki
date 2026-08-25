@@ -324,7 +324,7 @@ export function buildTxt2ImgWorkflow(ctx: WorkflowContext): ComfyUIPrompt {
   nodes[vaeId] = buildVaeDecode(ctx.config, decodeFrom, vaeRef)
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'maipai' } }
 
   return nodes
 }
@@ -379,7 +379,7 @@ export function buildImg2ImgWorkflow(
   const vaeId = nextId()
   nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'maipai' } }
 
   return nodes
 }
@@ -445,7 +445,7 @@ export function buildInpaintWorkflow(
   const vaeId = nextId()
   nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki-cleanup' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'maipai-cleanup' } }
 
   return nodes
 }
@@ -524,7 +524,7 @@ export function buildComposeInpaintWorkflow(
   const vaeId = nextId()
   nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki-compose' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'maipai-compose' } }
 
   return nodes
 }
@@ -607,7 +607,7 @@ export function buildFaceIdWorkflow(
   const vaeId = nextId()
   nodes[vaeId] = buildVaeDecode(ctx.config, [kId, 0], vaeRef)
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'loki-faceid' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [vaeId, 0], filename_prefix: 'maipai-faceid' } }
 
   return nodes
 }
@@ -671,7 +671,7 @@ export function buildVideoWorkflow(
   const saveId = nextId()
   nodes[saveId] = {
     class_type: 'SaveAnimatedWEBP',
-    inputs: { images: [vaeId, 0], fps: ctx.fps, lossless: false, quality: 80, method: 'default', filename_prefix: 'loki-video' },
+    inputs: { images: [vaeId, 0], fps: ctx.fps, lossless: false, quality: 80, method: 'default', filename_prefix: 'maipai-video' },
   }
 
   return nodes
@@ -755,7 +755,7 @@ export function buildImageToVideoWorkflow(ctx: {
   const saveId = nextId()
   nodes[saveId] = {
     class_type: 'SaveAnimatedWEBP',
-    inputs: { images: [vaeId, 0], fps: ctx.fps, lossless: false, quality: 80, method: 'default', filename_prefix: 'loki-i2v' },
+    inputs: { images: [vaeId, 0], fps: ctx.fps, lossless: false, quality: 80, method: 'default', filename_prefix: 'maipai-i2v' },
   }
 
   return nodes
@@ -779,7 +779,7 @@ export function buildBgRemoveWorkflow(ctx: { inputImageName: string }): ComfyUIP
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [birefnetId, 0], filename_prefix: 'loki-bgremove' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [birefnetId, 0], filename_prefix: 'maipai-bgremove' } }
 
   return nodes
 }
@@ -818,7 +818,7 @@ export function buildBgBlurWorkflow(ctx: { inputImageName: string; blurRadius: n
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [compositeId, 0], filename_prefix: 'loki-bgblur' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [compositeId, 0], filename_prefix: 'maipai-bgblur' } }
 
   return nodes
 }
@@ -897,7 +897,7 @@ export function buildFaceInpaintWorkflow(
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [faceDetailerId, 0], filename_prefix: 'loki-faceinpaint' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [faceDetailerId, 0], filename_prefix: 'maipai-faceinpaint' } }
 
   return nodes
 }
@@ -958,7 +958,7 @@ export function buildUpscaleOnlyWorkflow(ctx: {
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [esrganId, 0], filename_prefix: 'loki-upscale' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [esrganId, 0], filename_prefix: 'maipai-upscale' } }
 
   return nodes
 }
@@ -993,7 +993,7 @@ export function buildFaceRestoreWorkflow(ctx: {
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [restoreId, 0], filename_prefix: 'loki-facerestore' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: [restoreId, 0], filename_prefix: 'maipai-facerestore' } }
 
   return nodes
 }
@@ -1054,7 +1054,7 @@ export function buildPhotoRestoreWorkflow(ctx: {
   }
 
   const saveId = nextId()
-  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: prevImage, filename_prefix: 'loki-photorestore' } }
+  nodes[saveId] = { class_type: 'SaveImage', inputs: { images: prevImage, filename_prefix: 'maipai-photorestore' } }
 
   return nodes
 }

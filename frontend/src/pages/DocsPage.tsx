@@ -20,8 +20,8 @@ export function DocsPage({ entry }: DocsPageProps) {
   usePublishUIContext({
     label,
     description: entry === 'user'
-      ? 'User is reading the Loki Doki user guide.'
-      : 'User is reading the Loki Doki developer documentation.',
+      ? 'User is reading the MaiPai Home user guide.'
+      : 'User is reading the MaiPai Home developer documentation.',
   })
 
   const handleSearch = (e: React.FormEvent) => {

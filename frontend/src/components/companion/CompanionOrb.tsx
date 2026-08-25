@@ -75,7 +75,7 @@ interface CompanionOrbProps {
   className?: string
 }
 
-export function CompanionOrb({ size, active = false, seed = 'loki-doki', className }: CompanionOrbProps) {
+export function CompanionOrb({ size, active = false, seed = 'maipai-home', className }: CompanionOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number>(0)
 

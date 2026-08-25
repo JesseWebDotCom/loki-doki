@@ -5,7 +5,7 @@ sidebar:
   order: 26
 ---
 
-Loki Doki can reach you outside the app itself: a browser push notification, a Telegram message, or an email, depending on what you set up and what kind of alert it is.
+MaiPai Home can reach you outside the app itself: a browser push notification, a Telegram message, or an email, depending on what you set up and what kind of alert it is.
 
 ## What Sends a Notification
 

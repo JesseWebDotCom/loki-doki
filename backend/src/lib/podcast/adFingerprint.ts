@@ -178,7 +178,7 @@ async function resolveCanonicalPath(assetId: string | null): Promise<{ path: str
 async function fetchSecondCopy(episodeId: string, enclosureUrl: string, signal: AbortSignal): Promise<{ path: string; cleanup: () => Promise<void> } | null> {
   const bust = enclosureUrl + (enclosureUrl.includes('?') ? '&' : '?') + `_ld=${episodeId.slice(0, 8)}`
   const res = await safeFetch(bust, {
-    headers: { 'User-Agent': 'LokiDoki/3.0 podcast adcheck', Accept: '*/*', 'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache' },
+    headers: { 'User-Agent': 'MaiPaiHome/3.0 podcast adcheck', Accept: '*/*', 'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache' },
   }, { timeoutMs: 60_000, maxRedirects: 8 }).catch(() => null)
   if (!res?.ok || !res.body) { res?.body?.cancel().catch(() => {}); return null }
   const tmpPath = join(await contentTmpDir(), `podcast-adcheck-${episodeId}-b`)

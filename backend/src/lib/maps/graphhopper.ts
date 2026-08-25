@@ -1,10 +1,10 @@
-// GraphHopper routing sidecar — ported from v2 lokidoki/maps/routing/.
+// GraphHopper routing sidecar — ported from the v2 app's maps/routing/.
 //
 // A single Java GraphHopper server is spawned on demand against the routing
 // graph of whichever installed region covers the request. It is reused while
 // warm and shut down after an idle timeout. When no local graph covers the
 // points (or the toolchain is not installed) routing returns a 503-style
-// RouteUnavailableError; if LOKIDOKI_ROUTER_ONLINE_FALLBACK=1 we fall back to a
+// RouteUnavailableError; if MAIPAI_ROUTER_ONLINE_FALLBACK=1 we fall back to a
 // public OSRM instance.
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -61,9 +61,9 @@ export class RouteUnavailableError extends Error {
   }
 }
 
-const GH_PORT = parseInt(process.env.LOKIDOKI_GRAPHHOPPER_PORT ?? '8002', 10)
-const GH_HEAP_MB = parseInt(process.env.LOKIDOKI_GRAPHHOPPER_HEAP_MB ?? '1024', 10)
-const IDLE_TIMEOUT_MS = parseInt(process.env.LOKIDOKI_ROUTER_IDLE_TIMEOUT_S ?? '300', 10) * 1000
+const GH_PORT = parseInt(process.env.MAIPAI_GRAPHHOPPER_PORT ?? '8002', 10)
+const GH_HEAP_MB = parseInt(process.env.MAIPAI_GRAPHHOPPER_HEAP_MB ?? '1024', 10)
+const IDLE_TIMEOUT_MS = parseInt(process.env.MAIPAI_ROUTER_IDLE_TIMEOUT_S ?? '300', 10) * 1000
 
 function ghProfile(mode: RouterMode): 'car' | 'bike' | 'foot' {
   if (mode === 'auto') return 'car'
@@ -288,7 +288,7 @@ function buildGhUrl(req: RouteRequest): string {
 export async function route(req: RouteRequest): Promise<RouteResponseWire> {
   const regionId = regionForPoints(req.origin, req.destination)
   if (!regionId || !isToolchainReady()) {
-    if (process.env.LOKIDOKI_ROUTER_ONLINE_FALLBACK === '1') return routeOnline(req)
+    if (process.env.MAIPAI_ROUTER_ONLINE_FALLBACK === '1') return routeOnline(req)
     throw new RouteUnavailableError(
       'Routing unavailable. Install a region that covers both points or enable the online fallback.',
     )
@@ -367,5 +367,5 @@ async function routeOnline(req: RouteRequest): Promise<RouteResponseWire> {
 }
 
 export function isRoutingAvailable(): boolean {
-  return isToolchainReady() || process.env.LOKIDOKI_ROUTER_ONLINE_FALLBACK === '1'
+  return isToolchainReady() || process.env.MAIPAI_ROUTER_ONLINE_FALLBACK === '1'
 }

@@ -39,7 +39,7 @@ const RETRY_DELAYS_MS = [0, 10_000, 60_000]
 
 export const APP_URL_SETTING_KEY = 'notify.app_url'
 
-/** Optional absolute base URL (e.g. http://loki.local:3000) admins can set so Telegram
+/** Optional absolute base URL (e.g. http://maipai.local:3000) admins can set so Telegram
  *  and email messages carry clickable deep links. Push doesn't need it (same-origin). */
 export async function getAppUrl(): Promise<string | null> {
   const raw = await getAppSetting(APP_URL_SETTING_KEY)

@@ -180,7 +180,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
 
   // Compose an engaging, specific description from the selection (hosts + the actual
   // source + its own "about" text + format). For a channel:
-  //   "Loki, Sage, and Juniper dig into Mo Bitar’s channel. Exploring what AI actually
+  //   "Bruno, Sage, and Juniper dig into Mo Bitar’s channel. Exploring what AI actually
   //    is… Every episode is a lively roundtable on a fresh upload."
   function buildDescription(): string {
     const hostNames = hosts

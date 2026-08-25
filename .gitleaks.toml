@@ -1,0 +1,14 @@
+# Gitleaks config for MaiPai Home.
+# Everything listed here is a false positive or a documented PUBLIC constant,
+# never an actual credential.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public constants and placeholder text"
+regexes = [
+  '''replace_with_64_char''',                  # .env.example placeholder instruction
+  '''AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8''', # YouTube's public InnerTube web client key (ships in every browser session)
+  '''8c46eb2508e21db1e9828a97968d91ab1ca1caa5f70a00e88a2ba1e286603b61''', # Civitai public read-only search key (in their browser bundle)
+  '''maipai\.maps\.''',                        # storage key names, not secrets
+]

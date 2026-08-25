@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const PREFIX = "lokidoki.maps.prefs.";
+const PREFIX = "maipai.maps.prefs.";
 
 export interface MapPrefs {
   units: "metric" | "imperial";
@@ -63,7 +63,7 @@ function loadPrefs(): MapPrefs {
 // Same-tab broadcast: the `storage` event only fires in OTHER tabs, so without
 // this every useMapPrefs() instance in this tab would drift after a setPref
 // (e.g. the settings panel toggling terrain wouldn't reach the map's hook).
-const PREFS_EVENT = "lokidoki:maps-prefs";
+const PREFS_EVENT = "maipai-home:maps-prefs";
 
 function savePrefs(prefs: MapPrefs): void {
   try { localStorage.setItem(`${PREFIX}all`, JSON.stringify(prefs)); } catch { /* ignore */ }

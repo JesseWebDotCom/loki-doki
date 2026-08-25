@@ -16,7 +16,7 @@ export function AiGeneratedBadge({
   className,
   title,
 }: {
-  /** Short, honest description of what produced the content, e.g. "Summarized by Loki". */
+  /** Short, honest description of what produced the content, e.g. "Summarized by MaiPai". */
   label?: string
   tone?: AiBadgeTone
   className?: string

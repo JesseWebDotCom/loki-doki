@@ -283,7 +283,7 @@ gpodder.post('/api/2/episodes/:username', async (c) => {
   })))
 
   // Fold 'play' positions into the app's own watch state so a position set in
-  // AntennaPod resumes in Loki Doki. Matched by enclosure URL (the only episode
+  // AntennaPod resumes in MaiPai Home. Matched by enclosure URL (the only episode
   // identity the protocol carries).
   await applyPlayActions(userId, actions.filter(a => a.action!.toLowerCase() === 'play' && typeof a.position === 'number'))
 

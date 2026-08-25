@@ -26,7 +26,7 @@ export const jokesTool: Tool = {
   async execute(_args: unknown): Promise<ToolResult> {
     try {
       const res = await fetch('https://icanhazdadjoke.com/', {
-        headers: { Accept: 'application/json', 'User-Agent': 'LokiDoki/1.0' },
+        headers: { Accept: 'application/json', 'User-Agent': 'MaiPaiHome/1.0' },
         signal: AbortSignal.timeout(5000),
       })
       if (!res.ok) return { success: false, error: 'Failed to fetch joke' }

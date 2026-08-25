@@ -558,7 +558,7 @@ pod.patch('/devices/:id', requireAdmin, async (c) => {
     orientToDevice(id, updated.orientation)         // tells LVGL to rotate touch + native buttons
   }
   // Assigning a companion? Kick off auto-training its wake word in the background so
-  // the device answers to e.g. "Hey Loki" instead of the default — ready by next connect.
+  // the device answers to e.g. "Hey MaiPai" instead of the default — ready by next connect.
   if (updated.characterId && !updated.wakeWord) void ensureCompanionWakeword(updated.characterId)
   const { tokenHash: _t, ...safe } = updated
   return c.json({ device: { ...safe, paired: _t != null } })
@@ -573,7 +573,7 @@ pod.delete('/devices/:id', requireAdmin, async (c) => {
 // the speaker/playback path and gives the admin a "Test" button per card.
 pod.post('/devices/:id/test', requireAdmin, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { text?: string }
-  const text = body.text?.trim() || 'Hi! This is a test from your Loki Doki device. I am connected and working.'
+  const text = body.text?.trim() || 'Hi! This is a test from your MaiPai Home device. I am connected and working.'
   const ok = speakToDevice(c.req.param('id'), text)
   return ok ? c.json({ ok: true }) : c.json({ error: 'device is not connected' }, 409)
 })

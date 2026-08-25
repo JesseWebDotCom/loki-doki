@@ -7,13 +7,13 @@
  * an ambient sidebar list, not page-level state.
  *
  * localStorage keys (locked):
- *   - `lokidoki.maps.recents.v1`
- *   - `lokidoki.maps.directions-recents.v1`
+ *   - `maipai.maps.recents.v1`
+ *   - `maipai.maps.directions-recents.v1`
  */
 import type { PlaceResult, Recent } from "./types";
 
-const STORAGE_KEY = "lokidoki.maps.recents.v1";
-const DIRECTIONS_STORAGE_KEY = "lokidoki.maps.directions-recents.v1";
+const STORAGE_KEY = "maipai.maps.recents.v1";
+const DIRECTIONS_STORAGE_KEY = "maipai.maps.directions-recents.v1";
 const CAP = 10;
 
 export type DirectionsMode = "auto" | "pedestrian" | "bicycle" | "hiking" | "mtb";

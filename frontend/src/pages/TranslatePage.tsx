@@ -156,7 +156,7 @@ export function TranslatePage() {
                   <p className="text-xs text-muted-foreground">{turn.original}</p>
                   <p className="mt-1 text-base font-semibold leading-snug">{turn.translation}</p>
                   <div className="mt-1.5 flex items-center gap-2">
-                    <AiGeneratedBadge label="Translated by Loki" tone="brand" />
+                    <AiGeneratedBadge label="Translated by MaiPai" tone="brand" />
                     <button
                       type="button"
                       aria-label="Play translation"

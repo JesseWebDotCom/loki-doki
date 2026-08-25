@@ -90,7 +90,7 @@ export async function downloadArchive(
   } else {
     // Legacy fallback: scrape the download directory HTML for the newest dated file.
     const dirRes = await fetch(`https://download.kiwix.org/zim/${kiwixDir}/`, {
-      headers: { 'User-Agent': 'loki-doki/1.0' },
+      headers: { 'User-Agent': 'maipai-home/1.0' },
       signal: AbortSignal.timeout(45_000),
     })
     if (!dirRes.ok) throw new Error(`Download directory returned ${dirRes.status}`)
@@ -127,7 +127,7 @@ export async function downloadArchive(
       // file at destPath, so an old `.part` is just orphaned bytes.
       if (existsSync(partPath)) await rm(partPath, { force: true }).catch(() => {})
       const meta4Path = destPath + '.meta4'
-      const m4 = await fetch(meta4Url, { headers: { 'User-Agent': 'loki-doki/1.0' }, signal: AbortSignal.timeout(45_000) })
+      const m4 = await fetch(meta4Url, { headers: { 'User-Agent': 'maipai-home/1.0' }, signal: AbortSignal.timeout(45_000) })
       if (!m4.ok) throw new Error(`Metalink fetch failed: ${m4.status}`)
       await writeFile(meta4Path, new Uint8Array(await m4.arrayBuffer()))
       try {
@@ -144,7 +144,7 @@ export async function downloadArchive(
       }
       let resumeFrom = 0
       try { resumeFrom = statSync(partPath).size } catch { /* no partial */ }
-      const headers: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
+      const headers: Record<string, string> = { 'User-Agent': 'maipai-home/1.0' }
       if (resumeFrom > 0) headers['Range'] = `bytes=${resumeFrom}-`
 
       const dlRes = await fetch(downloadUrl, { signal, headers })

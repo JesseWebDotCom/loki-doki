@@ -109,7 +109,7 @@ async function probeStream(streamUrl: string): Promise<{ ok: true; codec: string
   if (/\.m3u8(\?|$)/i.test(streamUrl)) return { ok: false, error: 'HLS streams are not supported yet' }
   try {
     const res = await safeFetch(streamUrl, {
-      headers: { 'User-Agent': 'LokiDoki/3.0 radio', Accept: '*/*' },
+      headers: { 'User-Agent': 'MaiPaiHome/3.0 radio', Accept: '*/*' },
     }, { timeoutMs: 6000 })
     const ct = (res.headers.get('content-type') ?? '').toLowerCase()
     const icy = [...res.headers.keys()].some(k => k.toLowerCase().startsWith('icy-'))
@@ -158,7 +158,7 @@ musicRadioLive.get('/stream/:key', async (c) => {
   let upstream: Response
   try {
     upstream = await safeFetch(resolved.url, {
-      headers: { 'User-Agent': 'LokiDoki/3.0 radio', Accept: '*/*' },
+      headers: { 'User-Agent': 'MaiPaiHome/3.0 radio', Accept: '*/*' },
       // No Icy-MetaData header: without it the server sends a clean byte stream
       // (no interleaved title blocks to strip).
     }, { timeoutMs: 10_000 })

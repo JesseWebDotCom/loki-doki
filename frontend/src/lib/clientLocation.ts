@@ -1,9 +1,9 @@
 // Best-effort device coordinates for chat/companion requests, so the backend
-// can tell where the user actually IS (traveling vs the saved home) — see
+// can tell where the user actually IS (traveling vs the saved home); see
 // backend/src/lib/currentLocation.ts. Never blocks a send: returns the cached
 // fix (or nulls) synchronously and refreshes in the background. Falls through
 // to nulls on insecure contexts (remote http origins have no geolocation API)
-// and denied permission — the backend then relies on the request's IANA
+// and denied permission; the backend then relies on the request's IANA
 // timezone, which every surface always sends.
 
 let fix: { lat: number; lng: number; at: number } | null = null
@@ -38,7 +38,7 @@ export function prewarmClientCoords(): void {
   navigator.permissions
     ?.query({ name: 'geolocation' })
     .then((p) => { if (p.state === 'granted') void refreshCoords() })
-    .catch(() => { /* permissions API unavailable — wait for the first send */ })
+    .catch(() => { /* permissions API unavailable; wait for the first send */ })
 }
 
 function canGeolocate(): boolean {
@@ -63,7 +63,7 @@ async function refreshCoords(): Promise<void> {
     failedAt = 0
     for (const fn of listeners) fn()
   } catch {
-    // Denied or unavailable — cool down so a denial doesn't retry every message.
+    // Denied or unavailable; cool down so a denial doesn't retry every message.
     failedAt = Date.now()
   } finally {
     pending = false

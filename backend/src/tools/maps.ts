@@ -2,7 +2,7 @@ import type { Tool, ToolResult } from './index'
 import { search, type GeocodeResult } from '@/lib/maps/geocoder'
 
 // Companion tool: offline place search + directions over the installed map regions.
-// Ported from v2 lokidoki/plugins/maps. Returns a deep link the frontend /maps page
+// Ported from the v2 app's plugins/maps. Returns a deep link the frontend /maps page
 // understands (?focus=lat,lon / ?to=lat,lon&mode=…) so "open in Maps" just works.
 // Fully local — no external data source.
 

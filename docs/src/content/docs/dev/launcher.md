@@ -125,7 +125,7 @@ Defaults: `-PowerLimit 150` W, `-MaxClock 1400` / `-MinClock 210` MHz (max snapp
 to the nearest supported bin), `-CpuMaxPct 99` (pass `0` to skip the CPU clamp).
 Log: `data/logs/gpu-power-guard.log`.
 
-### The `LokiDoki-GpuPowerGuard` SYSTEM task
+### The `MaiPaiHome-GpuPowerGuard` SYSTEM task
 
 `-Install` (from an **elevated** shell) registers a SYSTEM scheduled task that:
 
@@ -147,7 +147,7 @@ wiped, brownout protection is **inactive until you reinstall it**:
 # From an Administrator PowerShell, in the repo root:
 .\gpu-power-guard.ps1 -Install
 # verify:
-Get-ScheduledTask -TaskName LokiDoki-GpuPowerGuard
+Get-ScheduledTask -TaskName MaiPaiHome-GpuPowerGuard
 ```
 :::
 

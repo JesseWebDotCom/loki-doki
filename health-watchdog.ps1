@@ -1,5 +1,5 @@
 <#
-  health-watchdog.ps1 — outer self-healer for the Loki Doki app.
+  health-watchdog.ps1 — outer self-healer for the MaiPai Home app.
 
   run.ps1 already supervises the backend, but it has deliberate give-up paths
   (crash-loop cap, "port 3000 would not clear") and it dies with its console
@@ -34,7 +34,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $Root = $PSScriptRoot
-$TaskName = 'LokiDoki-Watchdog'
+$TaskName = 'MaiPaiHome-Watchdog'
 $HealthUrl = 'http://localhost:3000/api/health'
 $OffFile = Join-Path $Root 'data\watchdog-off'
 $LogFile = Join-Path $Root 'data\logs\watchdog.log'
@@ -51,7 +51,7 @@ if ($Install) {
     -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0)   # no 72h default kill
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Settings $settings -Description 'Loki Doki health watchdog (auto-restarts the app)' -Force | Out-Null
+    -Settings $settings -Description 'MaiPai Home health watchdog (auto-restarts the app)' -Force | Out-Null
   Write-Host "Installed logon task '$TaskName'. Starting it now..."
   Start-ScheduledTask -TaskName $TaskName
   exit 0

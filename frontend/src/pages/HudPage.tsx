@@ -66,12 +66,12 @@ function SignedOutIsland() {
       <button
         type="button"
         {...hover}
-        onClick={() => window.lokiDesktop?.openMainWindow('/login')}
+        onClick={() => window.maipaiDesktop?.openMainWindow('/login')}
         className="pointer-events-auto bg-black px-5 py-2 text-sm text-white/90 shadow-2xl hover:bg-black/80"
         // SuperIsland compact treatment: squared top flush with the notch strip.
         style={{ borderRadius: '0 0 12px 12px' }}
       >
-        Sign in to Loki Doki…
+        Sign in to MaiPai Home…
       </button>
     </div>
   )

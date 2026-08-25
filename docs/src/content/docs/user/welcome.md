@@ -1,5 +1,5 @@
 ---
-title: Welcome to Loki Doki
+title: Welcome to MaiPai Home
 description: A private, family-first AI platform that runs entirely on your own hardware.
 sidebar:
   order: 1
@@ -7,23 +7,21 @@ sidebar:
 
 **Your family. Your data. Your rules.**
 
-Private. Protected. Free. Uncensored.
+Private. Protected. Yours.
 
-Loki Doki puts a full AI stack in your home and keeps it there. Your conversations, your generated images and video, your family's data: all of it stays on your hardware and belongs to no one but you. No corporation is reading your chats. No third-party server holds your history. No content filter is deciding what you can say, ask, or create.
+MaiPai Home puts a full AI stack in your home and keeps it there. Your conversations, your generated images and video, your family's data: all of it stays on your hardware and belongs to no one but you. No corporation is reading your chats. No third-party server holds your history. No far-away company deciding what your family can ask, watch, or make: parents set the house rules here.
 
 When you want live information like movie showtimes, current events, or sports scores, the AI reaches out and fetches it. Everything else runs locally, with no internet required.
 
 One server. The whole family. Zero subscriptions.
 
-![Loki Doki on a phone: personal greeting, live weather, news, and your companion one tap away](../../../assets/screenshots/home-mobile.png)
-
-**New here?** Jump to [Getting Started](../getting-started/) to install Loki Doki on your server or log in for the first time.
+**New here?** Jump to [Getting Started](../getting-started/) to install MaiPai Home on your server or log in for the first time.
 
 ## Built for Families
 
-Loki Doki serves the whole household from a single server the admin controls. When your kids talk to a cloud AI, those conversations are stored on corporate servers, where they can be breached, subpoenaed, sold to data brokers, or used to build profiles that predators, stalkers, and scammers can exploit.
+MaiPai Home serves the whole household from a single server the admin controls. When your kids talk to a cloud AI, those conversations are stored on corporate servers, where they can be breached, subpoenaed, sold to data brokers, or used to build profiles that predators, stalkers, and scammers can exploit.
 
-Loki Doki keeps all of that at home:
+MaiPai Home keeps all of that at home:
 
 - **Per-user accounts** with PIN login, so each family member has their own profile, memory, and preferences
 - **Adult content is PIN-gated** and restricted by default: a time-limited unlock for adults, invisible to kids
@@ -37,15 +35,15 @@ See [Privacy & Content Controls](../privacy/) for how the safeguards work day to
 
 Cloud AI tells you what you can and cannot ask. Topics get blocked, images get refused, answers get quietly softened, and you never quite know what you're not being told.
 
-Loki Doki runs open-weight models on your own hardware with no content filters between you and the model. Adults get full, unrestricted access. Kids get the experience you configure, because you set the rules, not a corporation.
+MaiPai Home runs open-weight models on your own hardware with no content filters between you and the model. Adults get full, unrestricted access. Kids get the experience you configure, because you set the rules, not a corporation.
 
 ## Your Companion Is Yours
 
-Most AI companion apps are designed to hook you, flattering you, creating dependency, nudging you to spend more time and money. Loki Doki's [companions](../features/companions/) are different. You configure the name, personality, voice, and look, and the companion comes to life as an animated avatar that breathes, reacts, and lip-syncs as it speaks. There's no company pushing an agenda, no subscription to keep your companion "alive," and no risk it gets updated into something creepy. It runs on your hardware and stays exactly the way you set it up.
+Most AI companion apps are designed to hook you, flattering you, creating dependency, nudging you to spend more time and money. MaiPai Home's [companions](../features/companions/) are different. You configure the name, personality, voice, and look, and the companion comes to life as an animated avatar that breathes, reacts, and lip-syncs as it speaks. There's no company pushing an agenda, no subscription to keep your companion "alive," and no risk it gets updated into something creepy. It runs on your hardware and stays exactly the way you set it up.
 
 ## Works When the Internet Doesn't
 
-Everything that can run locally does. Chat, image and video generation, voice, maps, and reference/book downloads all work with no connection at all. Cloud AI is a surveillance surface and a single point of failure; Loki Doki keeps running when the internet is down, when services are disrupted, or when you simply don't trust what's happening out there.
+Everything that can run locally does. Chat, image and video generation, voice, maps, and reference/book downloads all work with no connection at all. Cloud AI is a surveillance surface and a single point of failure; MaiPai Home keeps running when the internet is down, when services are disrupted, or when you simply don't trust what's happening out there.
 
 ## What You Can Do
 
@@ -53,7 +51,7 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Generate images and video](../features/image-generation/)** using Stable Diffusion: no refusals, no restrictions for adults
 - **[Talk hands-free](../features/voice/)** with a wakeword: speech recognition and speech all run on your machine
 - **[Meet your companion](../features/companions/)**: a buddy with its own personality, voice, and animated avatar that lives alongside you in the app
-- **[Dock it on your desktop](../features/desktop/)**: Doki Dock, the desktop app for Mac and Windows, pins your companion to the top of your screen with the wake word armed
+- **[Dock it on your desktop](../features/desktop/)**: MaiPai Desktop, the desktop app for Mac and Windows, pins your companion to the top of your screen with the wake word armed
 - **[Write and edit with Canvas](../features/canvas/)**: an editable side pane your companion writes code, documents, and HTML into, live
 - **[Read and listen to books](../features/books/)**: a storefront of ebooks and audiobooks, offline downloads, and an AI tool that can draft an original book with you
 - **[Look things up offline](../features/reference/)**: full Wikipedia, a dictionary, medical references, and more, no internet required

@@ -22,7 +22,7 @@ The moment a drop arrives, the receiving device pops a notification you can act 
 
 ## Kept Private, Then Cleaned Up
 
-Drops are meant to be quick and temporary. The files live on your own server just long enough for you to grab them, then Loki Doki sweeps them away automatically — they're single-use, single-recipient, and never copied to anyone else's machine. Nothing you send passes through a third-party service or the public internet.
+Drops are meant to be quick and temporary. The files live on your own server just long enough for you to grab them, then MaiPai Home sweeps them away automatically — they're single-use, single-recipient, and never copied to anyone else's machine. Nothing you send passes through a third-party service or the public internet.
 
 ## A Note on the Internet
 

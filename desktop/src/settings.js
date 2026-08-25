@@ -58,15 +58,15 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
-// One-time migration: the app was renamed "Loki Doki" → "Doki Dock" (2026-07),
+// One-time migration: the app was renamed "MaiPai Home" → "MaiPai Desktop" (2026-07),
 // which moved userData on both platforms. Carry over settings and the persisted
 // login partition so existing installs keep their server URL and session. Runs
-// at require-time so it lands before any window creates the 'persist:loki'
+// at require-time so it lands before any window creates the 'persist:maipai'
 // partition; a failed copy just means a fresh first-run, never a crash.
 function migrateFromOldName() {
   const dir = app.getPath('userData')
   if (fs.existsSync(settingsPath())) return
-  const oldDir = path.join(path.dirname(dir), 'Loki Doki')
+  const oldDir = path.join(path.dirname(dir), 'MaiPai Home')
   if (!fs.existsSync(path.join(oldDir, 'settings.json'))) return
   try {
     fs.mkdirSync(dir, { recursive: true })

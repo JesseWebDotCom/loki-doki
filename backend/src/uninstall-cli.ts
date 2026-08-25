@@ -22,7 +22,7 @@ const emit: UninstallEmit = ((event: string, data: any) => {
   // progress events are silent — the step events are enough for CLI output
 }) as UninstallEmit
 
-console.log('\nUninstalling Loki Doki…\n')
+console.log('\nUninstalling MaiPai Home…\n')
 
 try {
   await runUninstall(emit)

@@ -1,6 +1,6 @@
 import type { CharacterStyle } from "./styles";
 
-// Ported verbatim from loki-doki-v2. Splits a DiceBear SVG into riggable parts and
+// Ported verbatim from maipai-home-v2. Splits a DiceBear SVG into riggable parts and
 // returns a FIXED neck pivot (pivotX/pivotY) so the head rotates on the neck — the
 // exact mechanism that makes the head-tilt read naturally.
 

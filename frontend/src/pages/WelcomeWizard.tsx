@@ -294,13 +294,13 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
           <BrandMark glow className="size-10" />
           <div>
             {/* design-ok(raw-h1-in-pages): compact brand wordmark next to the logo mark, mirrors BootScreen */}
-            <h1 className="text-xl font-bold tracking-tight leading-none">Loki Doki</h1>
+            <h1 className="text-xl font-bold tracking-tight leading-none">MaiPai Home</h1>
             <p className="text-xs text-muted-foreground mt-0.5">Your private AI home hub</p>
           </div>
         </div>
 
         <div className="flex flex-col items-center gap-6 py-6">
-          <CompanionOrb size={150} active seed="loki-doki-welcome" />
+          <CompanionOrb size={150} active seed="maipai-home-welcome" />
           <div className="space-y-2.5">
             {VALUE_PROPS.map(vp => (
               <div key={vp.text} className="flex items-center gap-2.5 text-sm text-muted-foreground">
@@ -319,7 +319,7 @@ export function WelcomeWizard({ onComplete }: { onComplete: () => void }) {
         {/* Mobile brand header */}
         <div className="flex items-center gap-2 border-b border-border/50 px-6 py-4 lg:hidden">
           <BrandMark className="size-8" />
-          <span className="text-base font-bold tracking-tight">Loki Doki</span>
+          <span className="text-base font-bold tracking-tight">MaiPai Home</span>
         </div>
 
         <div className="flex flex-1 flex-col px-8 py-8">

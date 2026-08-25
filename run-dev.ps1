@@ -1,5 +1,5 @@
 <#
-  Dev launcher for Loki Doki: Vite dev server (port 5173) + hot-reloading backend,
+  Dev launcher for MaiPai Home: Vite dev server (port 5173) + hot-reloading backend,
   for local editing with instant HMR. This is a thin wrapper around run.ps1 -Dev so
   there's a single supervisor implementation.
 

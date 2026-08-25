@@ -18,7 +18,7 @@
   "components/music/KaraokeLyrics.tsx": 3,
   "components/music/MusicLyricsSettings.tsx": 2,
   "components/music/nowPlayingParts.tsx": 5,
-  "components/settings/SettingsSaveToLokiTab.tsx": 2,
+  "components/settings/SettingsSaveToMaiPaiTab.tsx": 2,
   "components/settings/SettingsToolsTab.tsx": 1,
   "components/settings/SettingsVideoTitles.tsx": 1,
   "components/settings/notifications/TimingSection.tsx": 1,
@@ -166,9 +166,8 @@
   "lib/voice/tts-playback-scheduler.ts": 5,
   "lib/prefetch/useAppWarmer.ts": 1,
   "lib/prefetch/useIntentPrefetch.ts": 2,
-  "lib/prefetch/persist.ts": 3,
+  "lib/prefetch/persist.ts": 2,
   "lib/prefetch/registry.ts": 6,
-  "lib/prefetch/preloadImages.ts": 1,
   "lib/movies/api.ts": 2,
   "lib/plex/useLinkFlow.ts": 1,
   "lib/plex/api.ts": 1,
@@ -323,14 +322,16 @@
   "pages/videos/create/MyVideosPage.tsx": 1,
   "pages/videos/VideosOfflinePage.tsx": 1
  },
- "mobile-input-zoom": {
-  "components/admin/AdminMonitoringTab.tsx": 1
- },
  "backdrop-blur-outside-chrome": {
+  "components/chat/ChatListRow.tsx": 1,
+  "components/shared/ServerMaintenanceDialog.tsx": 1,
   "components/books/LibraryActionButton.tsx": 1,
   "components/youtube/AutoplayCountdown.tsx": 1,
   "pages/shopping/ShoppingPage.tsx": 3,
   "pages/shopping/ProductDetailPage.tsx": 1
+ },
+ "mobile-input-zoom": {
+  "components/admin/AdminMonitoringTab.tsx": 1
  },
  "raw-palette-semantic": {
   "components/youtube/AutoplayCountdown.tsx": 1,

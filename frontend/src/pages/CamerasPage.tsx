@@ -220,7 +220,7 @@ export function CamerasPage() {
             )}
             {cameraFilter && digest?.digest && (
               <Card className="mb-4 p-3">
-                <AiGeneratedBadge label="Summarized by Loki" tone="brand" className="mb-1.5" />
+                <AiGeneratedBadge label="Summarized by MaiPai" tone="brand" className="mb-1.5" />
                 <p className="text-sm leading-snug text-foreground">{digest.digest}</p>
               </Card>
             )}

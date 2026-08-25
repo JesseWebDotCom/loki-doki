@@ -1,4 +1,4 @@
-// Build the Doki Dock macOS app entirely on Windows (no Mac needed).
+// Build the MaiPai Desktop macOS app entirely on Windows (no Mac needed).
 // Pipeline: read the prebuilt Electron darwin zip (symlink entries and unix
 // modes intact) -> extract with real NTFS symlinks (requires Windows Developer
 // Mode for unprivileged symlink creation) -> electron-packager-style transform
@@ -29,9 +29,9 @@ if (!zipPath || !outZip) { console.error('usage: build-mac-on-windows.ts <electr
 const pkg = JSON.parse(fs.readFileSync(join(DESKTOP, 'package.json'), 'utf8')) as {
   version: string; productName: string
 }
-const NAME = pkg.productName            // "Doki Dock"
-const BUNDLE_ID = 'com.jessewebdotcom.dokidock'
-const MIC_TEXT = 'Doki Dock listens so you can talk to your companion.'
+const NAME = pkg.productName            // "MaiPai Desktop"
+const BUNDLE_ID = 'com.getmaipai.desktop'
+const MIC_TEXT = 'MaiPai Desktop listens so you can talk to your companion.'
 
 // ── Minimal zip reader ─────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ function extract(entries: ZipEntry[], dest: string) {
   }
 }
 
-// ── Transform: Electron.app -> Doki Dock.app (electron-packager style) ────────
+// ── Transform: Electron.app -> MaiPai Desktop.app (electron-packager style) ────────
 
 function plistSet(xml: string, key: string, value: string): string {
   const re = new RegExp(`(<key>${key.replace(/[()]/g, '\\$&')}</key>\\s*<string>)[^<]*(</string>)`)
@@ -305,7 +305,7 @@ function writeZip(entries: OutEntry[], outPath: string) {
 //   - Windows/Linux: supply one via the DMGTOOL env var, invoked as
 //       DMGTOOL <root-dir> <out.dmg> <volume-name>
 //     scripts/seal-dmg.sh is a libdmg-hfsplus reference that runs under WSL.
-// The volume name MUST match the one baked into build/dmg/DS_Store ("Doki Dock"),
+// The volume name MUST match the one baked into build/dmg/DS_Store ("MaiPai Desktop"),
 // or the background-image alias inside the layout will not resolve.
 const VOLNAME = NAME
 const BUILD = join(DESKTOP, 'build')

@@ -102,7 +102,7 @@ export async function resolveZimFromCatalog(
   for (const qs of queries) {
     try {
       const res = await fetch(OPDS_ENTRIES + qs, {
-        headers: { 'User-Agent': 'loki-doki/1.0' },
+        headers: { 'User-Agent': 'maipai-home/1.0' },
         signal: signal ?? AbortSignal.timeout(30_000),
       })
       if (!res.ok) continue

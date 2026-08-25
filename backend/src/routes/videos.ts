@@ -856,7 +856,7 @@ videosRoute.get('/opml/export', async (c) => {
   const origin = new URL(c.req.url).origin
   const opml = await subscriptionsAsOpml(user.id, `${origin}/api/video-rss/${token}`)
   c.header('Content-Type', 'text/x-opml; charset=utf-8')
-  c.header('Content-Disposition', 'attachment; filename="loki-subscriptions.opml"')
+  c.header('Content-Disposition', 'attachment; filename="maipai-subscriptions.opml"')
   return c.body(opml)
 })
 

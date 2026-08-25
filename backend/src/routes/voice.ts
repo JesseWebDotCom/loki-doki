@@ -74,7 +74,7 @@ voice.get('/wakewords', requireAuth, async (c) => {
       const m = meta.get(f)
       // The catalog row's id is authoritative: filename-derived ids mis-strip
       // trained models whose id legitimately ends in _v<n> (e.g.
-      // trained_hey_loki_doki_v2 → trained_hey_loki_doki, which breaks the
+      // trained_hey_maipai_v1 → trained_hey_maipai, which breaks the
       // character's wakeWordModelId match in the browser). The regex only
       // exists to normalize pretrained files like hey_jarvis_v0.1.onnx that
       // have no catalog row.

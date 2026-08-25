@@ -44,7 +44,7 @@ const normPhrase = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').tr
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 
 // The 9 companions renamed to fix wake-word false triggers (design doc P1.6) —
-// train these first. "Hey Loki Doki" is deliberately absent: already retrained
+// train these first. "Hey MaiPai" is deliberately absent: already retrained
 // and shipped as trained_hey_loki_doki_v2 in an earlier pass.
 const PRIORITY_PHRASES = [
   'Hey Doki Doki', 'Hey Bruno', 'Hey Serena', 'Hey Pippa', 'Hey Lucia',
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 
   const allPhrases = DEFAULT_COMPANIONS.map((c) => c.wakeWordPhrase)
   const priority = PRIORITY_PHRASES.filter((p) => allPhrases.some((a) => normPhrase(a) === normPhrase(p)))
-  const rest = allPhrases.filter((p) => !priority.some((pr) => normPhrase(pr) === normPhrase(p)) && normPhrase(p) !== normPhrase('Hey Loki Doki'))
+  const rest = allPhrases.filter((p) => !priority.some((pr) => normPhrase(pr) === normPhrase(p)) && normPhrase(p) !== normPhrase('Hey MaiPai'))
   let ordered = [...priority, ...rest]
   if (only) {
     ordered = ordered.filter((p) => only.some((o) => normPhrase(o) === normPhrase(p)))

@@ -1,7 +1,7 @@
 import type { CharacterStyle } from "./styles";
 import type { HeadTiltState } from "./useHeadTilt";
 
-// Ported verbatim from loki-doki-v2.
+// Ported verbatim from maipai-home-v2.
 
 export interface FaceOverride {
   mouth?: string;

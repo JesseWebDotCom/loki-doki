@@ -329,7 +329,7 @@ async function runBoot(broadcast: BroadcastFn): Promise<void> {
       logger.warn('[boot] OS fingerprint changed — fresh OS install detected, entering restore mode')
       step(broadcast, {
         key: 'restore-note',
-        label: 'Fresh OS install detected — your Loki Doki data drive is intact',
+        label: 'Fresh OS install detected — your MaiPai Home data drive is intact',
         status: 'ok',
         detail: 'Checking what needs restoring',
       })

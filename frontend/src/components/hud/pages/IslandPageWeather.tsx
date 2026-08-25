@@ -19,7 +19,7 @@ export function IslandPageWeather() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-white/50">
         <p className="text-sm">Set your location to see weather here.</p>
-        <Button size="sm" variant="outline" className="rounded-full" onClick={() => window.lokiDesktop?.openMainWindow('/weather/settings')}>
+        <Button size="sm" variant="outline" className="rounded-full" onClick={() => window.maipaiDesktop?.openMainWindow('/weather/settings')}>
           Open weather settings
         </Button>
       </div>

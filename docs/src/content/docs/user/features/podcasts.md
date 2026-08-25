@@ -5,9 +5,7 @@ sidebar:
   order: 6
 ---
 
-Loki Doki can turn the things you care about into a podcast, hosted by your own AI companions, in their own voices. It is like having a little radio station for your household that only covers what your family follows.
-
-![The Podcasts app: AI narration, original stingers, chapter markers, and offline listening — produced entirely on your hardware](../../../../assets/screenshots/podcasts-desktop.png)
+MaiPai Home can turn the things you care about into a podcast, hosted by your own AI companions, in their own voices. It is like having a little radio station for your household that only covers what your family follows.
 
 ## What a Show Is
 
@@ -27,7 +25,7 @@ The first time you open Podcasts you are offered a few ready-made suggestions, l
 
 ## How an Episode Comes Together
 
-When you generate an episode, Loki Doki:
+When you generate an episode, MaiPai Home:
 
 1. Gathers the latest content from the show's sources.
 2. Writes a natural, conversational script, with your host companions chatting back and forth in their own personalities.

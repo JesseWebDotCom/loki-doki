@@ -29,7 +29,7 @@ export async function getYoutubeSuggestions(q: string, timeout = 1500): Promise<
   const p = (async () => {
     try {
       const res = await fetch(`${API}?client=firefox&ds=yt&q=${encodeURIComponent(q)}`, {
-        headers: { 'User-Agent': 'LokiDoki/1.0' },
+        headers: { 'User-Agent': 'MaiPaiHome/1.0' },
         signal: AbortSignal.timeout(timeout),
       })
       if (!res.ok) return []

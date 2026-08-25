@@ -47,7 +47,7 @@ function offlineUS(year: number): HolidayItem[] {
 async function fetchNager(country: string, year: number): Promise<HolidayItem[] | null> {
   try {
     const res = await fetch(`${NAGER_API}/${year}/${country}`, {
-      headers: { Accept: 'application/json', 'User-Agent': 'LokiDoki/3' },
+      headers: { Accept: 'application/json', 'User-Agent': 'MaiPaiHome/3' },
       signal: AbortSignal.timeout(5000),
     })
     if (!res.ok) return null

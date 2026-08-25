@@ -17,7 +17,7 @@ import type { AppEnv } from '@/types'
 export const musicInfo = new Hono<AppEnv>()
 musicInfo.use('*', requireAuth)
 
-const MB_UA = 'LokiDoki/3.0 (https://github.com/lokidoki; contact@lokidoki.app)'
+const MB_UA = 'MaiPaiHome/3.0 (https://github.com/getmaipai; contact@maipai-home.app)'
 const MB_BASE = 'https://musicbrainz.org/ws/2'
 const WP_REST = 'https://en.wikipedia.org/api/rest_v1/page/summary'
 const WP_API = 'https://en.wikipedia.org/w/api.php'

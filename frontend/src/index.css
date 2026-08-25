@@ -9,7 +9,7 @@
    ONLY when such a glyph is actually drawn; normal text keeps the system monospace. */
 @font-face {
   font-family: "Symbols Nerd Font Mono";
-  src: url("/fonts/SymbolsNerdFontMono.woff2") format("woff2");
+  src: url("/fonts/SymbolsNerdFontMono.ttf") format("truetype");
   font-display: swap;
   unicode-range: U+2665, U+26A1, U+2B58, U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
 }

@@ -4,7 +4,7 @@ export type BookPreviewState =
   | { kind: 'ebook'; result: BookSearchResult }
   | { kind: 'librivox'; result: LibrivoxSearchResult }
 
-const PREVIEW_PREFIX = 'loki-books-preview:'
+const PREVIEW_PREFIX = 'maipai-books-preview:'
 
 function storageKey(pathname: string): string {
   return `${PREVIEW_PREFIX}${pathname}`

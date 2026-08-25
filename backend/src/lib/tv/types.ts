@@ -1,4 +1,4 @@
-// Doki TV shared types (plans/doki-tv.md). A channel is config plus a materialized
+// MaiPai TV shared types (plans/maipai-tv.md). A channel is config plus a materialized
 // schedule; blocks carry a payload the frontend renderer (Path A) and the IPTV stream
 // engine (Path B) both consume.
 

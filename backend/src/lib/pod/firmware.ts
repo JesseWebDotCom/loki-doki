@@ -24,16 +24,16 @@ const BUILD_ROOT = join(dataDir, 'esphome')
 // and compiled there, so a distributed build contains no device firmware. In a dev
 // checkout the firmware/ tree is present, so we prefer it (local edits take effect
 // without a GitHub round-trip); otherwise each file is downloaded.
-const FIRMWARE_REF = process.env.LOKIDOKI_FIRMWARE_REF ?? 'main'
-const FIRMWARE_RAW_BASE = `https://raw.githubusercontent.com/JesseWebDotCom/loki-doki/${FIRMWARE_REF}/firmware`
+const FIRMWARE_REF = process.env.MAIPAI_FIRMWARE_REF ?? 'main'
+const FIRMWARE_RAW_BASE = `https://raw.githubusercontent.com/getmaipai/home/${FIRMWARE_REF}/firmware`
 const LOCAL_FIRMWARE_DIR = resolve(import.meta.dir, '../../../../firmware')
 
-// The shared Wyoming/Loki-Doki satellite runtime (referenced by every device YAML
+// The shared Wyoming/MaiPai Home satellite runtime (referenced by every device YAML
 // as `../components`). Listed explicitly because we fetch the tree file-by-file.
 const SHARED_COMPONENT_FILES = [
-  'components/lokidoki_satellite/__init__.py',
-  'components/lokidoki_satellite/lokidoki_satellite.cpp',
-  'components/lokidoki_satellite/lokidoki_satellite.h',
+  'components/maipai_satellite/__init__.py',
+  'components/maipai_satellite/maipai_satellite.cpp',
+  'components/maipai_satellite/maipai_satellite.h',
   // Hardware-JPEG display source (Tab5 / P4 screen devices).
   'components/hw_jpeg/__init__.py',
   'components/hw_jpeg/hw_jpeg.cpp',
@@ -239,8 +239,8 @@ function subsArgs(opts: { ssid: string; password: string; host: string; name?: s
   const args = [
     '-s', 'wifi_ssid', opts.ssid,
     '-s', 'wifi_password', opts.password,
-    '-s', 'lokidoki_host', opts.host,
-    '-s', 'lokidoki_port', GATEWAY_PORT,
+    '-s', 'maipai_host', opts.host,
+    '-s', 'maipai_port', GATEWAY_PORT,
   ]
   // ESPHome node names must be lowercase [a-z0-9-]; sanitize a friendly name.
   if (opts.name) {

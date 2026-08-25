@@ -29,7 +29,7 @@ export interface MonitoringConfig {
   // Reconcile safety net (pull) — catches events missed while the app was down.
   reconcileEnabled: boolean
   reconcileMinutes: number
-  baseUrl: string | null         // Kuma base URL, e.g. http://172.19.211.220:3001 (no trailing slash)
+  baseUrl: string | null         // Kuma base URL, e.g. http://192.0.2.20:3001 (no trailing slash)
   apiKey: string | null          // Kuma API key for the /metrics endpoint (secret)
 }
 

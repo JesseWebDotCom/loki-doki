@@ -113,7 +113,7 @@ export interface CompanionEngine {
   handsFreePartial: string
   /** This tab wants voice but another open tab currently owns mic + audio. */
   otherTabOwner: boolean
-  /** The Doki Dock desktop app on this machine owns companion speech; this tab yields. */
+  /** The MaiPai Desktop desktop app on this machine owns companion speech; this tab yields. */
   dockYield: boolean
   handleSend: (text: string, attachments?: File[]) => void
   /** Escape hatch from the ephemeral quick-ask: jump to /chat and re-run the given
@@ -258,7 +258,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const wantsVoice = !!voiceCharacter && (handsFreeOn || voiceOn)
   useEffect(() => { setVoiceWants(wantsVoice) }, [wantsVoice])
   const isVoiceOwner = useVoiceOwner()
-  // Server-arbitrated "dock wins": when the Doki Dock desktop app is connected from
+  // Server-arbitrated "dock wins": when the MaiPai Desktop desktop app is connected from
   // this same machine, every web tab here yields speech + mic to it (dockYield can
   // never be true inside the dock itself). See lib/voice/dockYield.ts.
   const dockYield = useDockYield()
@@ -354,7 +354,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
       markVoice('firstToken')
     }
   }, [streaming, replyText])
-  // Losing ownership mid-utterance (user switched to another tab, or a Doki Dock
+  // Losing ownership mid-utterance (user switched to another tab, or a MaiPai Desktop
   // appeared on this machine) cuts the audio here so the handoff is clean and the
   // new owner is the only one talking.
   useEffect(() => { if (!isVoiceOwner || dockYield) stopSpeech() }, [isVoiceOwner, dockYield])
@@ -410,7 +410,7 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
   const karaokeState: IndicatorState = !captions ? 'off' : talkActive ? 'on-active' : 'on-idle'
 
   const captionSource = voiceMode ? bridgeCaption : sentenceCaption
-  // How long the last caption stays on screen after talking stops — long enough
+  // How long the last caption stays on screen after talking stops: long enough
   // to finish reading the final sentence, since it gets no "next sentence" hold.
   const CAPTION_LINGER_MS = 2500
   const [linger, setLinger] = useState('')
@@ -547,20 +547,20 @@ export function CompanionEngineProvider({ children }: { children: ReactNode }) {
       setLookingAtScreen(false)
       if (
         (!attachments || attachments.length === 0) &&
-        window.lokiDesktop?.captureScreen &&
+        window.maipaiDesktop?.captureScreen &&
         matchesScreenIntent(text) &&
         (await fetchVisionStatus())?.available
       ) {
         setLookingAtScreen(true)
-        const res = await window.lokiDesktop.captureScreen({ maxDim: 1344 })
+        const res = await window.maipaiDesktop.captureScreen({ maxDim: 1344 })
         if (res.ok) {
           screenImage = res.imageBase64
           uiContext = [uiContext, SCREEN_NOTE].filter(Boolean).join('\n\n')
         } else {
           setLookingAtScreen(false)
           if (res.reason === 'permission') {
-            window.lokiDesktop.openScreenRecordingSettings?.()
-            toast.error('To see your screen, enable Screen Recording for Loki Doki in System Settings, then relaunch the app.')
+            window.maipaiDesktop.openScreenRecordingSettings?.()
+            toast.error('To see your screen, enable Screen Recording for MaiPai Home in System Settings, then relaunch the app.')
           }
           // Never swallow the question: continue text-only.
         }

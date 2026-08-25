@@ -5,7 +5,7 @@
 const path = require('node:path')
 const { BrowserWindow, screen, shell } = require('electron')
 
-const PARTITION = 'persist:loki'
+const PARTITION = 'persist:maipai'
 
 // Window/taskbar icon for dev + Windows/Linux (packaged mac uses the .icns).
 const APP_ICON = path.join(__dirname, '..', 'build', 'icon.png')
@@ -29,7 +29,7 @@ const commonWebPreferences = (serverOrigin) => ({
   sandbox: true,
   // TTS plays through an AudioContext with no click gesture (hands-free replies).
   autoplayPolicy: 'no-user-gesture-required',
-  additionalArguments: [`--loki-server-origin=${serverOrigin}`],
+  additionalArguments: [`--maipai-server-origin=${serverOrigin}`],
 })
 
 // Keep both windows on the server origin; anything else opens in the OS browser.

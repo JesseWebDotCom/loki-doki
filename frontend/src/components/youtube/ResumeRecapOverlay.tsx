@@ -60,7 +60,7 @@ export function ResumeRecapOverlay({ videoId, atSec }: { videoId: string; atSec:
         </button>
       </div>
       <p className="mt-1.5 text-xs leading-relaxed">{recap}</p>
-      <AiGeneratedBadge label="Summarized by Loki" className="mt-2" />
+      <AiGeneratedBadge label="Summarized by MaiPai" className="mt-2" />
     </div>
   )
 }

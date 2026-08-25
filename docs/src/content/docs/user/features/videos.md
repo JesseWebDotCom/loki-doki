@@ -7,8 +7,6 @@ sidebar:
 
 **One place for all your video stuff.** Videos brings YouTube, TikTok, Vimeo, Reddit, and your own creations together in a single app played through your own server - one home feed, one search, one library, one watch history, one set of subscriptions, and one set of controls, instead of five apps each fighting for your attention. No accounts, no cookies, no "recommended for you" engineered to keep your kids glued to a screen - just a calmer, more honest way for the people you love to watch. You decide what your family sees, not an algorithm.
 
-![The Videos home feed mixing trending content from YouTube, Vimeo, and other enabled sources into one calm grid](../../../../assets/screenshots/videos-desktop.png)
-
 ## One app, many sources
 
 The Home page interleaves what's popular and trending across every source you have enabled, along with a "Continue watching" shelf and uploads from creators you follow. Filter by source with one tap, switch between card, list, and large views, or browse categories (Comedy, Sports, and so on) that mix results from everywhere. Each source also has its own space - YouTube with its full channel pages, topic shelves, and a swipeable vertical Shorts feed; TikTok and Vimeo browsing; Reddit's video communities - and an admin chooses which sources appear.
@@ -16,7 +14,7 @@ The Home page interleaves what's popular and trending across every source you ha
 Two more "sources" round it out:
 
 - **Mine** - your own videos: screen recordings, uploads, AI-generated clips, and anything you cut together in the built-in Create studio.
-- **Clip a Link** - paste a video link from almost any website and Loki Doki resolves it, plays it, and can save the video (or just its audio) to your library.
+- **Clip a Link** - paste a video link from almost any website and MaiPai Home resolves it, plays it, and can save the video (or just its audio) to your library.
 
 ## Search
 
@@ -61,7 +59,7 @@ On the platforms, an algorithm decides what your family sees, what plays next, a
 - **Your feed is your subscriptions**, newest first. No algorithm reordering it, no engagement bait mixed in, no infinite rabbit hole engineered for "just one more."
 - **Every cleanup is a toggle, and every toggle is reversible.** Anti-clickbait, AI descriptions, sponsor skipping (category by category), autoplay - all optional, and "View original" always shows you exactly what was changed.
 - **Automation answers to you.** Per-creator offline rules do only what you set (keep N, remove once watched), and one master switch pauses all of it.
-- **You set the limits.** Per-source quality ceilings, which household members see adult content (through Loki Doki's content profiles), and what's shared with the family versus personal.
+- **You set the limits.** Per-source quality ceilings, which household members see adult content (through MaiPai Home's content profiles), and what's shared with the family versus personal.
 - **Your library is yours.** Saves live on your own server as ordinary files - watch them in the app, in Plex, or copy them anywhere. Nothing is locked in, and nothing disappears because a platform changed its mind.
 
 ## Following creators
@@ -111,6 +109,6 @@ The **Create** studio turns Videos into more than a viewer:
 
 ## Privacy in plain terms
 
-Everything runs through your home server: the video streams, the thumbnails and avatars, the subscription feeds, even the sponsor-skip lookups. The platforms never learn who's watching, nobody in your house is being profiled, and household content-profile rules apply here like everywhere else in Loki Doki. It's the parts of these services you want, without the parts you don't.
+Everything runs through your home server: the video streams, the thumbnails and avatars, the subscription feeds, even the sponsor-skip lookups. The platforms never learn who's watching, nobody in your house is being profiled, and household content-profile rules apply here like everywhere else in MaiPai Home. It's the parts of these services you want, without the parts you don't.
 
-The community data behind sponsor-skipping and anti-clickbait comes from the [SponsorBlock](https://sponsor.ajay.app/) and [DeArrow](https://dearrow.ajay.app/) projects (CC BY-NC-SA 4.0) - thank you to their contributors. Loki Doki is a self-hosted app for personal, non-commercial use and isn't affiliated with or endorsed by any video platform.
+The community data behind sponsor-skipping and anti-clickbait comes from the [SponsorBlock](https://sponsor.ajay.app/) and [DeArrow](https://dearrow.ajay.app/) projects (CC BY-NC-SA 4.0) - thank you to their contributors. MaiPai Home is a self-hosted app for personal, non-commercial use and isn't affiliated with or endorsed by any video platform.

@@ -1,6 +1,6 @@
 import type { CharacterStyle } from "./styles";
 
-// Ported verbatim from loki-doki-v2.
+// Ported verbatim from maipai-home-v2.
 
 export type Viseme =
   | "closed"

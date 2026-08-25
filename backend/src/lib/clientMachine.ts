@@ -3,7 +3,7 @@ import { getConnInfo } from 'hono/bun'
 import type { Context } from 'hono'
 
 // "Same machine" detection for voice arbitration: web tabs yield companion voice to the
-// Doki Dock desktop app only when both are connected from the same computer. IPs are the
+// MaiPai Desktop desktop app only when both are connected from the same computer. IPs are the
 // only signal the server has, so this is deliberately best-effort — a mismatch just means
 // a tab keeps its voice (never the other way around: over-matching would silence tabs on
 // other machines, so equivalence rules stay narrow).

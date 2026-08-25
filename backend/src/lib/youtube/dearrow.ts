@@ -66,7 +66,7 @@ async function fetchBrandingPrefix(prefix: string, timeout: number): Promise<Rec
   const p = (async (): Promise<Record<string, RawBranding> | null> => {
     try {
       const res = await fetch(`${BRANDING}/${prefix}`, {
-        headers: { 'User-Agent': 'LokiDoki/1.0' },
+        headers: { 'User-Agent': 'MaiPaiHome/1.0' },
         signal: AbortSignal.timeout(timeout),
       })
       if (!res.ok) return null
@@ -122,7 +122,7 @@ const THUMB = 'https://dearrow-thumb.ajay.app/api/v1/getThumbnail'
 async function fetchDeArrowThumb(videoId: string, time: number, timeout = 10000): Promise<Response | null> {
   try {
     const res = await fetch(`${THUMB}?videoID=${encodeURIComponent(videoId)}&time=${time}`, {
-      headers: { 'User-Agent': 'LokiDoki/1.0' },
+      headers: { 'User-Agent': 'MaiPaiHome/1.0' },
       signal: AbortSignal.timeout(timeout),
     })
     if (!res.ok || !res.body) return null

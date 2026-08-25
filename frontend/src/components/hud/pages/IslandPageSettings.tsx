@@ -81,7 +81,7 @@ export function IslandPageSettings() {
 
   useEffect(() => {
     let cancelled = false
-    void window.lokiDesktop?.getShellSettings?.().then((s) => {
+    void window.maipaiDesktop?.getShellSettings?.().then((s) => {
       if (cancelled || !s) return
       setShell(s)
       setHotkeyDraft(s.hotkey)
@@ -91,9 +91,9 @@ export function IslandPageSettings() {
   }, [])
 
   const patch = async (p: Partial<Pick<ShellSettings, 'hotkey' | 'dictationHotkey' | 'launchAtLogin' | 'alwaysListening' | 'fileAccessEnabled'>> & { resourceMonitor?: Partial<ResourceMonitorSettings> }) => {
-    const res = await window.lokiDesktop?.setShellSettings?.(p)
+    const res = await window.maipaiDesktop?.setShellSettings?.(p)
     if (res?.ok) {
-      const s = await window.lokiDesktop?.getShellSettings?.()
+      const s = await window.maipaiDesktop?.getShellSettings?.()
       if (s) setShell(s)
     }
     return res
@@ -103,20 +103,20 @@ export function IslandPageSettings() {
   const patchMonitor = (p: Partial<ResourceMonitorSettings>) => void patch({ resourceMonitor: p })
 
   const refreshRoots = async () => {
-    const s = await window.lokiDesktop?.getShellSettings?.()
+    const s = await window.maipaiDesktop?.getShellSettings?.()
     if (s) setShell(s)
   }
   const addFolder = async () => {
-    await window.lokiDesktop?.fsPickFolder?.()
+    await window.maipaiDesktop?.fsPickFolder?.()
     await refreshRoots()
   }
   const removeRoot = async (root: string) => {
-    await window.lokiDesktop?.fsRemoveRoot?.(root)
+    await window.maipaiDesktop?.fsRemoveRoot?.(root)
     await refreshRoots()
   }
   const toggleRecent = async () => {
     if (recent) { setRecent(null); return }
-    const list = await window.lokiDesktop?.fsRecentAccesses?.()
+    const list = await window.maipaiDesktop?.fsRecentAccesses?.()
     setRecent(list ?? [])
   }
 
@@ -304,16 +304,16 @@ export function IslandPageSettings() {
           )}
 
           <Row label="Server" hint={shell.serverHost || 'not configured'}>
-            <Button size="sm" variant="outline" className="h-6 rounded-full px-2 text-[11px]" onClick={() => window.lokiDesktop?.openServerSetup?.()}>
+            <Button size="sm" variant="outline" className="h-6 rounded-full px-2 text-[11px]" onClick={() => window.maipaiDesktop?.openServerSetup?.()}>
               Change server
             </Button>
           </Row>
-          <Row label="Quit Loki Doki">
+          <Row label="Quit MaiPai Home">
             <Button
               size="sm"
               variant="destructive"
               className="h-6 rounded-full px-2 text-[11px]"
-              onClick={() => window.lokiDesktop?.quitApp?.()}
+              onClick={() => window.maipaiDesktop?.quitApp?.()}
             >
               <Power className="size-3" />
               Quit

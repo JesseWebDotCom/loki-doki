@@ -1,5 +1,5 @@
 // ── Device-location travel awareness ──────────────────────────────────────────
-// Companion clients (web/PWA phone, the Doki Dock shell — all the same frontend
+// Companion clients (web/PWA phone, the MaiPai Desktop shell — all the same frontend
 // bundle) send real device coordinates when the surface has geolocation
 // permission, and always send their IANA timezone. This resolves those signals
 // against the saved HOME location (`user.location` pref) into a "they are
@@ -69,7 +69,7 @@ async function reverseLabel(lat: number, lng: number): Promise<string | null> {
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`,
-      { headers: { 'User-Agent': 'loki-doki-app/1.0', 'Accept-Language': 'en' }, signal: AbortSignal.timeout(2500) },
+      { headers: { 'User-Agent': 'maipai-home-app/1.0', 'Accept-Language': 'en' }, signal: AbortSignal.timeout(2500) },
     )
     if (res.ok) {
       const geo = (await res.json()) as {

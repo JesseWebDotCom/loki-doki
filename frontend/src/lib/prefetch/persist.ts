@@ -13,7 +13,7 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import type { PersistQueryClientOptions } from '@tanstack/react-query-persist-client'
 import { get, set, del } from 'idb-keyval'
 
-const IDB_KEY = 'lokidoki-query-cache'
+const IDB_KEY = 'maipai-home-query-cache'
 
 // First-segment of the query keys we persist. Anything not listed here stays in-memory only.
 const PERSIST_KEY_ROOTS = new Set<string>([

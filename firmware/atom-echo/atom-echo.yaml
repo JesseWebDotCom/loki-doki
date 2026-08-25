@@ -1,24 +1,24 @@
-# Loki Doki — M5Stack Atom Echo voice satellite (ESPHome)
+# MaiPai Home — M5Stack Atom Echo voice satellite (ESPHome)
 #
-# A screenless ESP32-PICO puck that streams 16 kHz mic audio to the Loki Doki
+# A screenless ESP32-PICO puck that streams 16 kHz mic audio to the MaiPai Home
 # Wyoming gateway and plays the companion's spoken reply back. Wake word runs
 # SERVER-SIDE (the PICO streams continuously); the RGB LED follows the
 # conversation state the server pushes.
 #
 # Onboarding is no-typing:
 #   1. Flash once over USB (see README).
-#   2. Provision Wi-Fi over Bluetooth (Improv) from the Loki Doki "Add device"
+#   2. Provision Wi-Fi over Bluetooth (Improv) from the MaiPai Home "Add device"
 #      page or https://web.esphome.io.
 #   3. The Pod announces itself; Claim it in Admin → Devices. Done.
 #
-# Edit `lokidoki_host` to your server's LAN IP before flashing (or set it later
+# Edit `maipai_host` to your server's LAN IP before flashing (or set it later
 # over the ESPHome dashboard).
 
 substitutions:
-  name: lokidoki-echo
-  friendly_name: LokiDoki Echo
-  lokidoki_host: "192.168.1.50"   # ← your Loki Doki server's LAN IP (injected at build)
-  lokidoki_port: "10700"          # POD_GATEWAY_PORT (default 10700)
+  name: maipai-home-echo
+  friendly_name: MaiPaiHome Echo
+  maipai_host: "192.168.1.50"   # ← your MaiPai Home server's LAN IP (injected at build)
+  maipai_port: "10700"          # POD_GATEWAY_PORT (default 10700)
   # Home Wi-Fi is injected at build time by the app (Admin → Devices → Add a device),
   # so a flashed device auto-joins on power-up — no per-device Wi-Fi step. Left blank
   # here, the device falls back to Improv (Bluetooth) provisioning.
@@ -32,7 +32,7 @@ esphome:
   min_version: "2024.7.0"
 
 external_components:
-  # The custom Wyoming/Loki-Doki satellite component is shared by every device
+  # The custom Wyoming/MaiPai Home satellite component is shared by every device
   # (firmware/components/), so a single runtime serves the Echo, Tab5, etc.
   - source:
       type: local
@@ -125,11 +125,11 @@ binary_sensor:
     on_release:
       - lambda: 'id(satellite)->button_up();'
 
-# ── The Loki Doki satellite link ─────────────────────────────────────────────
-lokidoki_satellite:
+# ── The MaiPai Home satellite link ─────────────────────────────────────────────
+maipai_satellite:
   id: satellite
-  host: ${lokidoki_host}
-  port: ${lokidoki_port}
+  host: ${maipai_host}
+  port: ${maipai_port}
   model: atom-echo
   microphone: echo_mic
   speaker: echo_speaker

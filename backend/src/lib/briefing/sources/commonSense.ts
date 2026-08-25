@@ -183,7 +183,7 @@ export async function commonSenseRating(query: string, timeoutMs = 7000): Promis
   let html: string
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'text/html' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)', Accept: 'text/html' },
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) throw new Error(String(res.status))

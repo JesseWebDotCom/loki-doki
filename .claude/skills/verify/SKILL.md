@@ -45,7 +45,7 @@ managed dir (this is what `lib/playwrightEnv.ts` pins for the server):
 
 ```js
 process.env.PLAYWRIGHT_BROWSERS_PATH = '<repo>/data/bin/playwright'
-const { chromium } = await import('file:///D:/loki-doki/backend/node_modules/playwright/index.mjs')
+const { chromium } = await import('file:///D:/maipai-home/backend/node_modules/playwright/index.mjs')
 const browser = await chromium.launch({ channel: 'msedge', headless: true, timeout: 30_000 })
 await ctx.addCookies([{ name: 'session', value: TOKEN, domain: 'localhost', path: '/' }])
 ```

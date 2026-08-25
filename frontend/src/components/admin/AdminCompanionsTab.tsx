@@ -663,10 +663,10 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
               {/* Identity */}
               {tab === 'identity' && (
                 <div className="space-y-3">
-                  <Field label="Name"><input value={draft.name} onChange={(e) => set('name', e.target.value)} className="ld-input" placeholder="Loki" /></Field>
+                  <Field label="Name"><input value={draft.name} onChange={(e) => set('name', e.target.value)} className="ld-input" placeholder="MaiPai" /></Field>
                   <Field label="Description"><input value={draft.backstory ?? ''} onChange={(e) => set('backstory', e.target.value)} className="ld-input" placeholder="A cheerful helper" /></Field>
                   <Field label="Persona / system prompt">
-                    <textarea value={draft.personalityPrompt} onChange={(e) => set('personalityPrompt', e.target.value)} rows={6} className="ld-input resize-y" placeholder="You are Loki, a warm and witty companion who…" />
+                    <textarea value={draft.personalityPrompt} onChange={(e) => set('personalityPrompt', e.target.value)} rows={6} className="ld-input resize-y" placeholder="You are MaiPai, a warm and witty companion who…" />
                   </Field>
                   <Field label="Example lines (one per line: few-shot voice samples, the biggest lever for voice fidelity)">
                     <textarea
@@ -743,7 +743,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                     <VoicePicker value={draft.ttsVoice ?? ''} onChange={(v) => set('ttsVoice', v)} previewName={draft.name} />
                   </Field>
                   {/* Wake word = a spoken phrase. Whisper matches your words, so
-                      "hey loki" is never confused with "hey alexa": no training,
+                      "hey maipai" is never confused with "hey alexa": no training,
                       no model files, one way to set it up. */}
                   <Field label="Wake word">
                     <WakePhraseField value={draft.wakeWordPhrase ?? ''} onChange={(v) => set('wakeWordPhrase', v)} />

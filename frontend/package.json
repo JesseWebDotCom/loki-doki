@@ -1,12 +1,12 @@
 {
-  "name": "loki-doki-v3",
+  "name": "maipai-home-v3",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-ort.mjs && node scripts/copy-openmoji.mjs && node scripts/copy-alphatab.mjs",
+    "predev": "node scripts/fetch-third-party.mjs && node scripts/copy-ort.mjs && node scripts/copy-openmoji.mjs && node scripts/copy-alphatab.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/copy-ort.mjs && node scripts/copy-openmoji.mjs && node scripts/copy-alphatab.mjs",
+    "prebuild": "node scripts/fetch-third-party.mjs && node scripts/copy-ort.mjs && node scripts/copy-openmoji.mjs && node scripts/copy-alphatab.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "shots:docs": "node scripts/docs-screenshot.mjs",

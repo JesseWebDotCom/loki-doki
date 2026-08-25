@@ -31,7 +31,7 @@ async function fetchNWSObservation(lat: number, lng: number): Promise<NWSObserva
   if (lat < 17 || lat > 72 || lng < -180 || lng > -64) return null
 
   const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)}`
-  const nwsHeaders = { 'User-Agent': 'loki-doki-weather/1.0', Accept: 'application/geo+json' }
+  const nwsHeaders = { 'User-Agent': 'maipai-home-weather/1.0', Accept: 'application/geo+json' }
 
   try {
     let stationId = (_stationCache.get(cacheKey)?.ts ?? 0) > Date.now() - STATION_TTL
@@ -364,7 +364,7 @@ tools.get('/weather/alerts', requireAuth, async (c) => {
       `https://api.weather.gov/alerts/active?point=${lat},${lng}&status=actual&message_type=alert`,
       {
         signal: AbortSignal.timeout(5000),
-        headers: { 'User-Agent': 'loki-doki-weather/1.0' },
+        headers: { 'User-Agent': 'maipai-home-weather/1.0' },
       },
     )
     if (!res.ok) return c.json({ alerts: [] })

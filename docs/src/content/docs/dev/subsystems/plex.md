@@ -34,7 +34,7 @@ Per-library **policies** live on `plexLibrarySections` (`syncMode: all | recent`
 
 ## The two-ID-space problem
 
-Plex identifies media by its own metadata GUIDs (IMDb/TVDB); Loki Doki identifies shows by TVMaze id and movies by title+year. `lib/plex/resolve.ts` bridges the two: it extracts IMDb/TVDB GUIDs from a Plex item, resolves the matching TVMaze show id (falling back to title+year when GUIDs are missing), and returns an in-app route the existing `TitleCard` can render and click into. Resolutions are cached hard (30 days) since a Plex item's identity never changes. Movies key directly on title+year, no external lookup needed.
+Plex identifies media by its own metadata GUIDs (IMDb/TVDB); MaiPai Home identifies shows by TVMaze id and movies by title+year. `lib/plex/resolve.ts` bridges the two: it extracts IMDb/TVDB GUIDs from a Plex item, resolves the matching TVMaze show id (falling back to title+year when GUIDs are missing), and returns an in-app route the existing `TitleCard` can render and click into. Resolutions are cached hard (30 days) since a Plex item's identity never changes. Movies key directly on title+year, no external lookup needed.
 
 ## What it adds
 

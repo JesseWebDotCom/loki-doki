@@ -75,7 +75,7 @@ export async function getOrFetchMediaImage(rawUrl: string): Promise<{ data: Buff
     // safeFetch re-validates every redirect hop so an allowlisted CDN can't open-redirect us
     // to an internal address.
     const res = await safeFetch(rawUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LokiDoki/1.0)', Accept: 'image/*' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)', Accept: 'image/*' },
     }, { timeoutMs: FETCH_TIMEOUT_MS })
     if (!res.ok) return null
     const contentType = res.headers.get('content-type') ?? 'image/jpeg'

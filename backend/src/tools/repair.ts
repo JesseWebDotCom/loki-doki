@@ -4,7 +4,7 @@ import { kiwixContentBase } from '@/lib/kiwix'
 import { stripHtml } from '@/lib/htmlText'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 
-// Companion tool: repair guides. Ported from v2 lokidoki/plugins/repair. Prefers the
+// Companion tool: repair guides. Ported from the v2 app's plugins/repair. Prefers the
 // offline iFixit ZIM archive; if it isn't installed, falls back to iFixit's public API.
 // Returns guide text (truncated) plus a has_steps flag so the model knows it can walk
 // the user through numbered steps.

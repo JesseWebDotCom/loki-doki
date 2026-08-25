@@ -1,19 +1,17 @@
 ---
-title: Doki Dock (Desktop App)
-description: Doki Dock — your companion pinned to the top of your Mac or Windows desktop as a Dynamic Island, with voice, screen awareness, and a global hotkey.
+title: MaiPai Desktop (Desktop App)
+description: MaiPai Desktop — your companion pinned to the top of your Mac or Windows desktop as a Dynamic Island, with voice, screen awareness, and a global hotkey.
 sidebar:
   order: 3
 ---
 
-**Doki Dock**, the desktop app, puts your companion right on your desktop as a **Dynamic Island**: a
+**MaiPai Desktop**, the desktop app, puts your companion right on your desktop as a **Dynamic Island**: a
 dark capsule that sits flush against the top of your screen (hugging the notch on a
 MacBook). Your companion lives there all day — listening for its wake word, answering
 out loud, and morphing open when you talk to it — without a browser tab open.
 
 Like everything else, it talks only to **your** server. Nothing you say to it, show
 it, or ask it ever leaves your home.
-
-![The Dynamic Island docked capsule: your companion's avatar, wake-word listening, and the current weather, flush against the notch](../../../../assets/screenshots/dynamic-island-docked-desktop.png)
 
 ## What it does
 
@@ -32,20 +30,18 @@ it, or ask it ever leaves your home.
   full app opens on demand from the tray, the dock icon, or a click on the avatar.
   Closing the main window hides it to the tray; Quit lives in the tray menu.
 
-![The island's Max view: now playing, the date, and today's local events, with the composer ready for a question](../../../../assets/screenshots/dynamic-island-desktop.png)
-
 ## Installing
 
 **Download** the installer for your platform from the project's GitHub **Releases**
 page (published from `desktop-v*` tags):
 
-- **macOS**: open the `.dmg` and drag **Doki Dock** to Applications.
+- **macOS**: open the `.dmg` and drag **MaiPai Desktop** to Applications.
 - **Windows**: run the NSIS `.exe` installer.
 
 Early builds are not yet code-signed, so the first launch needs one extra step:
 
 - **macOS**: Gatekeeper blocks the first open. Right-click the app → **Open** →
-  **Open**. (Or from Terminal: `xattr -dr com.apple.quarantine "/Applications/Doki Dock.app"`.)
+  **Open**. (Or from Terminal: `xattr -dr com.apple.quarantine "/Applications/MaiPai Desktop.app"`.)
 - **Windows**: SmartScreen warns once. Click **More info → Run anyway**.
 
 Prefer building it yourself? From the repo: `cd desktop && bun install`, then
@@ -53,7 +49,7 @@ Prefer building it yourself? From the repo: `cd desktop && bun install`, then
 
 ## First-run setup
 
-1. **Point it at your server.** On first launch Doki Dock asks for your server address —
+1. **Point it at your server.** On first launch MaiPai Desktop asks for your server address —
    e.g. `http://192.168.1.10:3000` — and checks it's reachable before continuing.
 2. **Sign in once.** Pick your profile like you would in the browser. The session
    sticks for 7 days at a time.
@@ -67,7 +63,7 @@ attempt:
 
 1. Ask the companion something about your screen once (the answer will fail).
 2. Open **System Settings → Privacy & Security → Screen Recording** and enable
-   **Doki Dock**.
+   **MaiPai Desktop**.
 3. **Fully quit and relaunch** the app — the permission doesn't apply to a running
    process.
 

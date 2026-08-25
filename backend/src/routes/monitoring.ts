@@ -20,7 +20,7 @@ monitoring.get('/status', requireAuth, async (c) => {
   return c.json({ enabled: isMonitoringConfigured(await getMonitoringConfig()) || hasFreshDockSnapshots() })
 })
 
-// Doki Dock's HUD posts local machine snapshots + threshold-alert events here
+// MaiPai Desktop's HUD posts local machine snapshots + threshold-alert events here
 // (authed with its own logged-in session — see desktop/src/resources.js).
 monitoring.post('/resources/report', requireAuth, async (c) => {
   const user = c.get('user')

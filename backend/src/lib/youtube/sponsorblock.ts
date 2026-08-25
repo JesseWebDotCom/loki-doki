@@ -100,7 +100,7 @@ export async function getSkipSegments(videoId: string, timeout = 6000): Promise<
     return await cachedLookup('sponsorblock', `${videoId}:${CATEGORIES.join('+')}`, 60 * 60_000, async () => {
       const cats = encodeURIComponent(JSON.stringify(CATEGORIES))
       const res = await fetch(`${API}?videoID=${encodeURIComponent(videoId)}&categories=${cats}`, {
-        headers: { 'User-Agent': 'LokiDoki/1.0' },
+        headers: { 'User-Agent': 'MaiPaiHome/1.0' },
         signal: AbortSignal.timeout(timeout),
       })
       // 404 = "no segments submitted for this video", which is the common, non-error case.

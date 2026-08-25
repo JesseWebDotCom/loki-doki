@@ -28,7 +28,7 @@ export interface SessionEntry {
   send: (cmd: BrowserCommand) => void
   sendVoice: (state: { yield: boolean }) => void
   sendDock: (req: DockRequest) => void
-  /** True when this session is the Doki Dock desktop app (either of its windows). */
+  /** True when this session is the MaiPai Desktop desktop app (either of its windows). */
   isDock: boolean
   surface: 'app' | 'hud'
   /** Arbitration IP (already normalized via clientMachine.getArbitrationIp). */
@@ -183,7 +183,7 @@ export interface DockResult {
 
 const pendingDockRequests = new Map<string, { resolve: (r: DockResult) => void; timer: ReturnType<typeof setTimeout> }>()
 
-/** True when the user has a live Doki Dock session connected. */
+/** True when the user has a live MaiPai Desktop session connected. */
 export function isDockOnline(userId: string): boolean {
   const set = sessions.get(userId)
   if (!set) return false

@@ -1,6 +1,6 @@
 {
-  "name": "Loki Doki",
-  "short_name": "Loki Doki",
+  "name": "MaiPai Home",
+  "short_name": "MaiPai Home",
   "description": "Local-first AI assistant",
   "start_url": "/",
   "display": "standalone",

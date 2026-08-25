@@ -210,7 +210,7 @@ export function AdminStorageTab() {
         <div>
           <h3 className="text-sm font-semibold">Change storage location</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Enter an absolute path (e.g. <code className="font-mono">/Volumes/NAS/loki-users</code>).
+            Enter an absolute path (e.g. <code className="font-mono">/Volumes/NAS/maipai-users</code>).
             We'll test access before moving anything.
           </p>
         </div>

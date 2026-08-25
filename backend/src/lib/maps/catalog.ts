@@ -1,4 +1,4 @@
-// Offline map region catalog — ported from v2 lokidoki/maps/seed.py.
+// Offline map region catalog — ported from the v2 app's maps/seed.py.
 //
 // Regions form a continent → country/state tree. Only leaf regions are
 // `downloadable`; continents are containers. PBF data comes from Geofabrik.

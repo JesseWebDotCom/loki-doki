@@ -10,7 +10,7 @@
 //   staged frontend build (dist-staging, swapped in only on success, only if
 //   frontend/ changed) → stop sidecars → exit. A failed build leaves the
 //   running app and its dist intact. Launcher stamp files
-//   (.loki-install-stamp / .loki-build-stamp) are re-touched on every step
+//   (.maipai-install-stamp / .maipai-build-stamp) are re-touched on every step
 //   actually run so the next manual launch doesn't redo the work (run.ps1
 //   compares them by mtime against pulled sources).
 //
@@ -461,7 +461,7 @@ async function runUpdatePipeline(): Promise<void> {
       // process.execPath = the running Bun binary; safer than resolving 'bun'
       // from PATH (the scheduled/console environment may differ).
       await run(process.execPath, ['install'], { cwd: dir, onLine, timeoutMs: 600_000 })
-      await touchStamp(join(dir, 'node_modules', '.loki-install-stamp'))
+      await touchStamp(join(dir, 'node_modules', '.maipai-install-stamp'))
       step(key, label, 'ok')
     }
 
@@ -546,7 +546,7 @@ async function buildFrontendStaged(onLine: (line: string) => void): Promise<void
     }
   }
   // Stamp AFTER the swap so it's newer than every pulled source file.
-  await touchStamp(join(dist, '.loki-build-stamp'))
+  await touchStamp(join(dist, '.maipai-build-stamp'))
   void rm(old, { recursive: true, force: true }).catch(() => {})
 }
 

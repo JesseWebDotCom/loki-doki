@@ -1,14 +1,14 @@
 // "Dock wins" voice arbitration - the server-backed sibling of voiceOwnership.ts.
 //
 // voiceOwnership's BroadcastChannel election only spans same-origin pages in ONE
-// browser profile; the Doki Dock desktop app runs on its own Electron partition, so
+// browser profile; the MaiPai Desktop desktop app runs on its own Electron partition, so
 // a dock and a browser tab on the same machine each elect themselves and talk over
 // each other. The server closes that gap: every /api/browser-session registration
 // carries {dock, surface, ip}, and the server pushes a `voice` event telling each
 // web tab whether a dock is connected from the same machine. Yielded tabs release
 // the mic and mute TTS/lip-sync via the same chokepoints voiceOwnership gates.
 //
-// The dock itself never yields - the flag is force-cleared where window.lokiDesktop
+// The dock itself never yields - the flag is force-cleared where window.maipaiDesktop
 // exists, belt-and-suspenders on top of the server never sending yield:true to
 // dock-flagged sessions.
 
@@ -18,7 +18,7 @@ let dockYield = false
 const listeners = new Set<(y: boolean) => void>()
 
 function isDesktopShell(): boolean {
-  return typeof window !== 'undefined' && !!(window as { lokiDesktop?: unknown }).lokiDesktop
+  return typeof window !== 'undefined' && !!(window as { maipaiDesktop?: unknown }).maipaiDesktop
 }
 
 /** Apply the server's `voice` event ({yield: boolean}) for this session. */
@@ -43,7 +43,7 @@ export function useDockYield(): boolean {
   return y
 }
 
-/** True in the Doki Dock HUD island window - the desktop app's always-running,
+/** True in the MaiPai Desktop HUD island window - the desktop app's always-running,
  *  designated announcer surface. */
 export function isDockHudSurface(): boolean {
   return isDesktopShell() && window.location.pathname === '/hud'

@@ -1,6 +1,6 @@
 # Atom Echo voice satellite (firmware)
 
-ESPHome firmware that turns an **M5Stack Atom Echo** into a Loki Doki voice
+ESPHome firmware that turns an **M5Stack Atom Echo** into a MaiPai Home voice
 satellite: it streams 16 kHz mic audio to the server's Wyoming gateway, plays the
 companion's spoken reply, and lights its RGB LED to match the conversation. Wake
 word runs **server-side** (the Echo just streams), so the screenless PICO stays
@@ -9,14 +9,14 @@ dumb.
 ```
 firmware/atom-echo/
   atom-echo.yaml                         ESPHome device config (pins, audio, Wi-Fi/Improv)
-  components/lokidoki_satellite/         custom external component (Wyoming TCP client)
+  components/maipai_satellite/         custom external component (Wyoming TCP client)
     __init__.py                          ESPHome codegen + config schema
-    lokidoki_satellite.h / .cpp          the runtime (socket, framing, audio, LED, token)
+    maipai_satellite.h / .cpp          the runtime (socket, framing, audio, LED, token)
 ```
 
 ## How it talks to the server
 
-A single TCP connection to the Loki Doki gateway (`POD_GATEWAY_PORT`, default
+A single TCP connection to the MaiPai Home gateway (`POD_GATEWAY_PORT`, default
 `10700`) speaking the same Wyoming framing as `backend/src/lib/pod/wyoming.ts`:
 
 ```
@@ -45,7 +45,7 @@ server's USB — see the in-app wizard (`FlashDeviceWizard.tsx`) and
 ```bash
 # what the app runs under the hood:
 esphome -s wifi_ssid <SSID> -s wifi_password <PASS> \
-        -s lokidoki_host <SERVER_IP> -s lokidoki_port 10700 \
+        -s maipai_host <SERVER_IP> -s maipai_port 10700 \
         run atom-echo.yaml --device /dev/cu.usbserial-XXXX
 ```
 

@@ -129,7 +129,7 @@ frigate.get('/v1/models', async (c) => {
   const cfg = await getFrigateConfig()
   if (cfg.shimToken && bearer(c) !== cfg.shimToken) return c.json({ error: { message: 'Invalid API key' } }, 401)
   const model = await getVisionModel()
-  return c.json({ object: 'list', data: [{ id: model, object: 'model', owned_by: 'loki-doki' }] })
+  return c.json({ object: 'list', data: [{ id: model, object: 'model', owned_by: 'maipai-home' }] })
 })
 
 // ── Browser-facing: companion announcements + history ─────────────────────────

@@ -13,7 +13,7 @@ import { deezerSearchTracks, deezerSearchArtists, deezerSearchAlbums } from '@/l
 import { logger } from '@/lib/logger'
 
 const MB_BASE = 'https://musicbrainz.org/ws/2'
-const MB_UA = 'LokiDoki/3.0 (https://github.com/lokidoki; contact@lokidoki.app)'
+const MB_UA = 'MaiPaiHome/3.0 (https://github.com/getmaipai; contact@maipai-home.app)'
 const CAA_BASE = 'https://coverartarchive.org'
 
 // ── Public shapes ────────────────────────────────────────────────────────────────

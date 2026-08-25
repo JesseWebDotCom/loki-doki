@@ -25,7 +25,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $Root = $PSScriptRoot
-$TaskName = 'LokiDoki-CrashWatch'
+$TaskName = 'MaiPaiHome-CrashWatch'
 
 # ── Auto-start install / uninstall (logon scheduled task, current user) ────────
 if ($Install) {
@@ -35,7 +35,7 @@ if ($Install) {
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Settings $settings -Description 'Loki Doki system telemetry sampler' -Force | Out-Null
+    -Settings $settings -Description 'MaiPai Home system telemetry sampler' -Force | Out-Null
   Write-Host "Installed logon task '$TaskName'. It will sample telemetry on every login."
   Write-Host "Starting it now..."
   Start-ScheduledTask -TaskName $TaskName

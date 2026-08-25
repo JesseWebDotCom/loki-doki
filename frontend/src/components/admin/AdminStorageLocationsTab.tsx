@@ -371,7 +371,7 @@ export function AdminStorageLocationsTab({ onChange }: AdminStorageLocationsTabP
             type="text"
             value={path}
             onChange={e => { setPath(e.target.value); setValidation(null); setFormError(null) }}
-            placeholder="Absolute path, e.g. \\172.19.210.8\misc_videos\AppFolder"
+            placeholder="Absolute path, e.g. \\192.0.2.8\misc_videos\AppFolder"
             className="rounded-control border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand"
             onKeyDown={e => e.key === 'Enter' && handleValidate()}
           />

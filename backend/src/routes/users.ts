@@ -375,7 +375,7 @@ usersRoute.post('/:id/detect-location', requireAuth, async (c) => {
       fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
         {
-          headers: { 'User-Agent': 'loki-doki-app/1.0', 'Accept-Language': 'en' },
+          headers: { 'User-Agent': 'maipai-home-app/1.0', 'Accept-Language': 'en' },
           signal: AbortSignal.timeout(8000),
         },
       ),

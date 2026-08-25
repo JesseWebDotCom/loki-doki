@@ -132,7 +132,7 @@ export async function discoverServer(server: McpClientServer): Promise<Handshake
   const init = await rpc(server, 'initialize', {
     protocolVersion: PROTOCOL_VERSION,
     capabilities: {},
-    clientInfo: { name: 'loki-doki', version: '1.0.0' },
+    clientInfo: { name: 'maipai-home', version: '1.0.0' },
   }, null)
   if (init.error) throw new Error(`initialize failed: ${init.error.message}`)
   const sessionId = init.sessionId ?? null
@@ -148,7 +148,7 @@ export async function discoverServer(server: McpClientServer): Promise<Handshake
 /** Call a remote tool and return its text content. */
 async function callRemoteTool(server: McpClientServer, toolName: string, args: Record<string, unknown>): Promise<{ ok: boolean; text: string }> {
   // A fresh session per call keeps the client stateless; discovery already proved reach.
-  const init = await rpc(server, 'initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'loki-doki', version: '1.0.0' } }, null)
+  const init = await rpc(server, 'initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'maipai-home', version: '1.0.0' } }, null)
   const sessionId = init.sessionId ?? null
   await notify(server, 'notifications/initialized', sessionId)
 

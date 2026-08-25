@@ -248,7 +248,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
       <button
         type="button"
         aria-label="Companion menu"
-        title={engine.dockYield ? 'Voice is on Doki Dock.' : engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
+        title={engine.dockYield ? 'Voice is on MaiPai Desktop.' : engine.otherTabOwner ? 'Voice is active in another tab. Click this tab to take over.' : 'Companion menu'}
         onClick={() => setMenuOpen(true)}
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
         style={{ width: px, height: px }}
@@ -284,9 +284,9 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
               {engine.dockYield ? (
                 <p
                   className="mt-1 truncate text-caption text-muted-foreground"
-                  title="The Doki Dock app on this computer is handling voice and speech."
+                  title="The MaiPai Desktop app on this computer is handling voice and speech."
                 >
-                  Voice is on Doki Dock
+                  Voice is on MaiPai Desktop
                 </p>
               ) : engine.otherTabOwner ? (
                 <p
@@ -362,7 +362,7 @@ export function CompanionDock({ collapsed }: { collapsed?: boolean }) {
             isThinking={thinking}
             autoFocus
             focusKey={engine.focusKey}
-            placeholder={character ? `Ask ${character.name}…` : 'Message Loki Doki…'}
+            placeholder={character ? `Ask ${character.name}…` : 'Message MaiPai Home…'}
           />
         </div>,
         document.body,

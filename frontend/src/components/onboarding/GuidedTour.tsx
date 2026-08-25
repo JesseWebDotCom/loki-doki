@@ -21,7 +21,7 @@ interface TourStep {
 const STEPS: TourStep[] = [
   {
     Icon: Home,
-    title: 'Welcome to Loki Doki',
+    title: 'Welcome to MaiPai Home',
     body: 'This is your family’s private AI hub. It runs on your own hardware at home, so nothing your family says, asks, or creates ever leaves the house. No cloud accounts, no subscriptions.',
   },
   {

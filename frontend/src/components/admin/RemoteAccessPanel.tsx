@@ -141,7 +141,7 @@ export function RemoteAccessPanel() {
       {!status.installed && (
         <div className="rounded-card border border-border bg-muted/30 p-4 text-sm space-y-2">
           <p>
-            Tailscale gives the family private access to Loki Doki from anywhere, with no
+            Tailscale gives the family private access to MaiPai Home from anywhere, with no
             port forwarding and no traffic leaving your control. Install it once on this
             server, then come back here and press Connect.
           </p>
@@ -178,10 +178,10 @@ export function RemoteAccessPanel() {
         <>
           {status.appUrl && (
             <div className="rounded-card border border-border bg-card p-4 flex flex-col sm:flex-row gap-4 items-center">
-              {appQr && <img src={appQr} alt="Loki Doki tailnet address QR code" className="size-40 rounded-control bg-white p-1" />}
+              {appQr && <img src={appQr} alt="MaiPai Home tailnet address QR code" className="size-40 rounded-control bg-white p-1" />}
               <div className="text-sm space-y-2">
                 <div className="font-medium flex items-center gap-2">
-                  <Smartphone className="size-4 text-brand" /> Loki Doki, from anywhere
+                  <Smartphone className="size-4 text-brand" /> MaiPai Home, from anywhere
                 </div>
                 <p className="text-muted-foreground">
                   Install Tailscale on each family phone, sign in to the same tailnet,

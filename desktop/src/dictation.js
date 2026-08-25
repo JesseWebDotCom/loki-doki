@@ -42,7 +42,7 @@ function notifyManual() {
     if (!Notification.isSupported()) return
     const key = process.platform === 'darwin' ? '⌘V' : 'Ctrl+V'
     const hint = process.platform === 'darwin'
-      ? ' Grant Doki Dock Accessibility access to paste automatically.'
+      ? ' Grant MaiPai Desktop Accessibility access to paste automatically.'
       : ''
     new Notification({
       title: 'Dictation ready',

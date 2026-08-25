@@ -75,7 +75,7 @@ export function ConversationView() {
           isThinking={engine.thinking}
           autoFocus
           focusKey={engine.focusKey}
-          placeholder={engine.character ? `Ask ${engine.character.name}…` : 'Message Loki Doki…'}
+          placeholder={engine.character ? `Ask ${engine.character.name}…` : 'Message MaiPai Home…'}
         />
       </div>
     </div>

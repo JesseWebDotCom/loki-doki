@@ -45,7 +45,7 @@ export function getDeviceLabel(): string {
   else if (/Linux/.test(ua)) device = 'Linux'
 
   let browser = 'browser'
-  if (window.lokiDesktop) browser = 'Doki Dock'
+  if (window.maipaiDesktop) browser = 'MaiPai Desktop'
   else if (/Edg\//.test(ua)) browser = 'Edge'
   else if (/OPR\//.test(ua)) browser = 'Opera'
   else if (/Chrome\//.test(ua)) browser = 'Chrome'

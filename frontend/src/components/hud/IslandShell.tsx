@@ -91,7 +91,7 @@ export function IslandShell() {
 
   useEffect(() => {
     let cancelled = false
-    void window.lokiDesktop?.getHudInsets?.().then(({ topInset: v }) => {
+    void window.maipaiDesktop?.getHudInsets?.().then(({ topInset: v }) => {
       if (!cancelled && v > 0) setTopInset(v)
       if (!cancelled && v === 0) setTopInset(0)
     })
@@ -101,7 +101,7 @@ export function IslandShell() {
   // Always-on posture: arm the wake word on mount when the shell says so.
   useEffect(() => {
     let cancelled = false
-    void window.lokiDesktop?.getStartupPrefs().then((prefs) => {
+    void window.maipaiDesktop?.getStartupPrefs().then((prefs) => {
       if (cancelled || !prefs?.alwaysListening) return
       engine.setHandsFree(true)
       engine.setVoice(true)
@@ -112,7 +112,7 @@ export function IslandShell() {
 
   // Hotkey summon (window was hidden): arm listening AND open the composer.
   useEffect(() => {
-    return window.lokiDesktop?.onSetListening((on) => {
+    return window.maipaiDesktop?.onSetListening((on) => {
       engine.setHandsFree(on)
       if (on) {
         engine.setVoice(true)
@@ -126,7 +126,7 @@ export function IslandShell() {
 
   // Hotkey while visible: toggle the composer session (full tier).
   useEffect(() => {
-    return window.lokiDesktop?.onToggleExpand(() => {
+    return window.maipaiDesktop?.onToggleExpand(() => {
       setForcedComposer((prev) => {
         const next = !prev
         if (next) {
@@ -142,7 +142,7 @@ export function IslandShell() {
   // Tray "Drop a File…": open the shelf in the full panel so a file can be dropped straight
   // onto the dock (the shelf owns its own mouse interception + hold).
   useEffect(() => {
-    return window.lokiDesktop?.onOpenShelf(() => {
+    return window.maipaiDesktop?.onOpenShelf(() => {
       setTab('shelf')
       island.raiseToFull()
       window.focus()
@@ -152,7 +152,7 @@ export function IslandShell() {
 
   // Keep the shell's tray label and hide rules accurate.
   useEffect(() => {
-    window.lokiDesktop?.reportState({
+    window.maipaiDesktop?.reportState({
       listening: engine.listeningState !== 'off',
       busy: engine.busy,
       sleeping: engine.sleeping,
@@ -263,7 +263,7 @@ export function IslandShell() {
   // working as explicit affordances).
   const onIslandDoubleClick = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="menuitem"]')) return
-    window.lokiDesktop?.openMainWindow()
+    window.maipaiDesktop?.openMainWindow()
   }, [])
 
   return (
@@ -297,7 +297,7 @@ export function IslandShell() {
         <CompanionMenu
           onClose={() => setMenuOpen(false)}
           style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 10001 }}
-          onBrowseCompanions={() => window.lokiDesktop?.openMainWindow('/companions')}
+          onBrowseCompanions={() => window.maipaiDesktop?.openMainWindow('/companions')}
           showDisplaySection
         />,
         document.body,

@@ -1,4 +1,4 @@
-# Loki Doki — Physical Device Hardware Proposals
+# MaiPai Home — Physical Device Hardware Proposals
 
 Status: **hardware selected; backend built + verified; Atom Echo + Tab5 ordered** · Last updated: 2026-06-26
 
@@ -9,10 +9,10 @@ Status: **hardware selected; backend built + verified; Atom Echo + Tab5 ordered*
 
 ## Goal
 
-Give Loki Doki physical presence in the home with off-the-shelf hardware that
+Give MaiPai Home physical presence in the home with off-the-shelf hardware that
 replaces the Amazon Echo Dot, Echo Show, and adds two wearable/portable
 camera-equipped form factors. Each device is a **Pod** in the existing
-architecture (see `docs/lokidoki-speed-memory-family-design.md` in the v2
+architecture (see `docs/maipai-home-speed-memory-family-design.md` in the v2
 design notes): a "dumb" ESP32-class node that does cheap on-device gatekeeping
 (wake word + VAD) and streams to a **Host** (a real computer running the LLM,
 STT, TTS, and memory). The Host pushes audio and screen frames back to the Pod.
@@ -179,7 +179,7 @@ ESP32-P4-WIFI6 10.1" HMI (Scenario 2) now covers this size as an all-ESP32 Pod, 
 this scenario is the **lowest-effort, no-build** alternative — buy a finished
 tablet instead of wiring a panel.
 
-**Pick: an off-the-shelf consumer tablet running the Loki Doki web app** — a Fire
+**Pick: an off-the-shelf consumer tablet running the MaiPai Home web app** — a Fire
 HD 8/10 or an inexpensive Android tablet on a wall mount (VESA plate, adhesive
 wall dock, or in-wall recessed mount). Fully cased "tablet" out of the box: touch,
 speaker, mic, and camera all built in, powered from an in-wall or surface-channel

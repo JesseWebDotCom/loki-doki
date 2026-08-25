@@ -1,6 +1,6 @@
 ---
 title: Model Catalog
-description: Every local AI model used by Loki Doki, what it does, where it comes from, and how large it is.
+description: Every local AI model used by MaiPai Home, what it does, where it comes from, and how large it is.
 sidebar:
   order: 3
 ---

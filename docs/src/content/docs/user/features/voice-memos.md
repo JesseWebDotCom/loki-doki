@@ -9,7 +9,7 @@ Voice Memos is a simple recorder for capturing a thought before it slips away: t
 
 ## Recording
 
-Hit the record button, speak, and hit it again to stop. Your memo uploads and saves right away, and Loki Doki automatically transcribes it using its own local speech-recognition engine, no internet required. If the transcriber is momentarily unavailable, your memo still saves with the audio intact; the transcript just won't be there yet.
+Hit the record button, speak, and hit it again to stop. Your memo uploads and saves right away, and MaiPai Home automatically transcribes it using its own local speech-recognition engine, no internet required. If the transcriber is momentarily unavailable, your memo still saves with the audio intact; the transcript just won't be there yet.
 
 ## Your Memos
 

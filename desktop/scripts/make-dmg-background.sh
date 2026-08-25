@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the Doki Dock DMG window background (build/dmg-background.png + @2x)
+# Generate the MaiPai Desktop DMG window background (build/dmg-background.png + @2x)
 # from the brand palette. The background holds only the backdrop, the drag arrow,
 # and the instructions; Finder paints the real app icon and the /Applications
 # shortcut ON TOP at the positions defined in build/dmg/layout (see the LAYOUT
@@ -66,7 +66,7 @@ magick -size "${W2}x${H2}" \
     \( +clone -sparse-color barycentric "0,0 ${BG_TOP} ${W2},${H2} ${BG_BOT}" \) \
     -delete 0 \
     -font "$FONT_BOLD" -fill "$TITLE_FG" -pointsize 52 -gravity North \
-    -annotate +0+56 "Install Doki Dock" \
+    -annotate +0+56 "Install MaiPai Desktop" \
     -font "$FONT" -fill "$BODY_FG" -pointsize 30 -gravity North \
     -annotate +0+130 "Drag the app onto the Applications folder" \
     -stroke "$ACCENT" -strokewidth 10 -fill "$ACCENT" \

@@ -15,6 +15,7 @@
 
 import { copyFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { existsSync, renameSync } from 'node:fs'
 import { Database } from 'bun:sqlite'
 import { desc, eq, inArray } from 'drizzle-orm'
 import { db, dbPath, sqlite } from '@/db'
@@ -56,14 +57,22 @@ export async function setBackupConfig(cfg: BackupConfig): Promise<void> {
   await setAppSetting(CONFIG_KEY, cfg)
 }
 
-/** Absolute backup root for the current config. Location paths get a loki-backups
+/** Absolute backup root for the current config. Location paths get a maipai-backups
  *  subfolder so pointing one at a share's root never mingles with other content. */
 export async function resolveBackupRoot(cfg?: BackupConfig): Promise<string> {
   const config = cfg ?? (await getBackupConfig())
   if (config.storageLocationId) {
     const [loc] = await db.select().from(storageLocations)
       .where(eq(storageLocations.id, config.storageLocationId)).limit(1)
-    if (loc) return join(loc.path, 'loki-backups')
+    if (loc) {
+      // One-time migration from the pre-rename folder name.
+      const legacy = join(loc.path, 'loki-backups')
+      const current = join(loc.path, 'maipai-backups')
+      if (!existsSync(current) && existsSync(legacy)) {
+        try { renameSync(legacy, current) } catch { /* offline share etc.; next call retries */ }
+      }
+      return current
+    }
     // The location was deleted since config was saved; fall through to the default
     // rather than silently writing to a wrong path.
   }

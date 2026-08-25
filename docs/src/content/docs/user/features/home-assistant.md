@@ -5,19 +5,19 @@ sidebar:
   order: 12
 ---
 
-Tell your companion to turn off the lights, lock a door, or set a room's brightness, and it does it. Loki Doki connects to your own [Home Assistant](https://www.home-assistant.io/) on your network and controls your devices directly. Nothing about your home leaves your network.
+Tell your companion to turn off the lights, lock a door, or set a room's brightness, and it does it. MaiPai Home connects to your own [Home Assistant](https://www.home-assistant.io/) on your network and controls your devices directly. Nothing about your home leaves your network.
 
 ## Overview
 
 There are two ways to control your home:
 
-- **Talk to your companion.** Say "turn off the office lights" and it happens. Loki Doki understands the command itself, so you can phrase things naturally instead of memorizing exact wording. It keeps a live, always-current picture of your devices and rooms, so commands resolve instantly.
+- **Talk to your companion.** Say "turn off the office lights" and it happens. MaiPai Home understands the command itself, so you can phrase things naturally instead of memorizing exact wording. It keeps a live, always-current picture of your devices and rooms, so commands resolve instantly.
 - **Tap the dashboard.** Open Home Control (`/home-assistant`) for a room-by-room grid of your devices. Tap a light or switch to toggle it; the state updates as you go.
 
 ## Setup (admin)
 
 1. In Home Assistant, create a token: **Profile → Security → Long-lived access tokens**.
-2. In Loki Doki, go to **Admin → Features → Home Assistant → Config**.
+2. In MaiPai Home, go to **Admin → Features → Home Assistant → Config**.
 3. Enter your **Home Assistant URL** (e.g. `http://homeassistant.local:8123`) and paste the **token**.
 4. Click **Sync now**. You should see the connection status with the number of entities and rooms.
 
@@ -54,4 +54,4 @@ Control is permissioned **per user, per room, and per device type**. An admin ca
 
 - Commands like _"office lights"_ work best when your devices are assigned to **areas (rooms)** in Home Assistant. The more your entities are organized into rooms, the better natural commands resolve.
 - Naming a specific device works too (e.g. _"the office ceiling light"_) when that device has a recognizable name in Home Assistant.
-- If the connection drops, Loki Doki reconnects automatically; use **Sync now** to force an immediate refresh after changing devices or credentials.
+- If the connection drops, MaiPai Home reconnects automatically; use **Sync now** to force an immediate refresh after changing devices or credentials.

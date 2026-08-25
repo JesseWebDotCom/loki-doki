@@ -1,4 +1,4 @@
-// Decide whether a media command should drive the app's OWN player (the Doki Dock
+// Decide whether a media command should drive the app's OWN player (the MaiPai Desktop
 // radio engine) instead of a Home Assistant media_player. A bare volume/transport
 // verb with no device/room named is meant for whatever is playing locally; naming a
 // physical device (tv/speaker) or another device kind (thermostat/lights) is not.

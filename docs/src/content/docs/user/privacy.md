@@ -5,7 +5,7 @@ sidebar:
   order: 10
 ---
 
-Loki Doki is built so a whole family can share one server safely. The owner decides how mature the AI is allowed to get, each person can dial it down further for themselves, and the most sensitive material sits behind a PIN. And because the server is yours, none of it leaves your home.
+MaiPai Home is built so a whole family can share one server safely. The owner decides how mature the AI is allowed to get, each person can dial it down further for themselves, and the most sensitive material sits behind a PIN. And because the server is yours, none of it leaves your home.
 
 ## Your Data Stays Home
 

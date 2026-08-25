@@ -1,5 +1,5 @@
 // One connected Pod (Wyoming satellite). Owns the per-connection pipeline FSM and
-// bridges the Wyoming wire to Loki Doki's existing voice brains:
+// bridges the Wyoming wire to MaiPai Home's existing voice brains:
 //
 //   audio-chunk (PCM in) ─▶ SttSession ─▶ transcript ─▶ runPodBrain ─▶ Kokoro TTS ─▶ audio-chunk (PCM out)
 //
@@ -144,7 +144,7 @@ export class SatelliteSession implements PodFireTarget {
         if (!this.capturing) this.startCapture()
         break
       case 'user-event': {
-        // Loki Doki extensions:
+        // MaiPai Home extensions:
         //   { name:'auth', token }            — a paired device binds its session
         //   { name:'hello', hwid, model, caps } — an unclaimed device announces itself
         const d = ev.data
@@ -843,8 +843,8 @@ export class SatelliteSession implements PodFireTarget {
       data: {
         asr: [{ name: 'whisper' }],
         tts: [{ name: 'kokoro' }],
-        handle: [{ name: 'loki-doki' }],
-        satellite: { name: 'loki-doki-pod' },
+        handle: [{ name: 'maipai-home' }],
+        satellite: { name: 'maipai-home-pod' },
       },
     })
   }

@@ -105,7 +105,7 @@ export function IslandPageMusic({ onStarted }: { onStarted: () => void }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => window.lokiDesktop?.openMainWindow('/music')}
+          onClick={() => window.maipaiDesktop?.openMainWindow('/music')}
           // design-ok(glass-on-plain-bg): sits inside the black island surface
           className="h-6 rounded-full px-2 text-[11px] text-white/55 hover:bg-white/10 hover:text-white"
         >

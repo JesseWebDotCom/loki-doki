@@ -26,7 +26,7 @@ const FALLBACK_WORKSPACES_ROOT = join(dataDir, 'coding', 'users')
 
 // One persistent tmux session PER USER. IMPORTANT (per-window sandbox): the tmux SERVER
 // itself runs as THIS app's own OS user — never sudo'd — and only individual PANES that
-// should be sandboxed drop to the restricted `lokidoki-coding` user via `sudo -u` on their
+// should be sandboxed drop to the restricted `maipai-coding` user via `sudo -u` on their
 // launch command. That's what lets one session mix sandboxed and unsandboxed panes (an
 // admin can escape the sandbox per window). It works because the per-user workspace lives
 // under the group-shared SANDBOX_WORKSPACES_ROOT (2770, g+s; the app user is in the group),
@@ -129,7 +129,7 @@ interface PaneLaunch { paneCmd: string[]; workingDir: string; sock: string }
 
 /**
  * Build the launch command for a single pane running Claude Code. When `sandboxed` (and the
- * sandbox user is installed), the pane's `claude` runs via `sudo -u lokidoki-coding` (real
+ * sandbox user is installed), the pane's `claude` runs via `sudo -u maipai-coding` (real
  * OS-level isolation, mirrored runtime, isolated HOME); otherwise it runs directly as this
  * app's user with full host access. The tmux server that hosts the pane is always this app's
  * user — only the pane command is (or isn't) wrapped. Also prepares the workspace + HOME dirs.
@@ -140,7 +140,7 @@ async function resolvePaneLaunch(userId: string, sandboxed: boolean): Promise<Pa
   const eff = sandboxed && isSandboxUserInstalled()
   const workingDir = workspaceDirFor(userId)
   mkdirSync(workingDir, { recursive: true })
-  // Group-writable so a sandboxed pane (lokidoki-coding, same group) can write here too.
+  // Group-writable so a sandboxed pane (maipai-coding, same group) can write here too.
   if (isSandboxUserInstalled()) chmodSync(workingDir, 0o770)
 
   const homeDir = eff ? sandboxedHomeDir(workingDir) : unsandboxedHomeDir(workingDir)
@@ -266,7 +266,7 @@ export async function runHeadlessClaude(userId: string, task: string, timeoutMs:
     })
   }
 
-  // mac/Linux: spawn directly under `sudo -u lokidoki-coding` (the tmux-pane wrapper,
+  // mac/Linux: spawn directly under `sudo -u maipai-coding` (the tmux-pane wrapper,
   // minus tmux — a headless run needs no terminal).
   const { paneCmd, workingDir } = await resolvePaneLaunch(userId, true)
   const [bin, ...args] = [...paneCmd, '-p', task, ...HEADLESS_CLAUDE_ARGS]

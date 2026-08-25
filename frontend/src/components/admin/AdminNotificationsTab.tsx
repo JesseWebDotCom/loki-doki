@@ -245,7 +245,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
             <Field label="Port"><Input value={smtpForm.port} onChange={(e) => setSmtpForm({ ...smtpForm, port: e.target.value })} placeholder="587" inputMode="numeric" className="h-9 text-sm" /></Field>
             <Field label="Username"><Input value={smtpForm.user} onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })} placeholder="you@gmail.com" className="h-9 text-sm" /></Field>
             <Field label="Password"><Input value={smtpForm.pass} onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })} type="password" placeholder="app password" className="h-9 text-sm" /></Field>
-            <Field label='"From" address'><Input value={smtpForm.from} onChange={(e) => setSmtpForm({ ...smtpForm, from: e.target.value })} placeholder="Loki <you@gmail.com>" className="h-9 text-sm" /></Field>
+            <Field label='"From" address'><Input value={smtpForm.from} onChange={(e) => setSmtpForm({ ...smtpForm, from: e.target.value })} placeholder="MaiPai <you@example.com>" className="h-9 text-sm" /></Field>
             <div className="flex items-end gap-6 pb-1">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Switch checked={smtpForm.secure} onCheckedChange={(v) => setSmtpForm({ ...smtpForm, secure: v })} /> Implicit TLS (port 465)
@@ -285,7 +285,7 @@ export function AdminNotificationsTab({ openSignal }: { openSignal?: string }) {
         </div>
         <div className="mt-4 flex items-end gap-2">
           <Field label="App URL (used to make links in Telegram/email messages clickable)">
-            <Input value={appUrl} onChange={(e) => setAppUrl(e.target.value)} placeholder="http://loki.local:3000" className="h-9 w-72 text-sm" />
+            <Input value={appUrl} onChange={(e) => setAppUrl(e.target.value)} placeholder="http://maipai.local:3000" className="h-9 w-72 text-sm" />
           </Field>
           <Button variant="outline" size="sm" className="h-9" onClick={() => void saveAppUrl()}>Save</Button>
         </div>

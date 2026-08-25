@@ -17,7 +17,7 @@ Switch between three tabs depending on what you're starting from:
 
 ## Where the Data Comes From
 
-Property records come from public assessor data; people records come from a public directory service. Both draw on information that's already public, not anything Loki Doki collects on its own.
+Property records come from public assessor data; people records come from a public directory service. Both draw on information that's already public, not anything MaiPai Home collects on its own.
 
 ## A Note on Use
 

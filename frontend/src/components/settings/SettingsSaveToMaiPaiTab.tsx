@@ -1,0 +1,86 @@
+import { useEffect, useRef, useState } from 'react'
+import { Bookmark, Copy, Check } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Card } from '@/components/ui/card'
+import { toast } from '@/lib/toast'
+import { ToggleRow } from '@/components/shared/ToggleRow'
+import { useAuth } from '@/context/AuthContext'
+import { useUserPreferences, patchUserPreferencesCache } from '@/hooks/useUserPreferences'
+
+// "Save to MaiPai" — a draggable bookmarklet (and the share-target hint) that captures the
+// current page into the right app via the same-origin /save popup. ORIGIN is derived at
+// runtime so the bookmark is correct for whatever address this deployment is reached at.
+
+function buildBookmarklet(origin: string): string {
+  return `javascript:(function(){var u=encodeURIComponent(location.href);var t=encodeURIComponent(document.title);var s=encodeURIComponent((''+(window.getSelection?window.getSelection():'')).slice(0,500));var w=window.open('${origin}/save?url='+u+'&title='+t+'&text='+s,'maipai_save','width=440,height=620,menubar=no,toolbar=no');if(w)w.focus();})();`
+}
+
+export function SettingsSaveToMaiPaiTab() {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const code = buildBookmarklet(origin)
+  const linkRef = useRef<HTMLAnchorElement>(null)
+  const [copied, setCopied] = useState(false)
+
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  // Default ON, matching the backend (#7).
+  const { data: autoOrganize } = useUserPreferences((p) => p['capture.autoOrganize'] !== false)
+  const toggleAutoOrganize = () => {
+    if (!user) return
+    const next = !(autoOrganize ?? true)
+    fetch(`/api/users/${user.id}/preferences`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'capture.autoOrganize': next }),
+    }).catch(() => {})
+    patchUserPreferencesCache(queryClient, user.id, { 'capture.autoOrganize': next })
+  }
+
+  // JSX/bundlers strip javascript: hrefs — set it on the DOM node after mount.
+  useEffect(() => { linkRef.current?.setAttribute('href', code) }, [code])
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+    catch { toast.error('Copy failed') }
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      <div>
+        <h2 className="text-title">Save to MaiPai</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">Save any web page to MaiPai from your browser, no extension needed.</p>
+      </div>
+
+      <ToggleRow
+        title="Auto-organize saved items"
+        description="Tag new saves automatically using your on-device model, so your library files itself. Runs privately, only on items you haven't already tagged."
+        checked={autoOrganize ?? true}
+        onCheckedChange={toggleAutoOrganize}
+      />
+
+      <Card className="p-5">
+        <p className="mb-3 text-sm font-medium">1. Drag this button to your bookmarks bar</p>
+        {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
+        <a ref={linkRef} onClick={(e) => e.preventDefault()}
+          className="inline-flex cursor-grab items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground active:cursor-grabbing">
+          <Bookmark className="size-4" /> Save to MaiPai
+        </a>
+        <p className="mt-3 text-xs text-muted-foreground">
+          2. On any page, click the bookmark to save it. YouTube pages offer offline / watch-later;
+          everything else can be saved as a live bookmark or an offline article.
+        </p>
+        <button onClick={copy} className="mt-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+          {copied ? <><Check className="size-3.5" /> Copied</> : <><Copy className="size-3.5" /> Copy bookmarklet code</>}
+        </button>
+      </Card>
+
+      <Card className="p-5">
+        <p className="text-sm font-medium">On mobile</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Install MaiPai as an app (Add to Home Screen). It then appears in your phone's <span className="font-medium text-foreground">Share</span> sheet,
+          share any page to MaiPai to save it.
+        </p>
+      </Card>
+    </div>
+  )
+}

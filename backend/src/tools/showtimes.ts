@@ -2,11 +2,11 @@ import type { Tool, ToolResult } from './index'
 import { cachedLookup } from '@/lib/lookupCache'
 
 // Companion tool: movie theater showtimes near a ZIP. Ported from v2
-// lokidoki/plugins/movies_fandango — queries Fandango's unofficial napi endpoint.
+// the v2 app's plugins/movies_fandango — queries Fandango's unofficial napi endpoint.
 // Degrades gracefully (the endpoint is undocumented and may change).
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 
 export interface Showtime { time: string }
 export interface TheaterGroup { theater_name: string; times: string[] }

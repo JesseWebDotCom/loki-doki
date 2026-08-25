@@ -196,7 +196,7 @@ export function BookmarksLibraryPage() {
               { icon: Download, title: 'Offline archives + PDF', desc: 'Full-page snapshots and a printed PDF you can read with no connection.' },
               { icon: History, title: 'Versioned captures', desc: 'Re-archive to track how a page changes. Old versions stay readable.' },
               { icon: Upload, title: 'Import your stuff', desc: 'Bring bookmarks from Pocket, Pinboard, or your browser (HTML / JSON / CSV).' },
-              { icon: Globe, title: 'Save from anywhere', desc: 'Drag the Save-to-Loki bookmarklet to your bar and clip any page in a click.' },
+              { icon: Globe, title: 'Save from anywhere', desc: 'Drag the Save-to-MaiPai bookmarklet to your bar and clip any page in a click.' },
             ]}
             footnote="Everything stays on your hardware. Nothing is sent to the cloud."
           />

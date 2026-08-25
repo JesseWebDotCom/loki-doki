@@ -86,8 +86,8 @@ if ($DisarmNOS) {
 
 # --- 2. Report guard task -------------------------------------------------------
 Write-Host "`n-- gpu-power-guard --" -ForegroundColor Yellow
-$t = schtasks /query /tn LokiDoki-GpuPowerGuard 2>&1
-if ($LASTEXITCODE -eq 0) { Say "LokiDoki-GpuPowerGuard: present" } else { Say "LokiDoki-GpuPowerGuard: NOT found ($t)" }
+$t = schtasks /query /tn MaiPaiHome-GpuPowerGuard 2>&1
+if ($LASTEXITCODE -eq 0) { Say "MaiPaiHome-GpuPowerGuard: present" } else { Say "MaiPaiHome-GpuPowerGuard: NOT found ($t)" }
 
 # --- 3. Reboot to recover the eGPU ---------------------------------------------
 if ($NoReboot) {

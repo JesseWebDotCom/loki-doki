@@ -11,7 +11,7 @@ Bookmarks is your own private reading library. Save the pages you want to come b
 
 Bookmarks keeps the things you want to read in one tidy place. Two kinds of things live here:
 
-- **Live links**: a saved bookmark to a page that opens the real site (in a new tab, or embedded inside Loki Doki).
+- **Live links**: a saved bookmark to a page that opens the real site (in a new tab, or embedded inside MaiPai Home).
 - **Offline articles**: a full copy of a page saved to your server so you can read it later, cleaned up and even with the internet down.
 
 Open the **Bookmarks** app. The sidebar on the left is how you move around: **All**, quick filters for **Unread** and **Archived**, a **Type** section to see just **Live links** or **Offline articles**, your **Collections**, and your **Tags**.
@@ -21,20 +21,20 @@ Open the **Bookmarks** app. The sidebar on the left is how you move around: **Al
 Tap **Save** in the sidebar, paste a URL, and choose how to keep it:
 
 - **Live link** keeps a bookmark to the page.
-- **Offline article** saves a full copy to your server. Loki Doki fetches and archives the page in the background (you'll see a "Saving" badge flip to a reading-time estimate when it's ready).
+- **Offline article** saves a full copy to your server. MaiPai Home fetches and archives the page in the background (you'll see a "Saving" badge flip to a reading-time estimate when it's ready).
 
-When you type a URL, Loki Doki quietly checks that the site is reachable and grabs its title and icon for you. You can drop the item straight into a **collection**, add **tags**, and decide whether a live link should **embed in the app** or open in a real browser tab.
+When you type a URL, MaiPai Home quietly checks that the site is reachable and grabs its title and icon for you. You can drop the item straight into a **collection**, add **tags**, and decide whether a live link should **embed in the app** or open in a real browser tab.
 
 ### Save from your browser
 
-In **Bookmarks → Settings** there's a **Save to Loki** bookmarklet you can drag to your browser's bookmarks bar. On any page, click it to save that page to Bookmarks without installing an extension. On a phone, install Loki Doki to your home screen and it shows up in the **Share** sheet, so you can share any page to Bookmarks.
+In **Bookmarks → Settings** there's a **Save to MaiPai** bookmarklet you can drag to your browser's bookmarks bar. On any page, click it to save that page to Bookmarks without installing an extension. On a phone, install MaiPai Home to your home screen and it shows up in the **Share** sheet, so you can share any page to Bookmarks.
 
 ## Reading
 
 Tap any item to open it:
 
 - **Offline articles** open in a clean **reader view**: just the text, byline, and images, matched to your light or dark theme. A reading-time estimate sits at the top. If a page was saved with its full layout, you can flip between **Reader** and **Full page** to see the original look. There's also an **AI panel** to get a quick summary of the article or ask a question about it.
-- **Live links** open the real site. If the link is set to embed, it loads full-screen inside Loki Doki; otherwise it opens in a new browser tab.
+- **Live links** open the real site. If the link is set to embed, it loads full-screen inside MaiPai Home; otherwise it opens in a new browser tab.
 
 As you open offline articles they're marked **Reading**, and you can **Archive** anything you're done with so it drops out of your main list (Archived items are still searchable). You can re-archive an offline page any time to grab a fresh copy.
 

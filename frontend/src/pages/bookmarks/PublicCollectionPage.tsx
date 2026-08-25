@@ -67,7 +67,7 @@ export function PublicCollectionPage() {
           </div>
         )}
 
-        <footer className="mt-10 text-center text-xs text-muted-foreground/60">Shared from a private Loki library.</footer>
+        <footer className="mt-10 text-center text-xs text-muted-foreground/60">Shared from a private MaiPai library.</footer>
       </div>
     </div>
   )

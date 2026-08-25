@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bake the Finder window layout for the Doki Dock install DMG into a reusable
+# Bake the Finder window layout for the MaiPai Desktop install DMG into a reusable
 # .DS_Store, committed at build/dmg/DS_Store. The Windows build path
 # (build-mac-on-windows.ts) drops this file into the DMG it assembles so the
 # install window looks identical to the one electron-builder produces on CI,
@@ -20,10 +20,10 @@ OUT_DIR="$DESKTOP/build/dmg"
 OUT="$OUT_DIR/DS_Store"
 
 # ── LAYOUT (must match make-dmg-background.sh + electron-builder.yml) ──────────
-VOL="Doki Dock"          # volume name; the real DMG MUST use the same volname
+VOL="MaiPai Desktop"          # volume name; the real DMG MUST use the same volname
 WIN_W=600; WIN_H=420
 ICON_SIZE=112
-APP_NAME="Doki Dock.app"
+APP_NAME="MaiPai Desktop.app"
 APP_X=150; APP_Y=215
 APPS_X=450; APPS_Y=215
 # ──────────────────────────────────────────────────────────────────────────────

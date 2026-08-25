@@ -1,8 +1,8 @@
 {
-  "name": "loki-doki-desktop",
-  "productName": "Doki Dock",
+  "name": "maipai-home-desktop",
+  "productName": "MaiPai Desktop",
   "version": "0.1.0",
-  "description": "Doki Dock — the Loki Doki desktop companion shell",
+  "description": "MaiPai Desktop — the MaiPai Home desktop companion shell",
   "private": true,
   "main": "src/main.js",
   "author": "Jesse Torres",

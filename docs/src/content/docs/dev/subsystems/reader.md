@@ -130,7 +130,7 @@ The left sidebar: a **Save** button; filters **All / Unread / Archived**; a **Ty
 
 ### Settings + admin surface
 
-`ReaderSettingsPage` shows `SettingsSaveToLokiTab` (the **Save to Loki** bookmarklet + mobile share-sheet hint) to everyone, plus an admin-only **Global links** section that renders `AdminLinksTab` (manages the global, admin-shared live links via `/api/admin/reader`). There is no separate admin-panel nav entry for Reader; global-link management lives here in the app's own Settings.
+`ReaderSettingsPage` shows `SettingsSaveToMaiPaiTab` (the **Save to MaiPai** bookmarklet + mobile share-sheet hint) to everyone, plus an admin-only **Global links** section that renders `AdminLinksTab` (manages the global, admin-shared live links via `/api/admin/reader`). There is no separate admin-panel nav entry for Reader; global-link management lives here in the app's own Settings.
 
 ---
 

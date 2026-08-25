@@ -1,4 +1,4 @@
-// The builtin Doki TV dial (plans/doki-tv.md). Seeded into tv_channels on boot;
+// The builtin MaiPai TV dial (plans/maipai-tv.md). Seeded into tv_channels on boot;
 // admin edits to enabled/name/config survive re-seeding (only missing rows are added).
 // Frigate camera channels are seeded dynamically (numbers 20+) in seedChannels().
 
@@ -23,14 +23,14 @@ export const CAMERA_CHANNEL_MAX = 8
 export const TV_CATALOG: TvCatalogEntry[] = [
   // ── The guide itself (channel 1, the nostalgic centerpiece) ──────────────────
   {
-    number: 1, slug: 'guide', name: 'Doki Guide', tagline: 'What is on, always on',
+    number: 1, slug: 'guide', name: 'MaiPai Guide', tagline: 'What is on, always on',
     kind: 'page', glyph: 'LayoutList', color: '#6d28d9', colorDark: '#2e1065',
     config: { kind: 'page', screen: 'guide', programMin: 60, programs: [{ fromHour: 0, title: 'Program Guide', subtitle: 'Scrolling listings for every channel' }] },
   },
 
   // ── Media library channels ───────────────────────────────────────────────────
   {
-    number: 2, slug: 'movies', name: 'Doki Movies', tagline: 'The family film library, always rolling',
+    number: 2, slug: 'movies', name: 'MaiPai Movies', tagline: 'The family film library, always rolling',
     kind: 'media', glyph: 'Film', color: '#dc2626', colorDark: '#450a0a',
     config: { kind: 'media', source: 'plex-movies', assumeMinutes: 110 },
   },
@@ -70,7 +70,7 @@ export const TV_CATALOG: TvCatalogEntry[] = [
 
   // ── Audio channels ───────────────────────────────────────────────────────────
   {
-    number: 11, slug: 'fm', name: 'Doki FM', tagline: 'Music with pictures, all day',
+    number: 11, slug: 'fm', name: 'MaiPai FM', tagline: 'Music with pictures, all day',
     kind: 'audio', glyph: 'Music2', color: '#7c3aed', colorDark: '#2e1065',
     config: {
       kind: 'audio', source: 'stations',
@@ -93,7 +93,7 @@ export const TV_CATALOG: TvCatalogEntry[] = [
     config: { kind: 'audio', source: 'podcasts' },
   },
   {
-    number: 14, slug: 'originals', name: 'Doki Originals', tagline: 'Podcasts this house made',
+    number: 14, slug: 'originals', name: 'MaiPai Originals', tagline: 'Podcasts this house made',
     kind: 'audio', glyph: 'Mic', color: '#c026d3', colorDark: '#4a044e',
     config: { kind: 'audio', source: 'ai-podcasts' },
   },
@@ -178,7 +178,7 @@ export const TV_CATALOG: TvCatalogEntry[] = [
 
   // ── AI network ───────────────────────────────────────────────────────────────
   {
-    number: 60, slug: 'news', name: 'Doki News 60', tagline: 'Headlines around the clock',
+    number: 60, slug: 'news', name: 'MaiPai News 60', tagline: 'Headlines around the clock',
     kind: 'page', glyph: 'Newspaper', color: '#b91c1c', colorDark: '#450a0a',
     config: {
       kind: 'page', screen: 'news', programMin: 30,

@@ -1,72 +1,42 @@
 ---
-title: Loki Doki
-description: Documentation for Loki Doki, a private, offline-first AI home hub.
+title: MaiPai Home
+description: Help for MaiPai Home, your family's own private AI hub.
 template: splash
 hero:
-  title: Loki Doki
-  tagline: Your family. Your data. Your rules. A full AI stack that runs in your home and stays there, private, uncensored, and free.
+  title: How can we help?
+  tagline: Everything about MaiPai Home, your family's own AI hub. Yours, private, at home.
   actions:
-    - text: User Guide
-      link: user/welcome/
+    - text: Set it up
+      link: user/getting-started/
       icon: right-arrow
       variant: primary
-    - text: Developer Guide
-      link: dev/architecture/
-      icon: open-book
+    - text: Fix a problem
+      link: user/fix-a-problem/
+      icon: warning
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+## Common questions
 
 <CardGrid>
-  <Card title="Chat" icon="comment">
-    Local LLM chat with memory, tool calling, and character companions. Powered by Ollama. No data leaves your network.
-  </Card>
-  <Card title="Image Generation" icon="pencil">
-    ComfyUI + Stable Diffusion XL. txt2img, img2img, face identity, video, background removal, and LoRA support.
-  </Card>
-  <Card title="Voice" icon="phone">
-    Hands-free wakeword detection, Whisper STT, and Kokoro-82M TTS, all running locally with no cloud dependency.
-  </Card>
-  <Card title="Companions" icon="star">
-    A fully customizable, animated AI buddy with its own name, personality, voice, and look. It breathes, reacts, and lip-syncs as it talks, and it's yours, not built to hook you.
-  </Card>
-  <Card title="Books" icon="open-book">
-    A storefront of ebooks and audiobooks across Gutenberg, Standard Ebooks, Internet Archive, and LibriVox, save-for-later or full offline downloads, TTS narration, and an AI tool that drafts an original book with you chapter by chapter.
-  </Card>
-  <Card title="Reference" icon="information">
-    Full Wikipedia, medical references, a dictionary, and more via ZIM archives. Readable offline via the built-in kiwix-serve engine, and citable by the companion in chat.
-  </Card>
-  <Card title="Canvas" icon="pencil">
-    An editable side pane the companion writes code, documents, and HTML into live, keep editing after it's done, and export to PDF.
-  </Card>
-  <Card title="Coding" icon="laptop">
-    A real terminal running the Claude Code CLI in its own sandboxed workspace per person, persistent across reloads.
-  </Card>
-  <Card title="Maps" icon="rocket">
-    Offline maps with routing via MapLibre + pmtiles + GraphHopper. Full-text geocoder, no tile API required.
-  </Card>
-  <Card title="Home Inventory" icon="list-format">
-    AI-powered device tracker. Photo → VLM identify → web lookup. Service logs, warranty alerts, and manual PDF cache.
-  </Card>
-  <Card title="Home Control" icon="setting">
-    Control your smart home by natural language through Home Assistant. "Turn off the office lights", "lock the front door", "set the bedroom to 50%", with per-user, per-room permissions.
-  </Card>
-  <Card title="Videos" icon="seti:video">
-    YouTube, TikTok, Vimeo, Reddit, and your own clips in one private app. Follow creators, save offline with automatic keep-latest rules, AI titles and summaries, audio mode with an EQ, mini player and PiP, and per-source Plex libraries.
-  </Card>
-  <Card title="Podcasts" icon="seti:audio">
-    Turn an article, a video, or any source into an AI-generated audio show with chosen voices and offline-rendered intro and outro music.
-  </Card>
-  <Card title="Music" icon="seti:audio">
-    A fully offline music engine (tonal + @tonejs/midi + spessasynth_core) that renders tracks and stingers in the browser from a downloaded soundfont.
-  </Card>
-  <Card title="Today Dashboard" icon="document">
-    News, on-this-day history, sports, weather, jokes, holidays, and local events on one customizable home page, with an ambient daily briefing that flavors your companion.
-  </Card>
-  <Card title="App Store" icon="puzzle">
-    The admin installs or removes any app per household. Apps have pages, extensions add chat abilities, and install-time disclosure shows exactly what each one touches.
-  </Card>
-  <Card title="Shopping" icon="magnifier">
-    Track prices across Amazon, Walmart, Target, and more from one search box. Price-history charts, drop alerts, a deals feed, coupons, and photo/barcode product identification.
-  </Card>
+  <LinkCard title="Set up MaiPai Home for the first time" href="user/getting-started/" />
+  <LinkCard title="Add a family member or a kid's account" href="user/admin/" />
+  <LinkCard title="It stopped answering. Now what?" href="user/fix-a-problem/" />
+  <LinkCard title="What can my kids see and do?" href="user/privacy/" />
 </CardGrid>
+
+## Browse by topic
+
+<CardGrid>
+  <LinkCard title="Start here" description="What MaiPai Home is, and setting it up step by step." href="user/welcome/" />
+  <LinkCard title="Everyday use" description="Chatting, music, videos, books, podcasts, maps, and making pictures." href="user/features/chat/" />
+  <LinkCard title="Your family" description="Accounts for everyone, kid-safe settings, and who can use what." href="user/admin/" />
+  <LinkCard title="Privacy &amp; safety" description="What stays home (everything), and how the family controls work." href="user/privacy/" />
+  <LinkCard title="Fix a problem" description="If something isn't working, start here." href="user/fix-a-problem/" />
+  <LinkCard title="Talk to it" description="Voice, wake words, and your family's companions." href="user/features/voice/" />
+</CardGrid>
+
+---
+
+<p style="text-align:center; opacity:0.7;">Tinkerer or developer? The <a href="dev/architecture/">technical documentation</a> lives over here.</p>

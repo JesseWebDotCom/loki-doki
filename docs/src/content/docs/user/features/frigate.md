@@ -5,20 +5,20 @@ sidebar:
   order: 18
 ---
 
-If you run [Frigate](https://frigate.video) for your security cameras, Loki Doki connects to it so your companion can describe what the cameras see and announce events out loud (a person at the front door, a car in the driveway) without anything leaving your network or relying on a cloud service.
+If you run [Frigate](https://frigate.video) for your security cameras, MaiPai Home connects to it so your companion can describe what the cameras see and announce events out loud (a person at the front door, a car in the driveway) without anything leaving your network or relying on a cloud service.
 
 ## How it works
 
-Frigate has a built-in "generative AI" feature that asks an outside service to describe snapshots of detected objects. Loki Doki acts as that service, but locally: it answers Frigate's requests using your **own vision model**, so the descriptions are generated on your hardware, not sent to OpenAI or anyone else.
+Frigate has a built-in "generative AI" feature that asks an outside service to describe snapshots of detected objects. MaiPai Home acts as that service, but locally: it answers Frigate's requests using your **own vision model**, so the descriptions are generated on your hardware, not sent to OpenAI or anyone else.
 
 When Frigate detects something, two things happen:
 
-- Loki Doki **describes the snapshot** with its local vision model (what's in frame, what's happening).
+- MaiPai Home **describes the snapshot** with its local vision model (what's in frame, what's happening).
 - Your **companion announces it** out loud on whatever device you're using, using the camera, label, and severity from Frigate.
 
 ## Setting it up
 
-An admin connects Frigate in **Admin → Frigate**: point Frigate's MQTT/base URL at your Loki Doki instance and set Frigate's generative-AI provider to the OpenAI-compatible endpoint Loki Doki exposes (authenticated with a token, since Frigate is a separate device on your LAN). Once configured, announcements start flowing automatically.
+An admin connects Frigate in **Admin → Frigate**: point Frigate's MQTT/base URL at your MaiPai Home instance and set Frigate's generative-AI provider to the OpenAI-compatible endpoint MaiPai Home exposes (authenticated with a token, since Frigate is a separate device on your LAN). Once configured, announcements start flowing automatically.
 
 ## Event history
 

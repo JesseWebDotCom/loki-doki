@@ -121,10 +121,10 @@ export async function buildShowFeed(userId: string, showId: string, base: string
 
   return renderFeed({
     title: show.name,
-    description: show.description ?? `${show.name}, an AI show from Loki Doki.`,
+    description: show.description ?? `${show.name}, an AI show from MaiPai Home.`,
     link: `${base}/podcasts/show/${show.id}`,
     imageUrl: show.coverRelPath ? `${base}/api/podcast-rss/${token}/show/${show.id}/cover` : null,
-    author: 'Loki Doki',
+    author: 'MaiPai Home',
     items: episodes
       .filter(e => e.audioRelPath)
       .map(e => ({
@@ -149,10 +149,10 @@ export async function buildRadioFeed(userId: string, base: string, token: string
 
   return renderFeed({
     title: 'Radio recordings',
-    description: 'Live radio captured on Loki Doki.',
+    description: 'Live radio captured on MaiPai Home.',
     link: `${base}/music/library?tab=radio`,
     imageUrl: null,
-    author: 'Loki Doki',
+    author: 'MaiPai Home',
     items: recordings
       .filter(r => r.relPath)
       .map(r => ({

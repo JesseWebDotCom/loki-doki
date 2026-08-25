@@ -30,7 +30,7 @@ async function fetchEntities(): Promise<EntitiesResponse> {
 }
 
 function openDevicesApp() {
-  window.lokiDesktop?.openMainWindow('/home-assistant')
+  window.maipaiDesktop?.openMainWindow('/home-assistant')
 }
 
 function cap(s: string): string {

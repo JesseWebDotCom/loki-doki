@@ -46,7 +46,7 @@ export function SavePage() {
 
   const target = detectSaveTarget(rawUrl)
 
-  useEffect(() => { document.title = 'Save to Loki' }, [])
+  useEffect(() => { document.title = 'Save to MaiPai' }, [])
 
   function closeSoon() { setTimeout(() => { try { window.close() } catch { /* not script-opened */ } }, 800) }
 
@@ -83,7 +83,7 @@ export function SavePage() {
   return (
     <div className="min-h-screen bg-background pb-8">
       <PageContainer width="narrow" className="max-w-md">
-        <PageHeader title="Save to Loki" className="pt-6 pb-4" />
+        <PageHeader title="Save to MaiPai" className="pt-6 pb-4" />
         <a href={rawUrl} target="_blank" rel="noopener noreferrer" className="mb-4 flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground">
           <ExternalLink className="size-3 shrink-0" /><span className="truncate">{rawUrl}</span>
         </a>

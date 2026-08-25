@@ -16,7 +16,7 @@ function iconPath() {
 function create(handlers) {
   const image = nativeImage.createFromPath(iconPath())
   tray = new Tray(image)
-  tray.setToolTip('Doki Dock')
+  tray.setToolTip('MaiPai Desktop')
   rebuild(handlers)
   return tray
 }
@@ -28,7 +28,7 @@ function rebuild({ state, settings, serverReachable, actions }) {
   })()
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Show Loki Doki', click: actions.showMain },
+    { label: 'Show MaiPai Home', click: actions.showMain },
     {
       label: 'Show HUD',
       type: 'checkbox',
@@ -68,7 +68,7 @@ function rebuild({ state, settings, serverReachable, actions }) {
     },
     { label: 'Open Settings File', click: actions.openSettingsFile },
     { type: 'separator' },
-    { label: 'Quit Doki Dock', click: actions.quit },
+    { label: 'Quit MaiPai Desktop', click: actions.quit },
   ])
   tray.setContextMenu(menu)
 }

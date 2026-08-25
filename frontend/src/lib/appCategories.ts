@@ -48,7 +48,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films: streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard, toolId: "showtimes" },
       { id: "videos",         to: "/videos",         label: "Videos",          description: "Watch, save & create videos", gradient: "linear-gradient(135deg,#164e63,#06b6d4)", color: "#06b6d4", icon: Film,           toolId: "youtube" },
       { id: "music",          to: "/music",          label: "Music",           description: "Listen, discover & create",     gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
-      { id: "dokitv",         to: "/channels",       label: "Doki TV",         description: "Live family TV channels, made from this house", gradient: "linear-gradient(135deg,#4c0519,#e11d48)", color: "#e11d48", icon: MonitorPlay },
+      { id: "maipaitv",         to: "/channels",       label: "MaiPai TV",         description: "Live family TV channels, made from this house", gradient: "linear-gradient(135deg,#4c0519,#e11d48)", color: "#e11d48", icon: MonitorPlay },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },
       { id: "bored",          to: "/bored",          label: "I'm Bored",       description: "Find something to do",                gradient: "linear-gradient(135deg,#3b0d8a,#7c3aed)", color: "#8b5cf6", icon: Lightbulb },
@@ -101,7 +101,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "books",     to: "/books",     label: "Books",      description: "Read and listen to books",                  gradient: "linear-gradient(135deg,#422006,#a16207)", color: "#ca8a04", icon: BookAudio,  feature: "books" },
       { id: "reference", to: "/reference", label: "Reference",  description: "Wikipedia, dictionary, medical & more",     gradient: "linear-gradient(135deg,#1e1b4b,#1e3a8a)", color: "#6366f1", icon: BookMarked, feature: "reference" },
       { id: "bookmarks", to: "/bookmarks", label: "Bookmarks",  description: "Saved links, articles & offline archives",  gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookOpen,   feature: "bookmarks" },
-      { id: "docs-user", to: "/docs/user", label: "User Guide", description: "How to use Loki Doki",                      gradient: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "#818cf8", icon: BookOpen },
+      { id: "docs-user", to: "/docs/user", label: "User Guide", description: "How to use MaiPai Home",                      gradient: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "#818cf8", icon: BookOpen },
     ],
   },
   {

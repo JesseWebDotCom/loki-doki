@@ -746,7 +746,7 @@ export function ImagingPage() {
   // Restore edit session from sessionStorage on mount
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem('loki-edit-session')
+      const saved = sessionStorage.getItem('maipai-edit-session')
       if (!saved) return
       const s = JSON.parse(saved) as {
         editSourceId?: string
@@ -770,7 +770,7 @@ export function ImagingPage() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem('loki-edit-session', JSON.stringify({
+      sessionStorage.setItem('maipai-edit-session', JSON.stringify({
         editSourceId,
         editOp,
         resultImageId: edit.status === 'done' ? edit.imageId : null,

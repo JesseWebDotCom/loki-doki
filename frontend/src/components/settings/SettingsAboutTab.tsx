@@ -170,7 +170,7 @@ export function SettingsAboutTab() {
   return (
     <div className="space-y-6 pb-10">
       <div>
-        <h2 className="text-title">About loki-doki</h2>
+        <h2 className="text-title">About maipai-home</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           A private, self-hosted AI companion. All processing runs locally on your device.
         </p>
@@ -179,7 +179,7 @@ export function SettingsAboutTab() {
       <div>
         <h3 className="mb-3 text-section">Open-source & content licenses</h3>
         <p className="mb-4 text-caption text-muted-foreground">
-          loki-doki is built on open-source software and open-licensed content. The following
+          maipai-home is built on open-source software and open-licensed content. The following
           credits are required by their respective licenses.
         </p>
         <Card variant="surface" className="divide-y divide-border/50">

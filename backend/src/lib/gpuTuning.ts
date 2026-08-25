@@ -43,7 +43,7 @@ const INSPECTOR_URL = 'https://github.com/Orbmu2k/nvidiaProfileInspector/release
 const PROFILE_NIP = `<?xml version="1.0" encoding="utf-16"?>
 <ArrayOfProfile>
   <Profile>
-    <ProfileName>Loki Doki - Python CUDA</ProfileName>
+    <ProfileName>MaiPai Home - Python CUDA</ProfileName>
     <Executeables>
       <string>python.exe</string>
     </Executeables>
@@ -95,7 +95,7 @@ export async function installGpuTuning(
   }
 
   onStatus('Applying driver profile (approve the Windows admin prompt when it appears)…')
-  const nipPath = join(TOOL_DIR, 'loki-sysmem-fallback.nip')
+  const nipPath = join(TOOL_DIR, 'maipai-sysmem-fallback.nip')
   // .nip files are utf-16 with BOM (that's what the tool itself exports).
   await writeFile(nipPath, '\uFEFF' + PROFILE_NIP, { encoding: 'utf16le' })
   // The v3 exe manifests requireAdministrator, so a plain spawn fails EACCES (Win32

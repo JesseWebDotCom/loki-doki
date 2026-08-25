@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-// Ported verbatim from loki-doki-v2. Continuous rAF head-tilt motion per state.
+// Ported verbatim from maipai-home-v2. Continuous rAF head-tilt motion per state.
 
 export type HeadTiltState =
   | "still"

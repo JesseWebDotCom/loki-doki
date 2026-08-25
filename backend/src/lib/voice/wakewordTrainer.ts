@@ -49,8 +49,8 @@ const MAX_NEG_VOICES       = 12
 const SPEED_VARIANTS = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 
 // Other assistant triggers, generated across the SAME voices as the positives so
-// the model learns the WORD difference ("loki" vs "alexa"), not a voice cue. This
-// is the targeted signal that pushes "hey alexa" below "hey loki".
+// the model learns the WORD difference ("maipai" vs "alexa"), not a voice cue. This
+// is the targeted signal that pushes "hey alexa" below "hey maipai".
 const CONTRASTIVE_TRIGGERS = ['Hey Alexa.', 'Hey Google.', 'Hey Siri.', 'Hey Cortana.']
 
 // Order voices to maximize gender + accent diversity: round-robin across
@@ -128,7 +128,7 @@ const NEGATIVE_PHRASES = [
   'Hey table.', 'Hey rabbit.', 'Hey city.', 'Hey summer.', 'Hey morning.', 'Hey weekend.',
   // Other assistant triggers as negatives. Per openWakeWord guidance these must
   // be CLEARLY different — NOT similar-sounding rhymes (e.g. "hey rocky" for
-  // "hey loki"), which measurably hurt accuracy. Robust discrimination comes
+  // "hey maipai"), which measurably hurt accuracy. Robust discrimination comes
   // from many augmented positives + diverse negatives, not from rhyming decoys.
   'Hey Alexa.',
   'Hey Google.',
@@ -150,7 +150,7 @@ const NEGATIVE_PHRASES = [
 // (which would teach "reject things near the phrase" too aggressively and hurt
 // recall). Falls back to deterministic phonetic variants when Ollama is offline —
 // it used to return [], silently shipping a model with NO near-miss negatives,
-// which fires on rhymes ("hey lucky" for "hey loki").
+// which fires on rhymes ("hey lucky" for "hey maipai").
 function staticNearMissPhrases(phrase: string): string[] {
   const words = phrase.trim().toLowerCase().split(/\s+/)
   const name = words[words.length - 1] ?? phrase

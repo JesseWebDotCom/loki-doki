@@ -7,25 +7,25 @@ import { useCallback, useEffect, useRef } from 'react'
 //
 // A module-level ref count means any number of regions/holders can overlap:
 // interception turns on at 0 to 1 and off at 1 to 0. No-ops outside the desktop
-// shell (window.lokiDesktop absent), so web builds are unaffected.
+// shell (window.maipaiDesktop absent), so web builds are unaffected.
 
 let holds = 0
 
 function acquire() {
   holds += 1
-  if (holds === 1) window.lokiDesktop?.setMouseIntercept?.(true)
+  if (holds === 1) window.maipaiDesktop?.setMouseIntercept?.(true)
 }
 
 function release() {
   if (holds === 0) return
   holds -= 1
-  if (holds === 0) window.lokiDesktop?.setMouseIntercept?.(false)
+  if (holds === 0) window.maipaiDesktop?.setMouseIntercept?.(false)
 }
 
 // Hard reset: on window blur (Cmd-Tab, space switch) pointerleave may never fire,
 // which would leave an invisible click-blocking strip over the screen.
 export function resetMouseIntercept() {
-  if (holds > 0) window.lokiDesktop?.setMouseIntercept?.(false)
+  if (holds > 0) window.maipaiDesktop?.setMouseIntercept?.(false)
   holds = 0
 }
 

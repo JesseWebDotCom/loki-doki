@@ -9,7 +9,7 @@ The File Converter turns a file from one format into another, right on your serv
 
 ## Converting a File
 
-Drag a file in, or browse for one, and Loki Doki shows a live preview alongside the valid output formats for that kind of file (an image only ever converts to another image format, and so on):
+Drag a file in, or browse for one, and MaiPai Home shows a live preview alongside the valid output formats for that kind of file (an image only ever converts to another image format, and so on):
 
 - **Images**: PNG, JPG, WEBP, BMP, TIFF, GIF, and SVG, plus AVIF and HEIC/HEIF if your server has the optional image library installed.
 - **Audio**: MP3, WAV, FLAC, AAC, OGG, OPUS, M4A, AIFF, and WMA.

@@ -62,7 +62,7 @@ function systemCandidates(): string[] {
 async function discoverUrl(): Promise<string | null> {
   try {
     const res = await fetch('https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest', {
-      headers: { 'User-Agent': 'loki-doki', Accept: 'application/vnd.github+json' },
+      headers: { 'User-Agent': 'maipai-home', Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(20_000),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)

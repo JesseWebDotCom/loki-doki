@@ -968,7 +968,7 @@ podcastsRoute.get('/episodes/:id/stream', async (c) => {
   // 3. Remote RSS episode: proxy the enclosure, forwarding Range both ways. Some hosts
   // ignore Range and answer 200 — pass the status through verbatim; <audio> copes.
   if (episode.enclosureUrl) {
-    const fwdHeaders: Record<string, string> = { 'User-Agent': 'LokiDoki/3.0 podcast', Accept: '*/*' }
+    const fwdHeaders: Record<string, string> = { 'User-Agent': 'MaiPaiHome/3.0 podcast', Accept: '*/*' }
     const range = c.req.header('range')
     if (range) fwdHeaders.Range = range
     let upstream: Response

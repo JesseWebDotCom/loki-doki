@@ -258,7 +258,7 @@ export function NowPlayingOverlay() {
           <span className="shrink-0 text-white/70">
             <CastButton
               trackRef={radio.currentTrack?.videoId ?? null}
-              title={radio.currentTrack?.title ?? 'Loki Doki'}
+              title={radio.currentTrack?.title ?? 'MaiPai Home'}
               artist={radio.currentTrack?.author ?? null}
               onCastStart={() => { if (!radio.paused) radio.togglePause() }}
             />

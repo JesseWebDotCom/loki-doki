@@ -5,7 +5,7 @@ sidebar:
   order: 14
 ---
 
-Loki Doki comes with a lot of apps and tools: Chat, Maps, Images, News, Weather, Recipes, and more. The App Store is where the household admin decides which of them are turned on for everyone, and where anyone in the family can ask for something new.
+MaiPai Home comes with a lot of apps and tools: Chat, Maps, Images, News, Weather, Recipes, and more. The App Store is where the household admin decides which of them are turned on for everyone, and where anyone in the family can ask for something new.
 
 ## Browsing the store
 

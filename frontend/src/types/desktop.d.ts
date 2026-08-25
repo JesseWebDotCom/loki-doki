@@ -1,6 +1,6 @@
 // Bridge exposed by the desktop shell's preload script (desktop/src/preload.js).
-// Present only when the app is running inside the Loki Doki desktop app; every
-// consumer must feature-detect (`window.lokiDesktop?.…`). Optional members mark
+// Present only when the app is running inside the MaiPai Home desktop app; every
+// consumer must feature-detect (`window.maipaiDesktop?.…`). Optional members mark
 // newer bridge additions so the frontend tolerates an older installed shell.
 
 export interface HudState {
@@ -95,7 +95,7 @@ export interface FsAccessEntry {
   at: number
 }
 
-export interface LokiDesktopBridge {
+export interface MaiPaiDesktopBridge {
   platform: string
   /** Running shell version (newer shells only); undefined on older installs. */
   getAppVersion?: () => Promise<string>
@@ -143,7 +143,7 @@ export interface LokiDesktopBridge {
 
 declare global {
   interface Window {
-    lokiDesktop?: LokiDesktopBridge
+    maipaiDesktop?: MaiPaiDesktopBridge
   }
 }
 

@@ -1,5 +1,5 @@
 // Region install-state store. Backed by the `map_regions` table; mirrors the
-// JSON state files from v2 (lokidoki/maps/store.py) but persisted in SQLite.
+// JSON state files from the v2 app's (maps/store.py) but persisted in SQLite.
 
 import { rm } from 'node:fs/promises'
 import { existsSync, statSync } from 'node:fs'

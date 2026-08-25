@@ -1,5 +1,5 @@
-appId: com.jessewebdotcom.dokidock
-productName: Doki Dock
+appId: com.getmaipai.desktop
+productName: MaiPai Desktop
 directories:
   output: release
   buildResources: build
@@ -18,7 +18,7 @@ mac:
     - target: zip
       arch: [arm64, x64]
   extendInfo:
-    NSMicrophoneUsageDescription: "Doki Dock listens so you can talk to your companion."
+    NSMicrophoneUsageDescription: "MaiPai Desktop listens so you can talk to your companion."
 win:
   target:
     - target: nsis

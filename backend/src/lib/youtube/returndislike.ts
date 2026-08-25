@@ -17,7 +17,7 @@ export interface VideoVotes {
 export async function getVotes(videoId: string, timeout = 6000): Promise<VideoVotes | null> {
   try {
     const res = await fetch(`${API}?videoId=${encodeURIComponent(videoId)}`, {
-      headers: { 'User-Agent': 'LokiDoki/1.0' },
+      headers: { 'User-Agent': 'MaiPaiHome/1.0' },
       signal: AbortSignal.timeout(timeout),
     })
     if (!res.ok) return null

@@ -1,5 +1,5 @@
 // Local machine resource monitor: samples CPU / memory / disk / battery on the
-// machine running Doki Dock and turns sustained threshold crossings into alert
+// machine running MaiPai Desktop and turns sustained threshold crossings into alert
 // events. The main process only COLLECTS (dep-free: node:os + statfs + pmset);
 // the HUD page reads snapshots over IPC and reports events to the server with
 // its own logged-in session — this process never talks to the server.

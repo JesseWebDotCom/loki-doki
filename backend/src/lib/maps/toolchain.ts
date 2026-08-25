@@ -5,7 +5,7 @@
 //   • go-pmtiles 1.30.3   (pmtiles archive utility)
 //   • Font glyph PBFs     (MapLibre label rendering)
 //
-// Mirrors v2 lokidoki/bootstrap/maps_tools.py. Tools land under
+// Mirrors the v2 app's bootstrap/maps_tools.py. Tools land under
 // data/maps/tools/. Everything is downloaded at runtime via the admin
 // Features → Maps install flow (same pattern as kiwix / voice / sd.cpp), never
 // bundled. Progress is reported as status strings; downloads go through the
@@ -137,7 +137,7 @@ function runJavaStreaming(args: string[], onStatus: OnStatus, signal?: AbortSign
 // comes from Natural Earth + water polygons, which planetiler downloads. The
 // output is served at /api/maps/tiles/_overview/streets.pmtiles and is what the
 // map shows when zoomed out or outside any installed region.
-const OVERVIEW_HEAP_MB = parseInt(process.env.LOKIDOKI_WORLD_OVERVIEW_HEAP_MB ?? '2048', 10)
+const OVERVIEW_HEAP_MB = parseInt(process.env.MAIPAI_WORLD_OVERVIEW_HEAP_MB ?? '2048', 10)
 const SEED_PBF_URL = 'https://download.geofabrik.de/europe/monaco-latest.osm.pbf'
 
 let overviewBuilding = false

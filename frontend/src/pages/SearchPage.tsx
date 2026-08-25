@@ -63,7 +63,7 @@ async function fetchWebSearch(query: string): Promise<WebSearchResponse> {
   return r.json() as Promise<WebSearchResponse>
 }
 
-// "From Loki Doki" rail: your own library (videos/podcasts/books/music stations +
+// "From MaiPai Home" rail: your own library (videos/podcasts/books/music stations +
 // playlists) related to the query, via the existing local-content search
 // (routes/search.ts, the same endpoint Spotlight already uses). Fetched as its own
 // independent query so a slow/absent match here never holds up the web results or
@@ -302,7 +302,7 @@ export function SearchPage() {
               {related && related.length > 0 && (
                 <div className="rounded-card border border-border/60 bg-card p-3">
                   <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    From Loki Doki
+                    From MaiPai Home
                   </p>
 
                   {availableBuckets.length > 1 && (

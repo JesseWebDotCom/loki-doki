@@ -119,7 +119,7 @@ export const newsTool: Tool = {
 
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'LokiDoki/1.0', Accept: 'application/rss+xml, application/xml, text/xml' },
+        headers: { 'User-Agent': 'MaiPaiHome/1.0', Accept: 'application/rss+xml, application/xml, text/xml' },
         signal: AbortSignal.timeout(6000),
       })
       if (!res.ok) return { success: false, error: `News fetch failed: ${res.status}` }

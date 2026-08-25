@@ -1,4 +1,4 @@
-// Opt-in network egress fence for the coding sandbox user (lokidoki-coding).
+// Opt-in network egress fence for the coding sandbox user (maipai-coding).
 //
 // The FS boundary (codingSandboxUser.ts) walls the sandbox off from this app's repo,
 // DB, and secrets, but says nothing about the network: by default the sandbox user
@@ -41,8 +41,8 @@ export interface EgressFenceConfig {
 }
 
 const CONFIG_KEY = 'coding.egress_fence'
-const NFT_TABLE = 'lokidoki_coding'
-const WIN_RULE_GROUP = 'lokidoki-coding'
+const NFT_TABLE = 'maipai_coding'
+const WIN_RULE_GROUP = 'maipai-coding'
 
 // RFC1918 + link-local, the "home LAN" the sandbox should not be able to reach.
 const PRIVATE_V4 = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16']
@@ -204,7 +204,7 @@ export async function planEgressFence(cfg: EgressFenceConfig): Promise<FencePlan
     supported: true,
     commands: [
       `Remove-NetFirewallRule -Group '${WIN_RULE_GROUP}' -ErrorAction SilentlyContinue`,
-      `New-NetFirewallRule -DisplayName 'lokidoki-coding LAN block' -Group '${WIN_RULE_GROUP}' ` +
+      `New-NetFirewallRule -DisplayName 'maipai-coding LAN block' -Group '${WIN_RULE_GROUP}' ` +
         `-Direction Outbound -Action Block -LocalUser 'D:(A;;CC;;;${sid})' -RemoteAddress @('${ranges}')`,
     ],
   }
@@ -228,6 +228,8 @@ export async function applyEgressFence(cfg: EgressFenceConfig): Promise<FenceRes
     if (!uid) return { ok: false, error: `Sandbox user ${SANDBOX_USER} is not installed.` }
     // Tear down any prior table (ignore "does not exist"), then load fresh from stdin.
     await runPrivileged('nft', ['delete', 'table', 'inet', NFT_TABLE]).catch(() => {})
+    // Pre-rename installs used a different table name; clear it so both never coexist.
+    await runPrivileged('nft', ['delete', 'table', 'inet', 'lokidoki_coding']).catch(() => {})
     const ruleset = await buildNftRuleset(cfg, uid)
     const res = await runPrivileged('nft', ['-f', '-'], ruleset)
     if (!res.ok) return { ok: false, error: res.error, needsPrivilege: res.needsPrivilege, manualCommands: plan.commands }
@@ -241,7 +243,7 @@ export async function applyEgressFence(cfg: EgressFenceConfig): Promise<FenceRes
   const ranges = [...PRIVATE_V4, ...PRIVATE_V6].map((r) => `'${r}'`).join(',')
   const ps =
     `Remove-NetFirewallRule -Group '${WIN_RULE_GROUP}' -ErrorAction SilentlyContinue; ` +
-    `New-NetFirewallRule -DisplayName 'lokidoki-coding LAN block' -Group '${WIN_RULE_GROUP}' ` +
+    `New-NetFirewallRule -DisplayName 'maipai-coding LAN block' -Group '${WIN_RULE_GROUP}' ` +
     `-Direction Outbound -Action Block -LocalUser 'D:(A;;CC;;;${sid})' -RemoteAddress @(${ranges}) | Out-Null`
   const res = await runPrivileged('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps])
   if (!res.ok) return { ok: false, error: res.error, needsPrivilege: res.needsPrivilege, manualCommands: plan.commands }

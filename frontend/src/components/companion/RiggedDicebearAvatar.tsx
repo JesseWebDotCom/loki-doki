@@ -14,7 +14,7 @@ import { blinkEyeFor, defaultEyeFor, lookUpEyeFor, mouthForViseme, type Viseme }
 import { faceForMood, type Mood } from "./moods";
 import type { CharacterStyle } from "./styles";
 
-// Ported from loki-doki-v2 RiggedDicebearAvatar.tsx. The head-tilt mechanism (split
+// Ported from maipai-home-v2 RiggedDicebearAvatar.tsx. The head-tilt mechanism (split
 // parts rotated around a fixed neck pivot) is preserved exactly. Mouth source:
 // when `audioViseme` is provided (TTS audio bridge active) it drives the mouth on
 // the real audio clock; otherwise the streaming-text cadence flap (`speaking`) is

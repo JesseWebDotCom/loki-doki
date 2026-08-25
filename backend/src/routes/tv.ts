@@ -1,4 +1,4 @@
-// Doki TV: linear channels API (plans/doki-tv.md).
+// MaiPai TV: linear channels API (plans/maipai-tv.md).
 // In-app surface (cookie auth): channel list, now-playing resolution, EPG guide.
 // IPTV surface (token auth, for Plex-via-Threadfin / Jellyfin / any IPTV client):
 // M3U playlist + XMLTV guide + channel logos + continuous MPEG-TS streams.
@@ -240,7 +240,7 @@ tvRoute.get('/iptv/playlist.m3u', async (c) => {
     const name = ch.name.replace(/[\r\n"]+/g, ' ').trim()
     lines.push(
       `#EXTINF:-1 tvg-id="${ch.slug}" tvg-chno="${ch.number}" tvg-name="${name}" ` +
-      `tvg-logo="${origin}/api/tv/iptv/logo/${ch.slug}.png?token=${token}" group-title="Doki TV",${ch.number} ${name}`,
+      `tvg-logo="${origin}/api/tv/iptv/logo/${ch.slug}.png?token=${token}" group-title="MaiPai TV",${ch.number} ${name}`,
       `${origin}/api/tv/iptv/stream/${ch.slug}.ts?token=${token}`,
     )
   }
@@ -264,7 +264,7 @@ tvRoute.get('/iptv/guide.xml', async (c) => {
   const channels = await enabledChannels()
   const from = new Date(Date.now() - 60 * 60 * 1000)
   const to = new Date(Date.now() + 24 * 60 * 60 * 1000)
-  const parts = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Loki Doki - Doki TV">']
+  const parts = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="MaiPai Home - MaiPai TV">']
   for (const ch of channels) {
     parts.push(
       `  <channel id="${xmlEsc(ch.slug)}">`,

@@ -6,7 +6,7 @@
 import type { BriefingItem } from '../types'
 import { stripTags as stripHtml, decodeEntities } from '@/lib/htmlText'
 
-const UA = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
+const UA = 'Mozilla/5.0 (compatible; MaiPaiHome/1.0)'
 
 function extractXml(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))

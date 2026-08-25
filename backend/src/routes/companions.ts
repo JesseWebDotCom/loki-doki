@@ -408,7 +408,7 @@ companions_.get('/:id/avatar', requireAuth, async (c) => {
   try {
     const svg = await buildDicebearSvg({
       id: row.id,
-      firstName: row.name ?? 'Doki',
+      firstName: row.name ?? 'MaiPai',
       lastName: '',
       dicebearStyle: row.style ?? 'avataaars',
       dicebearSeed: row.seed ?? row.id,

@@ -12,7 +12,7 @@ in "Interplay" at the bottom.*
 Three user-visible failures motivated the audit, with root causes confirmed in code:
 
 1. **"Lower the volume" never touches the music that's playing.** The router's only volume-capable
-   tool is `homeAssistant` (`backend/src/llm/router.ts:176`); the Doki Dock's own radio-engine gain
+   tool is `homeAssistant` (`backend/src/llm/router.ts:176`); the MaiPai Desktop's own radio-engine gain
    (`frontend/src/lib/music/radioEngine.ts:1093`) has no voice path at all — slider only. With HA
    unconfigured the command errors instead of dimming the local music. No code anywhere arbitrates
    local-vs-HA media targets; the split is an accident of router tool selection.
@@ -104,7 +104,7 @@ expects.
 
 **B1. Bind devices to HA areas.** Add `areaId` (nullable, an HA area id) to the pod/device
 descriptor (`backend/src/lib/pod/deviceStudio.ts` schema) and to dock browser-session registration
-(`useBrowserSession` / `routes/browserSession.ts` — per-machine setting on the Doki Dock). Admin UI:
+(`useBrowserSession` / `routes/browserSession.ts` — per-machine setting on the MaiPai Desktop). Admin UI:
 an area picker in Device Studio fed by the synced area registry. Devices sync areas from HA; no
 parallel room model.
 

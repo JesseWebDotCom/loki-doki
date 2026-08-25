@@ -1,4 +1,4 @@
-// Doki Dock, the Loki Doki desktop shell: a thin Electron wrapper around the web
+// MaiPai Desktop, the MaiPai Home desktop shell: a thin Electron wrapper around the web
 // app served by the home server. Two windows on one persistent partition (log in once):
 //   - HUD: frameless transparent always-on-top pill near the notch, loads /hud
 //   - Main: a normal window with the full app (chat, music, videos, ...)
@@ -140,7 +140,7 @@ function openSetup() {
   void setupWin.loadFile(path.join(__dirname, 'setup.html'))
   setupWin.on('closed', () => {
     setupWin = null
-    // Single boot trigger for first run: whether the user clicked "Open Doki Dock"
+    // Single boot trigger for first run: whether the user clicked "Open MaiPai Desktop"
     // (setup:finish closes the window) or dismissed the primer, bring the app up so
     // a configured hub is never left as a tray-only process. Already-running
     // (change-server) and not-yet-configured cases skip this.

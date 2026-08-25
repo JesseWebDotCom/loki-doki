@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
-// Status of the Doki Dock desktop app relative to this server, used by the
+// Status of the MaiPai Desktop desktop app relative to this server, used by the
 // profile menu + the "Get the desktop app" dialog. Only meaningful when the page
-// runs inside the desktop shell (window.lokiDesktop present).
+// runs inside the desktop shell (window.maipaiDesktop present).
 
 export interface DesktopAppStatus {
-  /** Running inside the Doki Dock desktop shell. */
+  /** Running inside the MaiPai Desktop desktop shell. */
   installed: boolean
   /** Version of the running shell, if it reports one (older shells don't). */
   installedVersion: string | null
@@ -42,11 +42,11 @@ export function useDesktopAppStatus(): DesktopAppStatus {
   // the version details fill in after the async checks below.
   const [status, setStatus] = useState<DesktopAppStatus>(() => ({
     ...NOT_INSTALLED,
-    installed: typeof window !== 'undefined' && !!window.lokiDesktop,
+    installed: typeof window !== 'undefined' && !!window.maipaiDesktop,
   }))
 
   useEffect(() => {
-    const shell = typeof window !== 'undefined' ? window.lokiDesktop : undefined
+    const shell = typeof window !== 'undefined' ? window.maipaiDesktop : undefined
     if (!shell) return
     let cancelled = false
     void (async () => {

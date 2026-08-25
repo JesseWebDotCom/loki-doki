@@ -29,13 +29,13 @@ Key files:
 
 ## The OS-level sandbox (`codingSandboxUser.ts`)
 
-When supported (macOS/Linux; not Windows), install creates a dedicated, unprivileged OS user (`SANDBOX_USER = 'lokidoki-coding'`) with login shell `/usr/bin/false` (blocks interactive login) plus a **passwordless sudo rule scoped to one launch script**, not a blanket `NOPASSWD: ALL`:
+When supported (macOS/Linux; not Windows), install creates a dedicated, unprivileged OS user (`SANDBOX_USER = 'maipai-coding'`) with login shell `/usr/bin/false` (blocks interactive login) plus a **passwordless sudo rule scoped to one launch script**, not a blanket `NOPASSWD: ALL`:
 
 ```
 $APP_USER ALL=($SANDBOX_USER) NOPASSWD: $LAUNCH_SCRIPT *
 ```
 
-`LAUNCH_SCRIPT` (`coding-sidecar-launch.sh`) is a one-line `exec "$@"` owned by root and not writable by either the app user or the sandbox user, closing the gap a directly-`NOPASSWD`-sudoable arbitrary command would otherwise leave. `sandboxWrap()` in `codingServer.ts` is the single chokepoint that runs any coding-related command through `sudo -u lokidoki-coding "$LAUNCH_SCRIPT" ...` when the sandbox user is installed, real OS-level process/filesystem isolation, not just an app-level check.
+`LAUNCH_SCRIPT` (`coding-sidecar-launch.sh`) is a one-line `exec "$@"` owned by root and not writable by either the app user or the sandbox user, closing the gap a directly-`NOPASSWD`-sudoable arbitrary command would otherwise leave. `sandboxWrap()` in `codingServer.ts` is the single chokepoint that runs any coding-related command through `sudo -u maipai-coding "$LAUNCH_SCRIPT" ...` when the sandbox user is installed, real OS-level process/filesystem isolation, not just an app-level check.
 
 **Fallback:** before the install step has run, or on Windows (unsupported), `workspaceDirFor()` falls back to `data/coding/users/<userId>`, a plain directory with **no OS isolation** — Claude Code's own interactive approval prompts are the only guard in that case.
 
@@ -59,7 +59,7 @@ One tmux session, always named `coding`, per user, wrapping a single `claude` pr
 
 ## Attach path (`/api/coding/terminal`, the PTY sidecar)
 
-`buildAttachSpawnParams()` builds `sudo -u lokidoki-coding "$LAUNCH_SCRIPT" tmux -S <sock> attach-session -t coding`, deliberately passing a **minimal env** (not the full `process.env`, which carries this backend's own secrets) to the attach client.
+`buildAttachSpawnParams()` builds `sudo -u maipai-coding "$LAUNCH_SCRIPT" tmux -S <sock> attach-session -t coding`, deliberately passing a **minimal env** (not the full `process.env`, which carries this backend's own secrets) to the attach client.
 
 tmux's own control commands (split/kill/has-session) run fine headless via `execFile`, but `attach-session` needs a **real PTY** (tmux checks `isatty()` on its controlling terminal). `node-pty`'s data-callback delivery is unreliable under Bun, so the actual PTY attach runs in a small **Node** sidecar process (`backend/scripts/coding-pty-sidecar.ts`, managed by `codingPtySidecar.ts`), not the main Bun server.
 

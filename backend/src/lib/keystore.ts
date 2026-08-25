@@ -24,7 +24,7 @@ import { deleteAppSetting, getAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 
 const KEYS_DIR = join(dataDir, 'keys')
-const KEYCHAIN_ACCOUNT = 'lokidoki'
+const KEYCHAIN_ACCOUNT = 'maipai-home'
 const DPAPI_PREFIX = 'dpapi:'
 
 interface KeyOptions {
@@ -77,7 +77,7 @@ function dpapiUnprotect(blob: string): string | null {
 // ── macOS Keychain via `security` ───────────────────────────────────────────────
 
 function keychainService(name: string): string {
-  return `com.lokidoki.keystore.${name}`
+  return `com.maipai-home.keystore.${name}`
 }
 
 function keychainRead(name: string): string | null {

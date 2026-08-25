@@ -95,7 +95,7 @@ export async function setUserPlexToken(userId: string, token: string | null): Pr
 // ── Plex account username (for session attribution) ──────────────────────────────
 // PMS /status/sessions only exposes a Plex display-name string (User.title), not an id.
 // We persist the user's Plex account username at link time so the session poller can
-// match session.user → loki userId without a live plex.tv call on every poll.
+// match session.user → hub userId without a live plex.tv call on every poll.
 
 async function upsertUserPlexKey(userId: string, key: string, value: string): Promise<void> {
   const now = new Date()

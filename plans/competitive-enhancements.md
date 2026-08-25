@@ -4,7 +4,7 @@ Derived from a review of the top self-hosted apps (Home Assistant, Immich, Jelly
 Open WebUI, Umbrel, Homarr, AudioBookshelf, Frigate, Karakeep, Actual Budget) and the
 best-designed Mac apps (NotchNook, MediaMate/DynamicLake, Raycast, Superwhisper, Wispr
 Flow, Screen Studio, CleanShot X, Fantastical, Things 3, Dia), then grounded against the
-actual codebase. Each item below is corrected for what Loki Doki **already ships** so the
+actual codebase. Each item below is corrected for what MaiPai Home **already ships** so the
 work is "extend/refine" where a feature exists and "build" only where there is a real gap.
 
 No em dashes anywhere in this doc (house rule). Effort key: **S** = under a day,
@@ -43,7 +43,7 @@ as its own initiative with a dedicated `/plan`. Every frontend item must end gre
 
 ---
 
-# GROUP A - Doki Dock (desktop capsule)
+# GROUP A - MaiPai Desktop (desktop capsule)
 
 The capsule is already mature: `useIslandState.ts` (compact/peek/full via `maxTier`),
 `IslandShell.tsx` geometry, the `.island-spring` signature transition in `index.css`
@@ -157,7 +157,7 @@ keyboard-driveable; typing routes to the companion turn, Enter on an action runs
 **Plan.** (1) Assemble the action list (tools + apps + a few built-in verbs: timer,
 weather, screen). (2) Palette UI: input + arrow-key list + Enter, Escape closes (wire to
 `collapse`). (3) Route: an action with a tool id calls that tool via the companion turn;
-an app action opens it via `window.lokiDesktop.openMainWindow(path)`; free text goes to
+an app action opens it via `window.maipaiDesktop.openMainWindow(path)`; free text goes to
 the companion. (4) Later: per-action aliases stored in `userPreferences`.
 
 **Tests.** Mine: `npx vite build`, `check:design-contract`. Yours: hotkey, type "timer 5

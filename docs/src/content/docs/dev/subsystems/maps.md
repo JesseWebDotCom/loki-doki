@@ -48,7 +48,7 @@ The toolchain is downloaded at runtime via Admin → Features → Maps (`install
 5. **`building_routing`**: GraphHopper `import` with a generated `import-config.yml` → routing graph dir.
 6. **`building_geocoder`**: in-process PBF stream → FTS5 `geocoder.sqlite` (best-effort).
 
-The raw PBF is deleted afterward unless `LOKIDOKI_KEEP_PBF=1`. Terrain, landcover, and geocoder are best-effort: a failure logs and skips, leaving an otherwise-usable region. Build heaps are tunable via `LOKIDOKI_PLANETILER_HEAP_MB` / `LOKIDOKI_GRAPHHOPPER_HEAP_MB` (default 4096).
+The raw PBF is deleted afterward unless `MAIPAI_KEEP_PBF=1`. Terrain, landcover, and geocoder are best-effort: a failure logs and skips, leaving an otherwise-usable region. Build heaps are tunable via `MAIPAI_PLANETILER_HEAP_MB` / `MAIPAI_GRAPHHOPPER_HEAP_MB` (default 4096).
 
 **World overview:** a one-time low-detail (`maxzoom 7`) global basemap is built from a tiny Monaco seed PBF + Natural Earth, plus `world-countries/states/labels.geojson` parsed from the Natural Earth SQLite (minimal in-file WKB parser). It's served at `/api/maps/tiles/_overview/streets.pmtiles` and rendered when zoomed out or outside any installed region. `maybeBuildWorldOverview()` runs at boot if the toolchain is present but the overview is missing.
 
@@ -127,7 +127,7 @@ One row per region, mostly artifact-presence flags so the API can report partial
 | `street_installed` | `streets.pmtiles` present (gates whether a region renders) |
 | `dem_installed`, `landcover_installed` | terrain / landcover artifacts |
 | `valhalla_installed` | **routing-graph present** (legacy column name; routing is GraphHopper, not Valhalla) |
-| `pbf_installed` | raw PBF kept on disk (`LOKIDOKI_KEEP_PBF=1`) |
+| `pbf_installed` | raw PBF kept on disk (`MAIPAI_KEEP_PBF=1`) |
 | `geocoder_installed`, `openaddresses_installed` | geocoder index present |
 | `geocoder_schema_version` | for `reindex` migrations |
 | `bytes_on_disk` | JSON map of artifact → bytes |

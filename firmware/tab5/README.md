@@ -9,7 +9,7 @@ plays the companion's spoken reply, and lights its screen. Wake word runs
 firmware/tab5/
   tab5.yaml                 ESPHome device config (board, audio, display, Wi-Fi/Improv)
 firmware/components/
-  lokidoki_satellite/       SHARED custom component (Wyoming TCP client) — used by every device
+  maipai_satellite/       SHARED custom component (Wyoming TCP client) — used by every device
 ```
 
 ## Hardware definition is copied verbatim from upstream
@@ -26,7 +26,7 @@ any of that wrong bricks the bring-up, so the hardware half of `tab5.yaml` is co
 **Do not "tune" the pins/codec/expander values** — they're the known-good upstream
 map. What we change vs. upstream is only the *pipeline*: where Home Assistant's
 `voice_assistant` + `micro_wake_word` + `media_player` would go, we use our own
-`lokidoki_satellite` component (server-side wake, our Wyoming framing) — exactly how
+`maipai_satellite` component (server-side wake, our Wyoming framing) — exactly how
 `firmware/atom-echo/atom-echo.yaml` does it.
 
 Two deliberate deviations for our pipeline:
@@ -43,7 +43,7 @@ screen is the planned next step.
 
 ## How it talks to the server
 
-Identical to the Atom Echo — a single TCP connection to the Loki Doki gateway
+Identical to the Atom Echo — a single TCP connection to the MaiPai Home gateway
 (`POD_GATEWAY_PORT`, default `10700`) speaking the Wyoming framing in
 `backend/src/lib/pod/wyoming.ts`. Up: `audio-start` then continuous `audio-chunk`s
 of 16 kHz mono int16 PCM (server-side openWakeWord gates capture). Down:
@@ -62,7 +62,7 @@ flashes it. See `FlashDeviceWizard.tsx` and `backend/src/lib/pod/firmware.ts`
 ```bash
 # what the app runs under the hood:
 esphome -s wifi_ssid <SSID> -s wifi_password <PASS> \
-        -s lokidoki_host <SERVER_IP> -s lokidoki_port 10700 \
+        -s maipai_host <SERVER_IP> -s maipai_port 10700 \
         run tab5.yaml --device /dev/cu.usbserial-XXXX
 ```
 
@@ -94,7 +94,7 @@ ESP-IDF rebuild (the chip-rev change rewrites sdkconfig).
 
 **Compiles + boots on real hardware.** Built with `esphome compile`/`run` against
 **ESPHome 2026.6.2** (ESP32-P4 rev1.3, ESP-IDF 5.5.4) → `firmware.factory.bin`. On
-the device: clean boot, `setup() finished successfully`, the `lokidoki_satellite`
+the device: clean boot, `setup() finished successfully`, the `maipai_satellite`
 component runs, and it attempts Wi-Fi association (verified with a placeholder SSID).
 Known non-fatal boot warnings to revisit: the **GT911 touchscreen** reports
 `Communication failed` (secondary — for the screen milestone), and the **RX8130 RTC**

@@ -30,7 +30,7 @@ export async function geocodeLocation(query: string): Promise<UserLocation> {
   if (isZip) {
     const geoRes = await fetch(
       `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(trimmed)}&countrycodes=us&format=json&addressdetails=1&limit=1`,
-      { headers: { 'User-Agent': 'loki-doki-app/1.0', 'Accept-Language': 'en' }, signal: AbortSignal.timeout(8000) },
+      { headers: { 'User-Agent': 'maipai-home-app/1.0', 'Accept-Language': 'en' }, signal: AbortSignal.timeout(8000) },
     )
     if (!geoRes.ok) throw new Error('Location search failed')
     const geoData = (await geoRes.json()) as Array<{

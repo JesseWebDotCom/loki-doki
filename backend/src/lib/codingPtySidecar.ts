@@ -18,7 +18,7 @@ import { logger } from '@/lib/logger'
 //
 // TWO instances since the Windows sandbox landed (CODING-SANDBOX-DESIGN-2026-07-16.md):
 //   • coding (:8094) — hosts the Coding app's claude ptys. On Windows WITH the sandbox
-//     installed, the ENTIRE process runs as the restricted `lokidoki-coding` user
+//     installed, the ENTIRE process runs as the restricted `maipai-coding` user
 //     (spawned via scripts/win-sandbox-runner.ps1), so every pty it opens inherits the
 //     kernel-enforced boundary — node-pty can't drop privileges per-spawn, but it
 //     doesn't have to when the whole process is already the sandbox user. Runs the

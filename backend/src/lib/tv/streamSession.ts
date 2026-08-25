@@ -1,4 +1,4 @@
-// Path B stream engine v1 (plans/doki-tv.md): a continuous MPEG-TS stream per viewer,
+// Path B stream engine v1 (plans/maipai-tv.md): a continuous MPEG-TS stream per viewer,
 // built by chaining one ffmpeg process per schedule block into the same HTTP response.
 // Every block is re-encoded to one consistent profile (720p30 h264 + 48k stereo aac) so
 // back-to-back TS segments concatenate cleanly. Page/audio-only blocks stream a slate

@@ -317,7 +317,7 @@ books.get('/download-file', async (c) => {
   // No local copy: resolve the source's direct URL and pass the bytes through.
   try {
     const resolved = await resolveDownloadUrl(source, ref, format)
-    const headers = { 'User-Agent': 'LokiDoki/3.0 books', Accept: '*/*', 'Accept-Encoding': 'identity', ...resolved.headers }
+    const headers = { 'User-Agent': 'MaiPaiHome/3.0 books', Accept: '*/*', 'Accept-Encoding': 'identity', ...resolved.headers }
     const upstream = source === 'indexer'
       ? await fetch(resolved.url, { headers, signal: AbortSignal.timeout(30_000) })
       : await safeFetch(resolved.url, { headers }, { timeoutMs: 30_000, maxRedirects: 8 })

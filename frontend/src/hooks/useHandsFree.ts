@@ -175,7 +175,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       if (wl instanceof WhisperWakewordLoop) {
         // Phrase wake transcribes the command in its OWN session, so keep it
         // running through wake-detected/capturing — otherwise the start of a
-        // run-on command ("hey loki what's the date") is lost. It pauses for
+        // run-on command ("hey maipai what's the date") is lost. It pauses for
         // replying/post-reply (TTS) and off.
         wl.setEnabled(next === 'idle' || next === 'wake-detected' || next === 'capturing')
       } else {

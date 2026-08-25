@@ -7,7 +7,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { formatRelativeTime } from '@/lib/relativeTime'
 
 // Per-turn chat traces (admin devtools): what the model actually saw and did on
-// recent assistant replies — route decision, tool trail, real token counts, and
+// recent assistant replies: route decision, tool trail, real token counts, and
 // the full assembled system prompt. Backed by /api/admin/traces (newest 500).
 
 interface TraceRow {

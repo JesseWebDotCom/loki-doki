@@ -157,7 +157,7 @@ export class WakeDetector {
     this.modelId = id
 
     // Pull the catalog row (covers pretrained AND custom-trained detectors like
-    // "hey_loki"): its assetPath is the source of truth for the file, and its
+    // "hey_maipai"): its assetPath is the source of truth for the file, and its
     // defaultThreshold is the trainer's calibrated value for that exact phrase.
     const [row] = await db.select().from(wakeWordCatalog).where(eq(wakeWordCatalog.id, id)).limit(1)
     const detPath = row?.assetPath ? join(dir, row.assetPath) : resolveDetectorPath(id)

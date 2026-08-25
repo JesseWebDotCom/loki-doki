@@ -54,7 +54,7 @@ export function CompanionMenu({ onClose, style, onBrowseCompanions, showDisplayS
   /** Override for "Browse companions": the desktop HUD must open the MAIN window
    *  (its own window is the tiny capsule), so it passes an openMainWindow bridge
    *  call. Default: in-app navigation. An explicit prop rather than a
-   *  window.lokiDesktop feature-detect, because the desktop MAIN window also has
+   *  window.maipaiDesktop feature-detect, because the desktop MAIN window also has
    *  the bridge and should keep navigating in place. */
   onBrowseCompanions?: () => void
   /** Show the Mini/Docked/Max display picker (the HUD's capsule base size). */
